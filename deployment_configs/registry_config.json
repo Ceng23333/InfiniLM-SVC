@@ -1,0 +1,26 @@
+{
+    "registry": {
+        "port": 8081,
+        "health_interval": 30,
+        "health_timeout": 5,
+        "cleanup_interval": 60
+    },
+    "servers": [
+        {
+            "name": "server1",
+            "host": "192.168.1.10",
+            "services": [
+                "infinilm-gpu1",
+                "infinilm-gpu2"
+            ]
+        },
+        {
+            "name": "server2",
+            "host": "192.168.1.11",
+            "services": [
+                "infinilm-gpu3",
+                "infinilm-gpu4"
+            ]
+        }
+    ]
+}

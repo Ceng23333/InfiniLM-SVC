@@ -1,0 +1,24 @@
+{
+    "router": {
+        "port": 8080,
+        "registry_url": "http://192.168.1.100:8081",
+        "load_balancing_method": "round_robin",
+        "proxy_timeout": 300,
+        "proxy_connect_timeout": 60
+    },
+    "static_services": {
+        "services": [
+            {
+                "name": "infinilm-backup1",
+                "host": "192.168.1.12",
+                "port": 5001,
+                "weight": 1,
+                "metadata": {
+                    "static": true,
+                    "backup": true,
+                    "model": "Qwen3-32B"
+                }
+            }
+        ]
+    }
+}
