@@ -1,0 +1,50 @@
+# InfiniLM-SVC Python Dependencies
+# Core web framework and async support
+aiohttp>=3.8.0,<4.0.0
+
+# HTTP client library
+requests>=2.28.0,<3.0.0
+
+# OpenAI client for testing and integration
+openai>=1.0.0,<3.0.0
+
+# Data validation and serialization (used by OpenAI client)
+pydantic>=1.9.0,<3.0.0
+
+# HTTP client for async operations (used by OpenAI client)
+httpx>=0.23.0,<1.0.0
+
+# Async support utilities
+anyio>=3.5.0,<5.0.0
+
+# System information utilities
+distro>=1.7.0,<2.0.0
+
+# JSON parsing utilities
+jiter>=0.10.0,<1.0.0
+
+# Progress bar utilities
+tqdm>=4.0.0
+
+# System utilities
+sniffio>=1.3.0
+
+# Type checking support
+typing-extensions>=4.11.0,<5.0.0
+
+# Additional utilities for enhanced functionality
+# (These are typically included with Python 3.8+ but listed for completeness)
+# asyncio - built-in
+# json - built-in
+# logging - built-in
+# signal - built-in
+# sys - built-in
+# time - built-in
+# subprocess - built-in
+# os - built-in
+# threading - built-in
+# datetime - built-in
+# pathlib - built-in
+# dataclasses - built-in (Python 3.7+)
+# argparse - built-in
+# tempfile - built-in

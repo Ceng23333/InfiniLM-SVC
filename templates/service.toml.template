@@ -1,0 +1,17 @@
+# InfiniLM Service Configuration Template
+# This template will be rendered with deployment-specific values
+
+{% for model in models %}
+[{{ model.name }}]
+path = "{{ model.path }}"
+gpus = {{ model.gpus | tojson }}
+max-tokens = {{ model.max_tokens }}
+temperature = {{ model.temperature }}
+top-p = {{ model.top_p }}
+repetition-penalty = {{ model.repetition_penalty }}
+{% if model.top_k is defined %}top-k = {{ model.top_k }}{% endif %}
+{% if model.think is defined %}think = {{ model.think | lower }}{% endif %}
+{% if model.max_sessions is defined %}max-sessions = {{ model.max_sessions }}{% endif %}
+{% if model.gpu_memory_utilization is defined %}gpu-memory-utilization = {{ model.gpu_memory_utilization }}{% endif %}
+
+{% endfor %}

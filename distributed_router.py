@@ -96,6 +96,12 @@ class DistributedLoadBalancer:
                             service_name = service_data['name']
                             registry_service_names.add(service_name)
 
+                            # Only add services that are OpenAI API services (xtask)
+                            # Babysitter services are for management only, not for routing
+                            service_metadata = service_data.get('metadata', {})
+                            if service_metadata.get('type') != 'openai-api':
+                                continue
+
                             if service_name in self.services:
                                 # Update existing service
                                 service = self.services[service_name]
@@ -116,7 +122,7 @@ class DistributedLoadBalancer:
                                     metadata=service_data.get('metadata', {})
                                 )
                                 self.services[service_name] = service
-                                logger.info(f"Added service from registry: {service_name} at {service.url}")
+                                logger.info(f"Added OpenAI API service from registry: {service_name} at {service.url}")
 
                         # Remove services that are no longer in registry (but keep static services)
                         services_to_remove = []
@@ -219,6 +225,38 @@ class DistributedLoadBalancer:
         service.request_count += 1
         return service
 
+    def get_next_healthy_service_by_type(self, service_type: str) -> Optional[ServiceInstance]:
+        """Get next healthy service of a specific type using weighted round-robin"""
+        healthy_services = [s for s in self.services.values()
+                          if s.healthy and s.metadata.get('type') == service_type]
+
+        if not healthy_services:
+            logger.error(f"No healthy services of type '{service_type}' available")
+            return None
+
+        # Weighted round-robin selection
+        total_weight = sum(service.weight for service in healthy_services)
+        if total_weight == 0:
+            # Fallback to simple round-robin
+            service = healthy_services[self.current_index % len(healthy_services)]
+            self.current_index += 1
+        else:
+            # Weighted selection
+            current_weight = 0
+            target_weight = self.current_index % total_weight
+            for service in healthy_services:
+                current_weight += service.weight
+                if current_weight > target_weight:
+                    self.current_index += 1
+                    break
+            else:
+                # Fallback
+                service = healthy_services[0]
+                self.current_index += 1
+
+        service.request_count += 1
+        return service
+
     def get_service_stats(self) -> Dict:
         """Get statistics about all services"""
         stats = {
@@ -276,17 +314,13 @@ class DistributedRouterService:
         healthy_count = sum(1 for s in self.load_balancer.services.values() if s.healthy)
         total_count = len(self.load_balancer.services)
 
-        if healthy_count == 0:
-            return web.json_response(
-                {"status": "unhealthy", "message": "No healthy services available"},
-                status=503
-            )
-
+        # Router is healthy if it's running, regardless of backend services
         return web.json_response({
-            "status": "healthy",
+            "status": "healthy" if healthy_count > 0 else "running",
             "router": "running",
             "healthy_services": f"{healthy_count}/{total_count}",
             "registry_url": self.load_balancer.registry_url,
+            "message": "No healthy services available" if healthy_count == 0 else None,
             "timestamp": datetime.now().isoformat()
         })
 
@@ -320,12 +354,13 @@ class DistributedRouterService:
 
     async def proxy_handler(self, request):
         """Proxy requests to backend services"""
-        # Get next healthy service
-        target_service = self.load_balancer.get_next_healthy_service()
+        # Router only handles OpenAI API requests and routes them to xtask services
+        # Babysitter services are for management only, not for user requests
+        target_service = self.load_balancer.get_next_healthy_service_by_type("openai-api")
 
         if not target_service:
             return web.json_response(
-                {"error": "No healthy services available"},
+                {"error": "No OpenAI API services available"},
                 status=503
             )
 
@@ -339,6 +374,8 @@ class DistributedRouterService:
                 # Prepare headers
                 headers = dict(request.headers)
                 headers.pop('Host', None)  # Remove host header to avoid conflicts
+                headers.pop('Content-Length', None)  # Remove Content-Length to avoid conflicts with Transfer-Encoding
+                headers.pop('Transfer-Encoding', None)  # Remove Transfer-Encoding to avoid conflicts with Content-Length
 
                 # Forward the request
                 async with session.request(
@@ -347,18 +384,59 @@ class DistributedRouterService:
                     headers=headers,
                     data=await request.read()
                 ) as response:
-                    # Read response body
-                    body = await response.read()
+                    # Detect streaming/SSE responses and proxy incrementally
+                    upstream_content_type = response.headers.get('Content-Type', '')
+                    is_sse = 'text/event-stream' in upstream_content_type
+                    is_chunked = response.headers.get('Transfer-Encoding', '').lower() == 'chunked'
 
-                    # Create response
-                    resp = web.Response(
-                        body=body,
-                        status=response.status,
-                        headers=response.headers
-                    )
+                    if is_sse or is_chunked:
+                        # Stream response back to client
+                        downstream = web.StreamResponse(status=response.status)
 
-                    logger.info(f"Proxied {request.method} {request.path} -> {target_service.name} ({response.status})")
-                    return resp
+                        # Copy headers but avoid hop-by-hop/conflicting ones
+                        for key, value in response.headers.items():
+                            lk = key.lower()
+                            if lk in ('content-length', 'transfer-encoding', 'connection', 'keep-alive', 'proxy-authenticate',
+                                      'proxy-authorization', 'te', 'trailers', 'upgrade', 'host'):
+                                continue
+                            downstream.headers[key] = value
+
+                        # Preserve content type if provided
+                        if upstream_content_type and 'content-type' not in (k.lower() for k in downstream.headers.keys()):
+                            downstream.headers['Content-Type'] = upstream_content_type
+
+                        # Enable chunked encoding for streaming
+                        downstream.enable_chunked_encoding()
+                        await downstream.prepare(request)
+
+                        async for chunk in response.content.iter_chunked(8192):
+                            if not chunk:
+                                continue
+                            await downstream.write(chunk)
+
+                        await downstream.write_eof()
+                        logger.info(f"Proxied (stream) {request.method} {request.path} -> {target_service.name} ({response.status})")
+                        return downstream
+                    else:
+                        # Buffer non-streaming response and return
+                        body = await response.read()
+
+                        # Create response
+                        resp = web.Response(
+                            body=body,
+                            status=response.status
+                        )
+
+                        # Copy headers except hop-by-hop/conflicting ones
+                        for key, value in response.headers.items():
+                            lk = key.lower()
+                            if lk in ('content-length', 'transfer-encoding', 'connection', 'keep-alive', 'proxy-authenticate',
+                                      'proxy-authorization', 'te', 'trailers', 'upgrade', 'host'):
+                                continue
+                            resp.headers[key] = value
+
+                        logger.info(f"Proxied {request.method} {request.path} -> {target_service.name} ({response.status})")
+                        return resp
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout when proxying to service {target_service.name}")

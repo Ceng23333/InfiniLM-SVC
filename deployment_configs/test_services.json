@@ -1,0 +1,21 @@
+{
+    "models": [
+        {
+            "name": "Qwen3-32B",
+            "path": "/root/zenghua/Qwen3-F16.gguf",
+            "gpus": [
+                4,
+                5,
+                6,
+                7
+            ],
+            "max_tokens": 32768,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 20,
+            "repetition_penalty": 1.02,
+            "think": false,
+            "max_sessions": 1
+        }
+    ]
+}
