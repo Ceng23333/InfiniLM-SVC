@@ -45,6 +45,9 @@ class ServiceInstance:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+        # Generate babysitter_url using service port minus 1
+        babysitter_port = self.port - 1
+        self.babysitter_url = f"http://{self.host}:{babysitter_port}"
 
 class DistributedLoadBalancer:
     def __init__(self, registry_url: Optional[str] = None, static_services: List[Dict] = None):
@@ -75,7 +78,7 @@ class DistributedLoadBalancer:
             metadata=service_config.get('metadata', {})
         )
         self.services[service.name] = service
-        logger.info(f"Added static service: {service.name} at {service.url}")
+        logger.info(f"Added static service: {service.name} at {service.url} (babysitter: {service.babysitter_url})")
 
     async def sync_with_registry(self):
         """Sync services with the service registry"""
@@ -110,6 +113,9 @@ class DistributedLoadBalancer:
                                 service.url = service_data['url']
                                 service.healthy = service_data.get('is_healthy', True)
                                 service.metadata = service_data.get('metadata', {})
+                                # Update babysitter_url after port change
+                                babysitter_port = service.port - 1
+                                service.babysitter_url = f"http://{service.host}:{babysitter_port}"
                             else:
                                 # Add new service from registry
                                 service = ServiceInstance(
@@ -122,7 +128,7 @@ class DistributedLoadBalancer:
                                     metadata=service_data.get('metadata', {})
                                 )
                                 self.services[service_name] = service
-                                logger.info(f"Added OpenAI API service from registry: {service_name} at {service.url}")
+                                logger.info(f"Added OpenAI API service from registry: {service_name} at {service.url} (babysitter: {service.babysitter_url})")
 
                         # Remove services that are no longer in registry (but keep static services)
                         services_to_remove = []
@@ -139,12 +145,12 @@ class DistributedLoadBalancer:
             logger.warning(f"Failed to sync with registry: {e}")
 
     async def health_check(self, service: ServiceInstance) -> bool:
-        """Perform health check on a service instance"""
+        """Perform health check on a service instance using babysitter URL"""
         try:
             timeout = ClientTimeout(total=self.health_check_timeout)
             async with ClientSession(timeout=timeout) as session:
                 start_time = time.time()
-                async with session.get(f"{service.url}/health") as response:
+                async with session.get(f"{service.babysitter_url}/health") as response:
                     service.response_time = time.time() - start_time
                     if response.status == 200:
                         service.healthy = True
@@ -156,7 +162,7 @@ class DistributedLoadBalancer:
                         service.error_count += 1
                         return False
         except Exception as e:
-            logger.warning(f"Health check failed for service {service.name}: {e}")
+            logger.warning(f"Health check failed for service {service.name} (babysitter: {service.babysitter_url}): {e}")
             service.healthy = False
             service.error_count += 1
             service.last_check = time.time()
@@ -272,6 +278,7 @@ class DistributedLoadBalancer:
                 "host": service.host,
                 "port": service.port,
                 "url": service.url,
+                "babysitter_url": service.babysitter_url,
                 "healthy": service.healthy,
                 "request_count": service.request_count,
                 "error_count": service.error_count,
@@ -338,6 +345,7 @@ class DistributedRouterService:
                 "host": service.host,
                 "port": service.port,
                 "url": service.url,
+                "babysitter_url": service.babysitter_url,
                 "healthy": service.healthy,
                 "request_count": service.request_count,
                 "error_count": service.error_count,

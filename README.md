@@ -114,21 +114,23 @@ curl -X POST http://localhost:8080/chat/completions \
 
 #### Starting Enhanced Babysitter
 ```bash
-cd /root/zenghua/repos/InfiniLM-Rust
 source /root/miniconda3/etc/profile.d/conda.sh
 conda activate infinilm-distributed
 
 # Generate service configuration
-python3 /root/zenghua/repos/InfiniLM-SVC/render_service_config.py \
-  --config /root/zenghua/repos/InfiniLM-SVC/deployment_configs/test_services.json \
+cd /root/zenghua/repos/InfiniLM-SVC
+python3 render_service_config.py \
+  --config test_services.json \
   --output service_generated.toml
 
 # Start enhanced babysitter
+cd /root/zenghua/repos/InfiniLM-Rust
 python3 enhanced_babysitter.py service_generated.toml \
   --port 5002 \
   --name real-service \
   --registry http://localhost:8081 \
-  --router http://localhost:8080
+  --router http://localhost:8080 \
+  --host localhost
 ```
 
 #### Service Health Checks
