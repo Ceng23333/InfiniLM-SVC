@@ -145,6 +145,28 @@ curl http://localhost:5002/models
 curl http://localhost:5003/health
 ```
 
+### 4. Network Status
+
+#### Firewall Configuration
+The system requires specific ports to be open for proper operation. Use `firewall-cmd` to manage firewall rules:
+
+```bash
+# List currently open ports
+firewall-cmd --list-ports
+
+# Add required ports for InfiniLM services
+firewall-cmd --permanent --add-port=8080/tcp  # Router service
+firewall-cmd --permanent --add-port=8081/tcp  # Registry service
+firewall-cmd --permanent --add-port=5002/tcp  # Babysitter service
+firewall-cmd --permanent --add-port=5003/tcp  # Main service (xtask)
+
+# Reload firewall rules
+firewall-cmd --reload
+
+# Verify ports are open
+firewall-cmd --list-ports
+```
+
 ### 4. Configuration Management
 
 #### Service Configuration Template
