@@ -45,8 +45,9 @@ class ServiceInstance:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
-        # Generate babysitter_url using service port minus 1
-        babysitter_port = self.port - 1
+        # Generate babysitter_url using service port plus 1
+        # Rule: babysitter_port = service_port + 1
+        babysitter_port = self.port + 1
         self.babysitter_url = f"http://{self.host}:{babysitter_port}"
 
 class DistributedLoadBalancer:
@@ -58,7 +59,7 @@ class DistributedLoadBalancer:
         self.max_errors = 3
         self.running = True
         self.registry_url = registry_url
-        self.registry_sync_interval = 60  # seconds
+        self.registry_sync_interval = 10  # seconds - increased frequency for active service checks
 
         # Initialize static services if provided
         if static_services:
@@ -114,7 +115,8 @@ class DistributedLoadBalancer:
                                 service.healthy = service_data.get('is_healthy', True)
                                 service.metadata = service_data.get('metadata', {})
                                 # Update babysitter_url after port change
-                                babysitter_port = service.port - 1
+                                # Rule: babysitter_port = service_port + 1
+                                babysitter_port = service.port + 1
                                 service.babysitter_url = f"http://{service.host}:{babysitter_port}"
                             else:
                                 # Add new service from registry
@@ -147,10 +149,14 @@ class DistributedLoadBalancer:
     async def health_check(self, service: ServiceInstance) -> bool:
         """Perform health check on a service instance using babysitter URL"""
         try:
+            # Health check should use babysitter URL, not service URL
+            # The service endpoint only exposes OpenAI API, babysitter provides /health endpoint
+            check_url = service.babysitter_url
+
             timeout = ClientTimeout(total=self.health_check_timeout)
             async with ClientSession(timeout=timeout) as session:
                 start_time = time.time()
-                async with session.get(f"{service.babysitter_url}/health") as response:
+                async with session.get(f"{check_url}/health") as response:
                     service.response_time = time.time() - start_time
                     if response.status == 200:
                         service.healthy = True
@@ -503,7 +509,7 @@ def main():
     parser.add_argument("--health-interval", type=int, default=30, help="Health check interval in seconds (default: 30)")
     parser.add_argument("--health-timeout", type=int, default=5, help="Health check timeout in seconds (default: 5)")
     parser.add_argument("--max-errors", type=int, default=3, help="Max errors before marking service unhealthy (default: 3)")
-    parser.add_argument("--registry-sync-interval", type=int, default=60, help="Registry sync interval in seconds (default: 60)")
+    parser.add_argument("--registry-sync-interval", type=int, default=10, help="Registry sync interval in seconds (default: 10)")
 
     args = parser.parse_args()
 

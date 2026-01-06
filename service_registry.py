@@ -257,10 +257,21 @@ class ServiceRegistry:
         service = self.services[service_name]
 
         # Perform actual health check
+        # For services with type "openai-api", check the babysitter URL (port + 1)
+        # The service endpoint only exposes OpenAI API, babysitter provides /health endpoint
+        # Rule: babysitter_port = service_port + 1
+        if service.metadata.get("type") == "openai-api":
+            # Calculate babysitter URL: service port + 1
+            babysitter_port = service.port + 1
+            check_url = f"http://{service.host}:{babysitter_port}"
+        else:
+            # For babysitter and other services, check their own URL
+            check_url = service.url
+
         try:
             timeout = ClientTimeout(total=self.health_check_timeout)
             async with ClientSession(timeout=timeout) as session:
-                async with session.get(f"{service.url}/health") as response:
+                async with session.get(f"{check_url}/health") as response:
                     if response.status == 200:
                         service.health_status = "healthy"
                         service.last_heartbeat = time.time()
@@ -268,7 +279,7 @@ class ServiceRegistry:
                         service.health_status = "unhealthy"
         except Exception as e:
             service.health_status = "unhealthy"
-            logger.warning(f"Health check failed for {service_name}: {e}")
+            logger.warning(f"Health check failed for {service_name} (check_url: {check_url}): {e}")
 
         return web.json_response({
             "service": service_name,
@@ -352,16 +363,30 @@ class ServiceRegistry:
     async def check_service_health(self, service: ServiceInfo):
         """Check health of a single service"""
         try:
+            # For services with type "openai-api", check the babysitter URL (port + 1)
+            # The service endpoint only exposes OpenAI API, babysitter provides /health endpoint
+            # Rule: babysitter_port = service_port + 1
+            if service.metadata.get("type") == "openai-api":
+                # Calculate babysitter URL: service port + 1
+                babysitter_port = service.port + 1
+                check_url = f"http://{service.host}:{babysitter_port}"
+            elif service.metadata.get("type") == "babysitter":
+                # Babysitter services check their own URL
+                check_url = service.url
+            else:
+                # Default: use service URL
+                check_url = service.url
+
             timeout = ClientTimeout(total=self.health_check_timeout)
             async with ClientSession(timeout=timeout) as session:
-                async with session.get(f"{service.url}/health") as response:
+                async with session.get(f"{check_url}/health") as response:
                     if response.status == 200:
                         service.health_status = "healthy"
                     else:
                         service.health_status = "unhealthy"
         except Exception as e:
             service.health_status = "unhealthy"
-            logger.debug(f"Health check failed for {service.name}: {e}")
+            logger.warning(f"Health check failed for service {service.name} (check_url: {check_url if 'check_url' in locals() else service.url}): {e}")
 
     async def cleanup_stale_services(self):
         """Remove services that haven't sent heartbeats"""
