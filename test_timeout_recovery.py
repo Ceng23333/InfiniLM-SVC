@@ -196,21 +196,22 @@ async def run_parallel_requests(
                             attempt + 1,
                         )
 
-                    # Only retry on connection errors (status 0), not on timeouts or HTTP errors
+                    # Retry on connection errors (status 0) and 503 (Service Unavailable)
+                    # 503 indicates temporary unavailability (e.g., service restarting)
+                    # Other HTTP errors (4xx, 5xx) are actual errors, retrying usually won't help
                     # Timeouts mean service is slow, retrying won't help
-                    # HTTP errors (4xx, 5xx) are actual errors, retrying usually won't help
-                    if status_code != 0:
-                        # Not a connection error, don't retry
-                        return (
-                            result[0],
-                            result[1],
-                            total_elapsed,
-                            status_code,
-                            attempt + 1,
-                        )
-
-                    # Connection error (status 0) - retry if attempts remain
-                    if attempt >= max_retries:
+                    if status_code == 0 or status_code == 503:
+                        # Connection error or service unavailable - retry if attempts remain
+                        if attempt >= max_retries:
+                            return (
+                                result[0],
+                                result[1],
+                                total_elapsed,
+                                status_code,
+                                attempt + 1,
+                            )
+                    else:
+                        # Not a retryable error, don't retry
                         return (
                             result[0],
                             result[1],

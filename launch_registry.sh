@@ -29,6 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Log directory
 LOG_DIR="${SCRIPT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/registry_$(date +%y%m%d%H%M).log"
+PID_FILE="${LOG_DIR}/registry.pid"
 
 # ============================================================================
 # SCRIPT - Do not edit below unless you know what you're doing
@@ -82,14 +83,17 @@ sleep 2
 
 # Check if process is still running
 if ps -p ${PID} > /dev/null 2>&1; then
+    # Write PID to file
+    echo ${PID} > "${PID_FILE}"
     echo "✓ Service Registry started successfully!"
     echo "  PID: ${PID}"
+    echo "  PID file: ${PID_FILE}"
     echo "  Log: ${LOG_FILE}"
     echo "  URL: http://localhost:${REGISTRY_PORT}"
     echo ""
     echo "Management commands:"
-    echo "  Stop service:    kill ${PID}"
-    echo "  Kill forcefully: kill -9 ${PID}"
+    echo "  Stop service:    kill \$(cat ${PID_FILE})"
+    echo "  Kill forcefully: kill -9 \$(cat ${PID_FILE})"
     echo "  View logs:       tail -f ${LOG_FILE}"
     echo ""
     echo "Example commands to check status:"
@@ -99,5 +103,7 @@ if ps -p ${PID} > /dev/null 2>&1; then
 else
     echo "✗ Failed to start Service Registry"
     echo "  Check log file for details: ${LOG_FILE}"
+    # Remove PID file if process failed to start
+    rm -f "${PID_FILE}"
     exit 1
 fi
