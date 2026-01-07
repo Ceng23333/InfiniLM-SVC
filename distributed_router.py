@@ -383,7 +383,8 @@ class DistributedRouterService:
 
         try:
             # Forward the request
-            timeout = ClientTimeout(total=300)  # 5 minutes timeout
+            # Use shorter timeout for connection attempts to fail fast when service is down
+            timeout = ClientTimeout(total=300, connect=5)  # 5 min total, 5s connection timeout
             async with ClientSession(timeout=timeout) as session:
                 # Prepare headers
                 headers = dict(request.headers)
@@ -454,16 +455,37 @@ class DistributedRouterService:
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout when proxying to service {target_service.name}")
+            target_service.healthy = False
+            target_service.error_count += 1
             return web.json_response(
                 {"error": "Service timeout"},
                 status=504
             )
-        except Exception as e:
-            logger.error(f"Error proxying to service {target_service.name}: {e}")
+        except aiohttp.ClientConnectorError as e:
+            # Connection error - service is likely down or restarting
+            logger.warning(f"Connection error when proxying to service {target_service.name}: {e}")
+            target_service.healthy = False
             target_service.error_count += 1
             return web.json_response(
-                {"error": "Service error"},
+                {"error": "Service unavailable - connection refused"},
+                status=503
+            )
+        except aiohttp.ClientError as e:
+            # Other client errors (network issues, etc.)
+            logger.error(f"Client error when proxying to service {target_service.name}: {e}")
+            target_service.healthy = False
+            target_service.error_count += 1
+            return web.json_response(
+                {"error": "Bad gateway - error communicating with service"},
                 status=502
+            )
+        except Exception as e:
+            logger.error(f"Error proxying to service {target_service.name}: {e}")
+            target_service.healthy = False
+            target_service.error_count += 1
+            return web.json_response(
+                {"error": "Internal server error"},
+                status=500
             )
 
     async def start_background_tasks(self):

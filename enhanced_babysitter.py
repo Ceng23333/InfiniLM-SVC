@@ -386,24 +386,34 @@ class EnhancedServiceBabysitter:
 
     def _start_infinilm_service(self):
         """Start the InfiniLM Python service"""
-        # Find the launch_server.py script
-        # Try common locations: InfiniLM/scripts/launch_server.py
-        possible_paths = [
-            Path("/workspace/InfiniLM/scripts/launch_server.py"),
-            Path(__file__).parent.parent / "InfiniLM" / "scripts" / "launch_server.py",
-            Path("/home/zenghua/repos/InfiniLM/scripts/launch_server.py"),
-            Path("InfiniLM/scripts/launch_server.py"),
-        ]
-
+        # Check if launch_script_path is specified in infinilm_server_args
         launch_script = None
-        for path in possible_paths:
-            if path.exists():
-                launch_script = path
-                break
+        if self.infinilm_server_args and "launch_script_path" in self.infinilm_server_args:
+            specified_path = Path(self.infinilm_server_args["launch_script_path"])
+            if specified_path.exists():
+                launch_script = specified_path
+                logger.info(f"Using specified launch script: {launch_script}")
+            else:
+                logger.error(f"Specified launch script path does not exist: {specified_path}")
+                return False
+        else:
+            # Find the launch_server.py script - try common locations
+            possible_paths = [
+                Path("/workspace/InfiniLM/scripts/launch_server.py"),
+                Path(__file__).parent.parent / "InfiniLM" / "scripts" / "launch_server.py",
+                Path("/home/zenghua/repos/InfiniLM/scripts/launch_server.py"),
+                Path("InfiniLM/scripts/launch_server.py"),
+            ]
 
-        if launch_script is None:
-            logger.error("Could not find launch_server.py. Please specify the path in infinilm_server_args.")
-            return False
+            for path in possible_paths:
+                if path.exists():
+                    launch_script = path
+                    logger.info(f"Found launch script at: {launch_script}")
+                    break
+
+            if launch_script is None:
+                logger.error("Could not find launch_server.py. Please specify --launch-script or set launch_script_path in infinilm_server_args.")
+                return False
 
         # Build the Python command
         cmd = [
@@ -597,6 +607,8 @@ def main():
     parser.add_argument("--awq", action="store_true", help="Use AWQ quantized model for InfiniLM server")
     parser.add_argument("--request-timeout", type=int, default=300,
                        help="Request timeout in seconds for InfiniLM server (default: 300)")
+    parser.add_argument("--launch-script", default=None,
+                       help="Path to launch_server.py script (default: auto-detect from common locations)")
 
     args = parser.parse_args()
 
@@ -611,6 +623,8 @@ def main():
             "max_batch": args.max_batch,
             "request_timeout": args.request_timeout,
         }
+        if args.launch_script:
+            infinilm_server_args["launch_script_path"] = args.launch_script
         if args.max_tokens:
             infinilm_server_args["max_tokens"] = args.max_tokens
         if args.awq:

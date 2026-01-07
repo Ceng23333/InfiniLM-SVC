@@ -74,10 +74,12 @@ async def make_request(
         payload["test_hang_seconds"] = test_hang_seconds
 
     try:
+        # Use shorter connection timeout to fail fast when service is down/restarting
+        # Total timeout is very long - we rely on retries for connection errors, not timeouts
         async with session.post(
             url,
             json=payload,
-            timeout=aiohttp.ClientTimeout(total=300)  # 5 minutes timeout
+            timeout=aiohttp.ClientTimeout(total=60, connect=10)  # 1 min total, 10s connection timeout
         ) as response:
             status_code = response.status
 
@@ -115,6 +117,14 @@ async def make_request(
     except asyncio.TimeoutError:
         elapsed_time = time.time() - start_time
         return (request_id, {"error": "Request timeout"}, elapsed_time, 0)
+    except aiohttp.ClientConnectorError as e:
+        # Connection error - service is down or restarting
+        elapsed_time = time.time() - start_time
+        return (request_id, {"error": f"Connection error: {str(e)}"}, elapsed_time, 0)
+    except aiohttp.ClientError as e:
+        # Other client errors
+        elapsed_time = time.time() - start_time
+        return (request_id, {"error": f"Client error: {str(e)}"}, elapsed_time, 0)
     except Exception as e:
         elapsed_time = time.time() - start_time
         return (request_id, {"error": str(e)}, elapsed_time, 0)
@@ -176,8 +186,31 @@ async def run_parallel_requests(
                           f"Status {status_code}, Attempt time {attempt_elapsed:.2f}s, "
                           f"Total elapsed {total_elapsed:.2f}s{hang_info}")
 
-                    # If successful or retries exhausted, return result with total elapsed and attempts
-                    if status_code == 200 or attempt >= max_retries:
+                    # If successful, return immediately
+                    if status_code == 200:
+                        return (
+                            result[0],
+                            result[1],
+                            total_elapsed,
+                            status_code,
+                            attempt + 1,
+                        )
+
+                    # Only retry on connection errors (status 0), not on timeouts or HTTP errors
+                    # Timeouts mean service is slow, retrying won't help
+                    # HTTP errors (4xx, 5xx) are actual errors, retrying usually won't help
+                    if status_code != 0:
+                        # Not a connection error, don't retry
+                        return (
+                            result[0],
+                            result[1],
+                            total_elapsed,
+                            status_code,
+                            attempt + 1,
+                        )
+
+                    # Connection error (status 0) - retry if attempts remain
+                    if attempt >= max_retries:
                         return (
                             result[0],
                             result[1],
