@@ -12,7 +12,8 @@ import logging
 import signal
 import sys
 from datetime import datetime
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, DefaultDict
+from collections import defaultdict
 from dataclasses import dataclass
 from aiohttp import web, ClientSession, ClientTimeout
 import argparse
@@ -41,14 +42,22 @@ class ServiceInstance:
     request_count: int = 0
     weight: int = 1
     metadata: Dict = None
+    models: List[str] = None  # List of model IDs supported by this service
 
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+        if self.models is None:
+            self.models = []
         # Generate babysitter_url using service port plus 1
         # Rule: babysitter_port = service_port + 1
         babysitter_port = self.port + 1
         self.babysitter_url = f"http://{self.host}:{babysitter_port}"
+        # Extract models from metadata if available and models list is empty
+        if not self.models and self.metadata:
+            models_from_metadata = self.metadata.get("models", [])
+            if models_from_metadata:
+                self.models = models_from_metadata if isinstance(models_from_metadata, list) else []
 
 class DistributedLoadBalancer:
     def __init__(self, registry_url: Optional[str] = None, static_services: List[Dict] = None):
@@ -114,12 +123,17 @@ class DistributedLoadBalancer:
                                 service.url = service_data['url']
                                 service.healthy = service_data.get('is_healthy', True)
                                 service.metadata = service_data.get('metadata', {})
+                                # Update models from metadata
+                                models_from_metadata = service.metadata.get("models", [])
+                                service.models = models_from_metadata if isinstance(models_from_metadata, list) else []
                                 # Update babysitter_url after port change
                                 # Rule: babysitter_port = service_port + 1
                                 babysitter_port = service.port + 1
                                 service.babysitter_url = f"http://{service.host}:{babysitter_port}"
                             else:
                                 # Add new service from registry
+                                service_metadata = service_data.get('metadata', {})
+                                models_from_metadata = service_metadata.get("models", [])
                                 service = ServiceInstance(
                                     name=service_name,
                                     host=service_data['host'],
@@ -127,10 +141,11 @@ class DistributedLoadBalancer:
                                     url=service_data['url'],
                                     healthy=service_data.get('is_healthy', True),
                                     weight=service_data.get('weight', 1),
-                                    metadata=service_data.get('metadata', {})
+                                    metadata=service_metadata,
+                                    models=models_from_metadata if isinstance(models_from_metadata, list) else []
                                 )
                                 self.services[service_name] = service
-                                logger.info(f"Added OpenAI API service from registry: {service_name} at {service.url} (babysitter: {service.babysitter_url})")
+                                logger.info(f"Added OpenAI API service from registry: {service_name} at {service.url} (babysitter: {service.babysitter_url}, models: {service.models})")
 
                         # Remove services that are no longer in registry (but keep static services)
                         services_to_remove = []
@@ -237,10 +252,17 @@ class DistributedLoadBalancer:
         service.request_count += 1
         return service
 
-    def get_next_healthy_service_by_type(self, service_type: str) -> Optional[ServiceInstance]:
-        """Get next healthy service of a specific type using weighted round-robin"""
+    def get_next_healthy_service_by_type(self, service_type: str, model_id: Optional[str] = None) -> Optional[ServiceInstance]:
+        """Get next healthy service of a specific type using weighted round-robin, optionally filtered by model"""
         healthy_services = [s for s in self.services.values()
                           if s.healthy and s.metadata.get('type') == service_type]
+
+        # Filter by model if specified
+        if model_id:
+            healthy_services = [s for s in healthy_services if model_id in s.models]
+            if not healthy_services:
+                logger.warning(f"No healthy services of type '{service_type}' with model '{model_id}' available")
+                return None
 
         if not healthy_services:
             logger.error(f"No healthy services of type '{service_type}' available")
@@ -268,6 +290,30 @@ class DistributedLoadBalancer:
 
         service.request_count += 1
         return service
+
+    def get_all_models(self) -> Dict[str, Dict]:
+        """Get all unique models aggregated from all healthy services"""
+        aggregated_models: Dict[str, Dict] = {}
+
+        for service in self.services.values():
+            if service.healthy and service.metadata.get('type') == 'openai-api':
+                # Get full model info from metadata if available, otherwise use model IDs
+                models_list = service.metadata.get('models_list', [])
+                if models_list:
+                    # Use full model info from metadata
+                    for model_info in models_list:
+                        if isinstance(model_info, dict) and 'id' in model_info:
+                            model_id = model_info['id']
+                            # Store model info, deduplicate by model ID (use first one found)
+                            if model_id not in aggregated_models:
+                                aggregated_models[model_id] = model_info.copy()
+                else:
+                    # Fallback to model IDs - create minimal model info
+                    for model_id in service.models:
+                        if model_id not in aggregated_models:
+                            aggregated_models[model_id] = {'id': model_id}
+
+        return aggregated_models
 
     def get_service_stats(self) -> Dict:
         """Get statistics about all services"""
@@ -318,8 +364,10 @@ class DistributedRouterService:
     def setup_routes(self):
         """Setup HTTP routes"""
         self.app.router.add_get('/health', self.health_handler)
+        self.app.router.add_get('/status', self.health_handler)  # Alias for /health
         self.app.router.add_get('/stats', self.stats_handler)
         self.app.router.add_get('/services', self.services_handler)
+        self.app.router.add_get('/models', self.models_handler)  # Handle /models locally
         self.app.router.add_route('*', '/{path:.*}', self.proxy_handler)
 
     async def health_handler(self, request):
@@ -357,6 +405,7 @@ class DistributedRouterService:
                 "error_count": service.error_count,
                 "response_time": service.response_time,
                 "weight": service.weight,
+                "models": service.models,
                 "metadata": service.metadata
             })
 
@@ -366,15 +415,59 @@ class DistributedRouterService:
             "registry_url": self.load_balancer.registry_url
         })
 
+    async def models_handler(self, request):
+        """Models endpoint - aggregate models from all healthy services"""
+        # Get aggregated models from all healthy services
+        aggregated_models = self.load_balancer.get_all_models()
+
+        # Convert to OpenAI API format: {"object": "list", "data": [...]}
+        models_list = list(aggregated_models.values())
+
+        return web.json_response({
+            "object": "list",
+            "data": models_list
+        })
+
+    async def models_handler(self, request):
+        """Models endpoint - aggregate models from all healthy services"""
+        # Get aggregated models from all healthy services
+        aggregated_models = self.load_balancer.get_all_models()
+
+        # Convert to OpenAI API format: {"object": "list", "data": [...]}
+        models_list = list(aggregated_models.values())
+
+        return web.json_response({
+            "object": "list",
+            "data": models_list
+        })
+
     async def proxy_handler(self, request):
         """Proxy requests to backend services"""
         # Router only handles OpenAI API requests and routes them to xtask services
         # Babysitter services are for management only, not for user requests
-        target_service = self.load_balancer.get_next_healthy_service_by_type("openai-api")
+
+        # Extract model from request body if it's a POST request (e.g., /chat/completions)
+        model_id = None
+        request_body = None
+        if request.method == 'POST':
+            try:
+                request_body = await request.read()
+                if request_body:
+                    request_data = json.loads(request_body)
+                    model_id = request_data.get('model')
+            except (json.JSONDecodeError, KeyError, ValueError):
+                pass  # Continue without model filtering if parsing fails
+
+        # Route to service, optionally filtered by model
+        target_service = self.load_balancer.get_next_healthy_service_by_type("openai-api", model_id=model_id)
 
         if not target_service:
+            if model_id:
+                error_msg = f"No healthy services available for model '{model_id}'"
+            else:
+                error_msg = "No OpenAI API services available"
             return web.json_response(
-                {"error": "No OpenAI API services available"},
+                {"error": error_msg},
                 status=503
             )
 
@@ -392,12 +485,14 @@ class DistributedRouterService:
                 headers.pop('Content-Length', None)  # Remove Content-Length to avoid conflicts with Transfer-Encoding
                 headers.pop('Transfer-Encoding', None)  # Remove Transfer-Encoding to avoid conflicts with Content-Length
 
-                # Forward the request
+                # Forward the request (use request_body if already read for model extraction)
+                request_body_data = request_body if request_body is not None else None
+
                 async with session.request(
                     method=request.method,
                     url=target_url,
                     headers=headers,
-                    data=await request.read()
+                    data=request_body_data
                 ) as response:
                     # Detect streaming/SSE responses and proxy incrementally
                     upstream_content_type = response.headers.get('Content-Type', '')

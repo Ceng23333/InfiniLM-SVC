@@ -40,6 +40,8 @@ The InfiniLM-SVC system consists of three main components deployed across local 
    - Load balancer that routes OpenAI API requests to healthy services
    - Only routes to services with `type: "openai-api"` (xtask instances)
    - Supports both streaming and non-streaming responses
+   - **Model-level load balancing**: Routes requests to services based on the requested model
+   - Aggregates and exposes a unified `/models` endpoint from all registered services
 
 3. **Enhanced Babysitter** (Local & Remote Servers)
    - Service management wrapper for InfiniLM-Rust services
@@ -281,9 +283,22 @@ PORT=8001 HPCC_VISIBLE_DEVICES="1" ./launch_babysitter.sh
    - Names will appear in registry and router statistics
 
 4. **Log Management:**
-   - Each instance creates timestamped log files: `logs/babysitter_YYMMDDHHmm.log`
+   - Each instance creates port-specific timestamped log files: `logs/babysitter_${PORT}_YYMMDDHHmm.log`
    - PID files are port-specific: `logs/babysitter_${PORT}.pid`
    - Use log rotation for production deployments
+
+5. **Model Configuration:**
+   - Each instance should serve a specific model (or set of models)
+   - Model names are automatically derived from the model path directory name (like vLLM/llama.cpp)
+   - Multiple instances can serve the same model for load balancing
+   - The router automatically distributes requests for the same model across instances
+   - Use `MODEL_NAME` in launch script to override the default model name if needed
+
+5. **Model Configuration:**
+   - Each instance should serve a specific model (or set of models)
+   - Model names are automatically derived from the model path directory name
+   - Multiple instances can serve the same model for load balancing
+   - The router automatically distributes requests for the same model across instances
 
 5. **Network Configuration:**
    - Ensure firewall rules allow all required ports
@@ -406,14 +421,75 @@ curl http://localhost:8080/stats
 
 #### Test Router Functionality
 ```bash
-# Test models endpoint
+# Test models endpoint (aggregates models from all services)
 curl http://localhost:8080/models
 
 # Test chat completions (non-streaming)
+# Router automatically routes to a service that supports the requested model
 curl -X POST http://localhost:8080/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model": "Qwen3-32B", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
+
+#### Model-Level Load Balancing
+
+The router implements **model-aware load balancing**, which routes requests to services that support the specific model requested by the client.
+
+**How It Works:**
+
+1. **Model Discovery:**
+   - Each service registers its supported models in the registry metadata when it starts
+   - The router's `/models` endpoint aggregates models from all healthy services
+   - Model names are deduplicated across services (same model on multiple services appears once in the aggregated list)
+
+2. **Request Routing:**
+   - When a request includes a `model` parameter (e.g., in `/chat/completions`), the router extracts it from the request body
+   - The router filters services to only those that support the requested model
+   - Requests are load-balanced using weighted round-robin among services supporting that model
+   - If no service supports the requested model, the router returns HTTP 503 with an error message
+
+3. **Load Balancing Behavior:**
+   - **Per-Model Balancing:** Load balancing is performed separately for each model
+   - **Weighted Selection:** Services can have different weights for priority-based routing
+   - **Health-Aware:** Only healthy services are considered for routing
+   - **Round-Robin:** Requests for the same model are distributed evenly across available services
+
+**Example Scenario:**
+
+```bash
+# Service 1 (Port 8000): Supports model "Qwen3-32B"
+# Service 2 (Port 8100): Supports model "Qwen3-32B"
+# Service 3 (Port 8200): Supports model "GPT-4"
+
+# Request for "Qwen3-32B" will be load-balanced between Service 1 and Service 2
+curl -X POST http://localhost:8080/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "Qwen3-32B", "messages": [{"role": "user", "content": "Hello"}]}'
+
+# Request for "GPT-4" will route only to Service 3
+curl -X POST http://localhost:8080/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "GPT-4", "messages": [{"role": "user", "content": "Hello"}]}'
+
+# View all available models (aggregated from all services)
+curl http://localhost:8080/models
+# Returns: {"object": "list", "data": [{"id": "Qwen3-32B", ...}, {"id": "GPT-4", ...}]}
+```
+
+**Model Registration:**
+
+Services automatically register their models when they start:
+- For InfiniLM services, the model name is derived from the model path directory name (consistent with vLLM/llama.cpp)
+- Models are fetched from each service's `/models` endpoint during registration
+- Model information is included in service metadata and tracked by the router
+- Multiple instances serving the same model will automatically share load
+
+**Benefits:**
+
+- **Scalability:** Add more instances for a popular model to handle increased load
+- **Efficiency:** Requests are routed only to services that can handle them
+- **Flexibility:** Deploy different models on different services without configuration changes
+- **Availability:** If one instance fails, requests automatically route to other instances serving the same model
 
 ### 3. Service Instance Management
 
@@ -599,6 +675,25 @@ tail -f logs/babysitter_8000_*.log
 1. Check registry health: `curl http://localhost:8081/health`
 2. Verify network connectivity between services
 3. Check service configuration and metadata
+
+#### Issue: Router Returns 503 "No healthy services available for model 'X'"
+**Cause:** No services are registered that support the requested model
+**Solution:**
+1. Check available models: `curl http://localhost:8080/models`
+2. Verify services are registered with the correct model information: `curl http://localhost:8081/services`
+3. Check that service metadata includes the `models` field with the correct model ID
+4. Ensure the model name in the request matches exactly (case-sensitive)
+5. Verify services have successfully fetched and registered their model information during startup
+6. Check babysitter logs for model fetching errors (e.g., 502 errors during registration)
+
+#### Issue: Model Not Found in Router's /models Endpoint
+**Cause:** Services may not have registered their models correctly
+**Solution:**
+1. Check individual service models: `curl http://localhost:8000/models`
+2. Verify babysitter is fetching models from the InfiniLM server during registration
+3. Check babysitter logs for model fetching errors or timeout issues
+4. Ensure model name is correctly derived from the model path or explicitly specified via `--model-name`
+5. Wait for services to fully start (model loading can take several minutes)
 
 #### Issue: Model Loading Fails
 **Cause:** Incorrect model path or insufficient GPU memory

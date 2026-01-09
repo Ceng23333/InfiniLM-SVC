@@ -17,7 +17,7 @@ from aiohttp import web
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict
 
 # Import our registry and router clients
 from registry_client import RegistryClient, ServiceInfo
@@ -214,12 +214,260 @@ class EnhancedServiceBabysitter:
         logger.warning(f"Could not detect InfiniLM server port from logs, assuming it's using target port {self.service_target_port}")
         return self.service_target_port
 
+    def detect_infinilm_service_port(self) -> Optional[int]:
+        """Detect when InfiniLM (Python) server is actually ready by checking if port is listening and HTTP server responds"""
+        if not self.process:
+            return None
+
+        import socket
+        import requests
+
+        target_port = self.port
+        target_host = self.host if self.host != 'localhost' else '127.0.0.1'
+        check_url = f"http://{self.host}:{target_port}/models"
+
+        logger.info(f"Waiting for InfiniLM server to be ready on port {target_port}...")
+
+        # Wait up to 120 seconds for the server to be ready (model loading can take time)
+        for attempt in range(120):
+            # Check if process died
+            if self.process.poll() is not None:
+                logger.error("InfiniLM server process died during startup")
+                return None
+
+            # First check if port is listening
+            port_listening = False
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex((target_host, target_port))
+                sock.close()
+                port_listening = (result == 0)
+            except Exception as e:
+                logger.debug(f"Port check error: {e}")
+                port_listening = False
+
+            if port_listening:
+                # Port is listening, now check if HTTP server responds
+                try:
+                    response = requests.get(check_url, timeout=(2, 5))
+                    if response.status_code == 200:
+                        logger.info(f"InfiniLM server is ready! Port {target_port} is listening and responding to HTTP requests")
+                        return target_port
+                    elif response.status_code == 503:
+                        # Server is starting but not ready yet (model loading)
+                        logger.debug(f"Server is starting (HTTP 503), waiting... (attempt {attempt + 1}/120)")
+                    elif response.status_code in (502, 504):
+                        # Bad gateway or timeout - server might still be starting
+                        logger.debug(f"Server not fully ready yet (HTTP {response.status_code}), waiting... (attempt {attempt + 1}/120)")
+                    else:
+                        logger.debug(f"Unexpected HTTP status {response.status_code}, waiting... (attempt {attempt + 1}/120)")
+                except requests.exceptions.ConnectionError:
+                    # Connection refused - port might not be fully ready yet
+                    logger.debug(f"Connection refused, waiting for server... (attempt {attempt + 1}/120)")
+                except requests.exceptions.Timeout:
+                    # Timeout - server might be slow to respond
+                    logger.debug(f"Request timeout, server might be busy... (attempt {attempt + 1}/120)")
+                except Exception as e:
+                    logger.debug(f"Error checking HTTP endpoint: {e}")
+
+            # Log progress every 10 seconds
+            if attempt > 0 and attempt % 10 == 0:
+                elapsed = attempt
+                logger.info(f"Still waiting for InfiniLM server to be ready... ({elapsed}s elapsed)")
+
+            time.sleep(1)
+
+        logger.warning(f"InfiniLM server did not become ready within 120 seconds on port {target_port}")
+        return None
+
     def register_with_registry(self) -> bool:
         """Register this babysitter service with the registry"""
         if not self.registry_client:
             return False
         logger.info(f"Registering babysitter '{self.service_name}' with registry...")
         return self.registry_client.register_service(self.service_info)
+
+    def fetch_models_from_server(self, max_retries=1000, retry_delay=2) -> List[Dict]:
+        """Fetch model list from InfiniLM server with retry logic"""
+        if not self.service_port:
+            logger.warning("Cannot fetch models: service port not detected")
+            return []
+
+        import requests
+        import socket
+
+        # Use self.host instead of hardcoded localhost for consistency
+        url = f"http://{self.host}:{self.service_port}/models"
+
+        # First, wait a bit longer and verify the port is actually listening
+        # This helps avoid premature connection attempts when server is still starting
+        logger.debug(f"Waiting for server on {self.host}:{self.service_port} to be ready...")
+        initial_wait = 10  # Wait 10 seconds before first attempt (model loading takes time)
+
+        # Check if port is listening before making HTTP requests
+        for check_attempt in range(initial_wait):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex((self.host if self.host != 'localhost' else '127.0.0.1', self.service_port))
+                sock.close()
+                if result == 0:
+                    logger.debug(f"Port {self.service_port} is listening, server may be ready")
+                    break
+            except Exception as e:
+                logger.debug(f"Port check error: {e}")
+            time.sleep(1)
+
+        # Additional wait after port is listening to ensure HTTP server is fully ready
+        time.sleep(3)
+
+        # Log progress every N attempts to avoid spam
+        log_interval = 30  # Log every 30 attempts (60 seconds with 2s delay)
+        last_log_attempt = -log_interval  # Initialize to negative so first attempt (0) will log
+
+        for attempt in range(max_retries):
+            try:
+                # Use a shorter timeout for connection to detect unresponsive servers quickly
+                # Create a completely new connection each retry - don't reuse connections
+                # This ensures we're not hitting stale/broken connections from previous attempts
+                from requests.adapters import HTTPAdapter
+
+                # Create a NEW session for EACH attempt to ensure fresh connection
+                # This prevents reuse of potentially broken/stale connections
+                session = requests.Session()
+
+                # Configure adapter to minimize connection reuse
+                # Use very small pool so connections aren't reused across retries
+                adapter = HTTPAdapter(
+                    pool_connections=1,  # Only 1 connection pool
+                    pool_maxsize=1,      # Max 1 connection in pool
+                    max_retries=0,       # No automatic retries
+                    pool_block=False     # Don't block waiting for pool
+                )
+                session.mount('http://', adapter)
+                session.mount('https://', adapter)
+
+                # Force connection close after request
+                session.headers.update({'Connection': 'close'})
+
+                response = session.get(
+                    url,
+                    timeout=(5, 10),  # (connect timeout, read timeout)
+                    allow_redirects=False  # Don't follow redirects
+                )
+
+                # CRITICAL: Close session immediately after each request
+                # This forces the connection to be closed and not reused in next retry
+                session.close()
+                if response.status_code == 200:
+                    data = response.json()
+                    # Extract model list from OpenAI API format: {"data": [{"id": "...", ...}, ...]}
+                    if isinstance(data, dict) and "data" in data:
+                        models = data["data"]
+                        model_ids = [model.get("id") for model in models if isinstance(model, dict) and "id" in model]
+                        if models:
+                            logger.info(f"Fetched {len(model_ids)} models from InfiniLM server: {model_ids}")
+                            return models
+                        else:
+                            logger.debug(f"Models endpoint returned empty list (attempt {attempt + 1}/{max_retries})")
+                    elif isinstance(data, list):
+                        model_ids = [model.get("id") for model in data if isinstance(model, dict) and "id" in model]
+                        if model_ids:
+                            logger.info(f"Fetched {len(model_ids)} models from InfiniLM server: {model_ids}")
+                            return data
+                        else:
+                            logger.debug(f"Models endpoint returned empty list (attempt {attempt + 1}/{max_retries})")
+                    else:
+                        logger.warning(f"Unexpected models response format: {data}")
+                        return []
+                elif response.status_code in (502, 503):
+                    # Service not ready yet (502 = Bad Gateway, 503 = Service Unavailable), retry silently
+                    # Only log periodically to avoid spam, but log details on first attempt or periodically
+                    should_log = (attempt - last_log_attempt >= log_interval) or (attempt == 0)
+                    if should_log:
+                        elapsed = attempt * retry_delay
+                        # Try to get more info from response - be very careful with error handling
+                        error_detail = ""
+                        response_text = ""
+                        try:
+                            if hasattr(response, 'text'):
+                                response_text = str(response.text)[:200]  # First 200 chars
+                                try:
+                                    error_data = response.json()
+                                    if isinstance(error_data, dict):
+                                        if "error" in error_data:
+                                            error_detail = f" - error: {error_data['error']}"
+                                        elif "detail" in error_data:
+                                            error_detail = f" - detail: {error_data['detail']}"
+                                    else:
+                                        error_detail = f" - response: {str(error_data)[:100]}"
+                                except (ValueError, AttributeError):
+                                    # Not JSON, use raw text
+                                    if response_text:
+                                        error_detail = f" - body: {response_text[:100]}"
+                            else:
+                                error_detail = " - (no response body available)"
+                        except Exception as e:
+                            error_detail = f" - (error reading response: {type(e).__name__})"
+
+                        # Always include response info in log
+                        headers_info = ""
+                        try:
+                            if hasattr(response, 'headers'):
+                                headers_info = f", headers: {dict(response.headers)}"
+                        except:
+                            pass
+
+                        # Log with more detail
+                        logger.info(f"Waiting for InfiniLM server to be ready... (attempt {attempt + 1}/{max_retries}, {elapsed}s elapsed, HTTP {response.status_code}{error_detail}{headers_info})")
+                        if attempt == 0 and response.status_code == 502:
+                            # On first 502, also log at warning level to ensure visibility
+                            logger.warning(f"502 Bad Gateway on first attempt - URL: {url}, Response: {response_text[:500] if response_text else 'N/A'}")
+                        last_log_attempt = attempt
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                else:
+                    # Unexpected status code - log warning but continue retrying
+                    if attempt - last_log_attempt >= log_interval:
+                        logger.warning(f"Unexpected HTTP status {response.status_code} when fetching models (attempt {attempt + 1}/{max_retries})")
+                        last_log_attempt = attempt
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+            except requests.exceptions.Timeout:
+                # Timeout - server might be busy or slow, retry silently
+                if attempt - last_log_attempt >= log_interval:
+                    elapsed = attempt * retry_delay
+                    logger.info(f"Request timeout waiting for InfiniLM server... (attempt {attempt + 1}/{max_retries}, {elapsed}s elapsed)")
+                    last_log_attempt = attempt
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+            except requests.exceptions.ConnectionError:
+                # Connection error - service not ready yet, retry silently
+                # Only log periodically to avoid spam
+                if attempt - last_log_attempt >= log_interval:
+                    elapsed = attempt * retry_delay
+                    logger.info(f"Waiting for InfiniLM server connection... (attempt {attempt + 1}/{max_retries}, {elapsed}s elapsed)")
+                    last_log_attempt = attempt
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+            except Exception as e:
+                # Unexpected error - log warning but continue retrying
+                if attempt - last_log_attempt >= log_interval:
+                    logger.warning(f"Error fetching models (attempt {attempt + 1}/{max_retries}): {e}")
+                    last_log_attempt = attempt
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+
+        # Final failure after all retries
+        total_time = max_retries * retry_delay
+        logger.warning(f"Failed to fetch models from server after {max_retries} attempts (~{total_time}s). Service will be registered without model information.")
+        return []
 
     def register_service_with_registry(self) -> bool:
         """Register InfiniLM server with the registry"""
@@ -229,18 +477,36 @@ class EnhancedServiceBabysitter:
             logger.warning("Cannot register InfiniLM server: port not detected")
             return False
 
+        # Fetch models from the server
+        models = self.fetch_models_from_server()
+
+        # Extract model IDs for easier tracking
+        model_ids = []
+        if models:
+            for model in models:
+                if isinstance(model, dict) and "id" in model:
+                    model_ids.append(model["id"])
+
+        metadata = {
+            "type": "openai-api",
+            "parent_service": self.service_name,
+            "babysitter": "enhanced",
+            "started_at": datetime.now().isoformat()
+        }
+
+        # Add models to metadata if available
+        if model_ids:
+            metadata["models"] = model_ids
+            metadata["models_list"] = models  # Full model info for router aggregation
+            logger.info(f"Registering service with {len(model_ids)} models: {model_ids}")
+
         infinilm_server_info = ServiceInfo(
             name=f"{self.service_name}-server",
             host=self.host,
             port=self.service_port,
             url=f"http://{self.host}:{self.service_port}",
             status="running",
-            metadata={
-                "type": "openai-api",
-                "parent_service": self.service_name,
-                "babysitter": "enhanced",
-                "started_at": datetime.now().isoformat()
-            }
+            metadata=metadata
         )
 
         logger.info(f"Registering InfiniLM server '{infinilm_server_info.name}' with registry...")
@@ -274,17 +540,39 @@ class EnhancedServiceBabysitter:
             return
 
         logger.info("Starting heartbeat loop...")
+        server_registered = False  # Track if server has been successfully registered
+
         while self.running:
             try:
                 if self.process and self.process.poll() is None:
-                    # Service is running, send heartbeats for both services
-                    self.registry_client.send_heartbeat(self.service_name)
+                    # Service is running, send heartbeat for babysitter (always registered)
+                    try:
+                        self.registry_client.send_heartbeat(self.service_name)
+                    except Exception as e:
+                        logger.warning(f"Heartbeat failed for babysitter '{self.service_name}': {e}")
+
+                    # Only send heartbeat for InfiniLM server if it's been registered
+                    # Check if server is registered by trying to send heartbeat
+                    # If it fails with "not found", mark as not registered yet
                     if self.service_port:
                         server_name = f"{self.service_name}-server"
-                        self.registry_client.send_heartbeat(server_name)
+                        try:
+                            self.registry_client.send_heartbeat(server_name)
+                            if not server_registered:
+                                server_registered = True
+                                logger.info(f"Server '{server_name}' is now registered, heartbeats will continue")
+                        except Exception as e:
+                            error_msg = str(e)
+                            # Only log warning if we previously thought it was registered
+                            # or if it's been a while (to avoid spam during initial startup)
+                            if server_registered or "not found" not in error_msg.lower():
+                                logger.warning(f"Heartbeat failed: {e}")
+                            # If it's "not found", it's expected during initial startup
+                            server_registered = False
                 else:
                     # Service is not running, don't send heartbeat
                     logger.debug("Service not running, skipping heartbeat")
+                    server_registered = False  # Reset registration status
 
                 # Wait for next heartbeat
                 for _ in range(self.heartbeat_interval):
@@ -435,7 +723,11 @@ class EnhancedServiceBabysitter:
             elif value is False:
                 continue  # Skip False flags
             elif value is not None:
-                cmd.extend([arg, str(value)])
+                # Special handling for model_name -> model-name
+                if key == "model_name":
+                    cmd.extend(["--model-name", str(value)])
+                else:
+                    cmd.extend([arg, str(value)])
 
         logger.info(f"Starting InfiniLM service with command: {' '.join(cmd)}")
         logger.info(f"Working directory: {launch_script.parent.parent}")
@@ -455,11 +747,14 @@ class EnhancedServiceBabysitter:
         logger.info(f"InfiniLM service started with PID: {self.process.pid}")
 
         # For InfiniLM service, the port is directly specified
-        self.service_port = self.port
-        logger.info(f"✅ InfiniLM server running on port {self.service_port}")
+        # But we need to detect when it's actually ready (listening and responding)
+        self.service_port = self.detect_infinilm_service_port()
 
-        # Wait a bit for service to start
-        time.sleep(2)
+        if self.service_port:
+            logger.info(f"✅ InfiniLM server detected and ready on port {self.service_port}")
+        else:
+            logger.warning(f"⚠️ Could not detect InfiniLM server on port {self.port}, but continuing...")
+            self.service_port = self.port  # Fallback to target port
 
         # Register babysitter with registry
         if self.register_with_registry():
@@ -467,7 +762,8 @@ class EnhancedServiceBabysitter:
         else:
             logger.warning("⚠️ Failed to register babysitter with registry, but continuing...")
 
-        # Register InfiniLM server with registry
+        # Register InfiniLM server with registry (this will fetch models with retry logic)
+        # The register_service_with_registry will handle waiting for the server to be ready
         if self.register_service_with_registry():
             logger.info("✅ InfiniLM server registered with registry")
         else:

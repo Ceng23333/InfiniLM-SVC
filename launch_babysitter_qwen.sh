@@ -10,7 +10,7 @@
 
 # Service Configuration
 HOST="localhost"
-PORT=8000
+PORT=8100
 SERVICE_NAME=""  # Leave empty for auto-generated name
 SERVICE_TYPE="InfiniLM"  # Options: "InfiniLM" or "InfiniLM-Rust"
 
@@ -24,18 +24,18 @@ RESTART_DELAY=5
 HEARTBEAT_INTERVAL=30
 
 # InfiniLM Server Configuration (for SERVICE_TYPE="InfiniLM")
-MODEL_PATH="/models/9g_8b_thinking"  # Required for InfiniLM
+MODEL_PATH="/models/Qwen3-32B"  # Required for InfiniLM
 MODEL_NAME=""  # Model name for /models endpoint (leave empty to use directory name from MODEL_PATH, like vLLM/llama.cpp)
 LAUNCH_SCRIPT=""  # Path to launch_server.py (leave empty for auto-detect)
 DEV="metax"  # Device type: nvidia, metax, etc.
-NDEV=1  # Number of devices
+NDEV=4  # Number of devices
 MAX_BATCH=3  # Max batch size
 MAX_TOKENS=""  # Optional, leave empty for default
 AWQ=false  # Set to true to use AWQ quantized model
 REQUEST_TIMEOUT=30  # Request timeout in seconds
 
 # Environment Variables
-HPCC_VISIBLE_DEVICES="1"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
+HPCC_VISIBLE_DEVICES="4,5,6,7"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
 # CUDA_VISIBLE_DEVICES="0"  # CUDA visible devices (uncomment for future use, e.g., "0", "0,1", "0,1,2")
 
 # InfiniLM-Rust Configuration (for SERVICE_TYPE="InfiniLM-Rust")
@@ -49,7 +49,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Log directory
 LOG_DIR="${SCRIPT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/babysitter_${PORT}_$(date +%y%m%d%H%M).log"
+LOG_FILE="${LOG_DIR}/babysitter_$(date +%y%m%d%H%M).log"
 PID_FILE="${LOG_DIR}/babysitter_${PORT}.pid"
 
 # ============================================================================
