@@ -63,6 +63,7 @@ The system provides convenient launch scripts for quick deployment. All scripts 
 1. **`launch_registry.sh`** - Service Registry launcher
 2. **`launch_router.sh`** - Distributed Router launcher
 3. **`launch_babysitter.sh`** - Enhanced Babysitter launcher
+4. **`stop_all.sh`** - Stop all services gracefully (Registry, Router, and all Babysitter instances)
 
 ### Using Launch Scripts
 
@@ -85,7 +86,10 @@ CLEANUP_INTERVAL=60
 
 **Process Management:**
 ```bash
-# Stop gracefully
+# Stop gracefully (recommended: use stop_all.sh)
+./stop_registry.sh
+
+# Or manually:
 kill $(cat logs/registry.pid)
 
 # Force kill
@@ -116,7 +120,10 @@ REGISTRY_SYNC_INTERVAL=10
 
 **Process Management:**
 ```bash
-# Stop gracefully
+# Stop gracefully (recommended: use stop_all.sh)
+./stop_router.sh
+
+# Or manually:
 kill $(cat logs/router.pid)
 
 # Force kill
@@ -160,7 +167,10 @@ HPCC_VISIBLE_DEVICES="1"
 
 **Process Management:**
 ```bash
-# Stop gracefully
+# Stop gracefully (recommended: use stop_all.sh)
+./stop_babysitter.sh 8000
+
+# Or manually:
 kill $(cat logs/babysitter_8000.pid)
 
 # Force kill
@@ -169,6 +179,27 @@ kill -9 $(cat logs/babysitter_8000.pid)
 # View logs
 tail -f logs/babysitter_*.log
 ```
+
+### Stop All Services
+
+**Quick Stop:**
+```bash
+cd /home/zenghua/repos/InfiniLM-SVC
+./stop_all.sh
+```
+
+This script will:
+- Stop Distributed Router
+- Stop all Enhanced Babysitter instances
+- Stop Service Registry (stops last to allow services to deregister)
+- Display a summary of stopped services
+- Use graceful shutdown (SIGTERM) with automatic fallback to SIGKILL if needed
+
+**Individual Stop Scripts:**
+- `./stop_registry.sh` - Stop Service Registry only
+- `./stop_router.sh` - Stop Distributed Router only
+- `./stop_babysitter.sh` - Stop all Babysitter instances
+- `./stop_babysitter.sh 8000` - Stop Babysitter on port 8000 only
 
 ### Multi-Instance Deployment Guide
 
@@ -242,15 +273,19 @@ curl http://localhost:8002/models
 **Step 5: Manage Instances**
 
 ```bash
-# Stop specific instance
+# Stop all services (recommended)
+./stop_all.sh
+
+# Stop specific babysitter instance
+./stop_babysitter.sh 8000
+
+# Stop all babysitter instances
+./stop_babysitter.sh
+
+# Or manually:
 kill $(cat logs/babysitter_8000.pid)
 kill $(cat logs/babysitter_8001.pid)
 kill $(cat logs/babysitter_8002.pid)
-
-# Stop all instances
-for pidfile in logs/babysitter_*.pid; do
-    kill $(cat "$pidfile") 2>/dev/null
-done
 
 # View logs for specific instance
 tail -f logs/babysitter_8000_*.log
