@@ -62,10 +62,70 @@ The system provides convenient launch scripts for quick deployment. All scripts 
 
 1. **`launch_registry.sh`** - Service Registry launcher
 2. **`launch_router.sh`** - Distributed Router launcher
-3. **`launch_babysitter.sh`** - Enhanced Babysitter launcher
-4. **`stop_all.sh`** - Stop all services gracefully (Registry, Router, and all Babysitter instances)
+3. **`launch_babysitter.sh`** - Enhanced Babysitter launcher (template)
+4. **`launch_babysitter_9g8b.sh`** - Enhanced Babysitter for 9g8b model (port 8100)
+5. **`launch_babysitter_qwen.sh`** - Enhanced Babysitter for Qwen model (port 8200)
+6. **`launch_all.sh`** - Launch all services in sequence (Registry → Router → Babysitter_9g8b → Babysitter_qwen)
+7. **`stop_all.sh`** - Stop all services gracefully (Registry, Router, and all Babysitter instances)
 
 ### Using Launch Scripts
+
+#### Quick Start: Launch All Services
+
+**Launch all services in the correct order:**
+```bash
+cd /home/zenghua/repos/InfiniLM-SVC
+./launch_all.sh
+```
+
+This script will:
+- Launch Service Registry
+- Wait for Registry to be ready (health check)
+- Launch Distributed Router
+- Wait for Router to be ready (health check)
+- Launch Babysitter for 9g8b model (port 8100)
+- Launch Babysitter for Qwen model (port 8200)
+- Check service health endpoints
+- Display a summary of launched services
+
+**Features:**
+- Ensures services start in the correct dependency order
+- Waits for each service to be ready before launching the next
+- Skips services that are already running (checks PID files)
+- Provides status feedback and error reporting
+- Shows colored output for easy status identification
+
+**Example output:**
+```
+========================================
+Launching All InfiniLM-SVC Services
+========================================
+
+[1/4] Launching Service Registry (port 18000)...
+Waiting for Service Registry to be ready... [ready]
+  ✓ Service Registry started and ready
+
+[2/4] Launching Distributed Router (port 8000)...
+Waiting for Distributed Router to be ready... [ready]
+  ✓ Distributed Router started and ready
+
+[3/4] Launching Enhanced Babysitter (9g8b)...
+Waiting for Babysitter (9g8b) to be ready... [ready]
+  ✓ Babysitter (9g8b) started and ready
+
+[4/4] Launching Enhanced Babysitter (Qwen)...
+Waiting for Babysitter (Qwen) to be ready... [ready]
+  ✓ Babysitter (Qwen) started and ready
+
+========================================
+Launch Summary
+========================================
+✓ Successfully launched/verified: 4/4 services
+
+All services launched successfully!
+```
+
+#### Individual Service Launch
 
 #### 1. Service Registry
 
@@ -764,6 +824,16 @@ curl http://localhost:8080/stats | jq '.services[].response_time'
 
 ### 1. Initial System Setup
 
+**Quick Start (Recommended):**
+```bash
+cd /home/zenghua/repos/InfiniLM-SVC
+./launch_all.sh
+```
+
+This will launch all services in the correct order: Registry → Router → Babysitter instances.
+
+**Manual Step-by-Step Setup:**
+
 1. **Start Registry**
    ```bash
    cd /home/zenghua/repos/InfiniLM-SVC
@@ -781,14 +851,14 @@ curl http://localhost:8080/stats | jq '.services[].response_time'
    # On each server (local and remote)
    cd /home/zenghua/repos/InfiniLM-SVC
 
-   # Edit launch_babysitter.sh or create instance-specific scripts
-   # Then launch:
-   ./launch_babysitter.sh
+   # Launch specific babysitter instances:
+   ./launch_babysitter_9g8b.sh   # Port 8100, model 9g_8b_thinking
+   ./launch_babysitter_qwen.sh   # Port 8200, model Qwen3-32B
 
-   # Or for multiple instances:
+   # Or create custom instances:
+   cp launch_babysitter.sh launch_babysitter_8000.sh
+   # Edit launch_babysitter_8000.sh configuration
    ./launch_babysitter_8000.sh
-   ./launch_babysitter_8001.sh
-   ./launch_babysitter_8002.sh
    ```
 
 ### 2. Adding New Service Instances
