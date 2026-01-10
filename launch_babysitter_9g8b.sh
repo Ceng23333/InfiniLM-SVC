@@ -29,10 +29,12 @@ MODEL_NAME=""  # Model name for /models endpoint (leave empty to use directory n
 LAUNCH_SCRIPT=""  # Path to launch_server.py (leave empty for auto-detect)
 DEV="metax"  # Device type: nvidia, metax, etc.
 NDEV=1  # Number of devices
-MAX_BATCH=3  # Max batch size
+MAX_BATCH=16  # Max batch size
 MAX_TOKENS=""  # Optional, leave empty for default
 AWQ=false  # Set to true to use AWQ quantized model
 REQUEST_TIMEOUT=30  # Request timeout in seconds
+MAX_CONCURRENCY="5"  # Max concurrent requests (leave empty for unlimited)
+FIX_REPLACEMENT_CHARS="true"  # Enable automatic removal of replacement characters (U+FFFD) from responses
 
 # Environment Variables
 HPCC_VISIBLE_DEVICES="1"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
@@ -126,6 +128,10 @@ fi
 if [ "${SERVICE_TYPE}" = "InfiniLM" ]; then
     CMD_ARGS+=("--dev" "${DEV}" "--ndev" "${NDEV}" "--max-batch" "${MAX_BATCH}" "--request-timeout" "${REQUEST_TIMEOUT}")
 
+    if [ -n "${MAX_CONCURRENCY}" ]; then
+        CMD_ARGS+=("--max-concurrency" "${MAX_CONCURRENCY}")
+    fi
+
     if [ -n "${LAUNCH_SCRIPT}" ]; then
         CMD_ARGS+=("--launch-script" "${LAUNCH_SCRIPT}")
     fi
@@ -140,6 +146,10 @@ if [ "${SERVICE_TYPE}" = "InfiniLM" ]; then
 
     if [ "${AWQ}" = "true" ]; then
         CMD_ARGS+=("--awq")
+    fi
+
+    if [ -n "${FIX_REPLACEMENT_CHARS}" ]; then
+        CMD_ARGS+=("--fix-replacement-chars" "${FIX_REPLACEMENT_CHARS}")
     fi
 fi
 
@@ -164,6 +174,7 @@ if [ "${SERVICE_TYPE}" = "InfiniLM" ]; then
     echo "Number of Devices: ${NDEV}"
     echo "Max Batch: ${MAX_BATCH}"
     echo "Request Timeout: ${REQUEST_TIMEOUT}s"
+    echo "Max Concurrency: ${MAX_CONCURRENCY:-'Unlimited'}"
 elif [ "${SERVICE_TYPE}" = "InfiniLM-Rust" ]; then
     echo "Config File: ${CONFIG_FILE}"
 fi
