@@ -9,7 +9,7 @@
 # ============================================================================
 
 # Registry port
-REGISTRY_PORT=8081
+REGISTRY_PORT=18000
 
 # Health check interval (seconds)
 HEALTH_INTERVAL=30

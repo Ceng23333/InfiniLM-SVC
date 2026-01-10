@@ -10,13 +10,13 @@
 
 # Service Configuration
 HOST="localhost"
-PORT=8100
+PORT=8200
 SERVICE_NAME=""  # Leave empty for auto-generated name
 SERVICE_TYPE="InfiniLM"  # Options: "InfiniLM" or "InfiniLM-Rust"
 
 # Registry and Router URLs (set to empty string to disable)
-REGISTRY_URL="http://localhost:8081"
-ROUTER_URL="http://localhost:8080"  # Optional, leave empty if not needed
+REGISTRY_URL="http://localhost:18000"
+ROUTER_URL="http://localhost:8000"  # Optional, leave empty if not needed
 
 # Babysitter Configuration
 MAX_RESTARTS=10000
@@ -28,14 +28,15 @@ MODEL_PATH="/models/Qwen3-32B"  # Required for InfiniLM
 MODEL_NAME=""  # Model name for /models endpoint (leave empty to use directory name from MODEL_PATH, like vLLM/llama.cpp)
 LAUNCH_SCRIPT=""  # Path to launch_server.py (leave empty for auto-detect)
 DEV="metax"  # Device type: nvidia, metax, etc.
-NDEV=4  # Number of devices
+NDEV=2  # Number of devices
 MAX_BATCH=3  # Max batch size
 MAX_TOKENS=""  # Optional, leave empty for default
 AWQ=false  # Set to true to use AWQ quantized model
 REQUEST_TIMEOUT=30  # Request timeout in seconds
 
 # Environment Variables
-HPCC_VISIBLE_DEVICES="4,5,6,7"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
+HCCL_PCIE_BUFFER_MODE=0   # Disable PCIe buffer mode for two GPUs
+HPCC_VISIBLE_DEVICES="4,5"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
 # CUDA_VISIBLE_DEVICES="0"  # CUDA visible devices (uncomment for future use, e.g., "0", "0,1", "0,1,2")
 
 # InfiniLM-Rust Configuration (for SERVICE_TYPE="InfiniLM-Rust")

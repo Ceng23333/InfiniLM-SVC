@@ -10,13 +10,13 @@
 
 # Service Configuration
 HOST="localhost"
-PORT=8000
+PORT=8100
 SERVICE_NAME=""  # Leave empty for auto-generated name
 SERVICE_TYPE="InfiniLM"  # Options: "InfiniLM" or "InfiniLM-Rust"
 
 # Registry and Router URLs (set to empty string to disable)
-REGISTRY_URL="http://localhost:8081"
-ROUTER_URL="http://localhost:8080"  # Optional, leave empty if not needed
+REGISTRY_URL="http://localhost:18000"
+ROUTER_URL="http://localhost:8000"  # Optional, leave empty if not needed
 
 # Babysitter Configuration
 MAX_RESTARTS=10000

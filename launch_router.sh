@@ -9,10 +9,10 @@
 # ============================================================================
 
 # Router port
-ROUTER_PORT=8080
+ROUTER_PORT=8000
 
 # Registry URL (set to empty string to disable registry integration)
-REGISTRY_URL="http://localhost:8081"
+REGISTRY_URL="http://localhost:18000"
 
 # Static services JSON file (optional, leave empty to disable)
 STATIC_SERVICES_FILE=""
