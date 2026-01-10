@@ -718,7 +718,15 @@ class EnhancedServiceBabysitter:
             else:
                 arg = f"--{key.replace('_', '-')}"
 
-            if value is True:
+            # Special handling for fix_replacement_chars - needs string value
+            if key == "fix_replacement_chars":
+                if value is True:
+                    cmd.extend([arg, "true"])
+                elif value is False:
+                    cmd.extend([arg, "false"])
+                elif value is not None:
+                    cmd.extend([arg, str(value)])
+            elif value is True:
                 cmd.append(arg)
             elif value is False:
                 continue  # Skip False flags
