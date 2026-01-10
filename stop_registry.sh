@@ -16,7 +16,7 @@ stop_service() {
     fi
 
     PID=$(cat "${PID_FILE}")
-    
+
     if [ -z "${PID}" ]; then
         echo "✗ Invalid PID file: ${PID_FILE}"
         rm -f "${PID_FILE}"
@@ -31,10 +31,10 @@ stop_service() {
     fi
 
     echo "Stopping ${SERVICE_NAME} (PID: ${PID})..."
-    
+
     # Send SIGTERM for graceful shutdown
     kill ${PID} 2>/dev/null
-    
+
     # Wait for graceful shutdown
     count=0
     while ps -p ${PID} > /dev/null 2>&1 && [ ${count} -lt ${TIMEOUT} ]; do
@@ -43,19 +43,19 @@ stop_service() {
         echo -n "."
     done
     echo ""
-    
+
     # Check if process is still running
     if ps -p ${PID} > /dev/null 2>&1; then
         echo "⚠ Process did not stop gracefully within ${TIMEOUT}s, sending SIGKILL..."
         kill -9 ${PID} 2>/dev/null
         sleep 1
-        
+
         if ps -p ${PID} > /dev/null 2>&1; then
             echo "✗ Failed to stop ${SERVICE_NAME} (PID: ${PID})"
             exit 1
         fi
     fi
-    
+
     # Clean up PID file
     rm -f "${PID_FILE}"
     echo "✓ ${SERVICE_NAME} stopped successfully"
@@ -63,4 +63,3 @@ stop_service() {
 
 # Main execution
 stop_service
-

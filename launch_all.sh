@@ -12,7 +12,9 @@ NC='\033[0m' # No Color
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${SCRIPT_DIR}/logs"
-WAIT_TIMEOUT=30  # Maximum wait time for each service to become ready (seconds)
+REGISTRY_WAIT_TIMEOUT=60  # Maximum wait time for Registry to become ready (seconds)
+ROUTER_WAIT_TIMEOUT=60    # Maximum wait time for Router to become ready (seconds)
+BABYSITTER_WAIT_TIMEOUT=180  # Maximum wait time for Babysitter to become ready (seconds) - longer for model loading
 
 # Change to script directory
 cd "${SCRIPT_DIR}" || exit 1
@@ -21,7 +23,7 @@ cd "${SCRIPT_DIR}" || exit 1
 wait_for_service() {
     local url=$1
     local service_name=$2
-    local max_wait=${WAIT_TIMEOUT}
+    local max_wait=$3  # Timeout as parameter
     local elapsed=0
 
     echo -n "Waiting for ${service_name} to be ready..."
@@ -32,9 +34,30 @@ wait_for_service() {
         fi
         sleep 1
         elapsed=$((elapsed + 1))
-        echo -n "."
+        if [ $((elapsed % 5)) -eq 0 ]; then
+            echo -n "."
+        fi
     done
-    echo -e " ${RED}[timeout]${NC}"
+    echo -e " ${RED}[timeout after ${max_wait}s]${NC}"
+    return 1
+}
+
+# Function to check if process started successfully (by PID file)
+check_process_started() {
+    local pid_file=$1
+    local max_wait=5
+    local elapsed=0
+
+    while [ ${elapsed} -lt ${max_wait} ]; do
+        if [ -f "${pid_file}" ]; then
+            local pid=$(cat "${pid_file}" 2>/dev/null)
+            if [ -n "${pid}" ] && ps -p ${pid} > /dev/null 2>&1; then
+                return 0
+            fi
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
     return 1
 }
 
@@ -70,23 +93,45 @@ failed_services=()
 REGISTRY_PORT=$(grep "^REGISTRY_PORT=" launch_registry.sh 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "18000")
 ROUTER_PORT=$(grep "^ROUTER_PORT=" launch_router.sh 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d ' ' || echo "8000")
 
-# 1. Launch Service Registry
+# 1. Launch Service Registry (CRITICAL - required for other services)
 echo -e "${BLUE}[1/4] Launching Service Registry (port ${REGISTRY_PORT})...${NC}"
 if check_service_running "${LOG_DIR}/registry.pid" "Service Registry"; then
     echo "  Skipping (already running)"
     success_count=$((success_count + 1))
+    # Verify it's actually responding
+    if ! wait_for_service "http://localhost:${REGISTRY_PORT}/health" "Service Registry" 5; then
+        echo -e "  ${YELLOW}⚠ Warning: Service Registry PID exists but health check failed${NC}"
+    fi
 else
+    echo "  Starting Service Registry..."
     if ./launch_registry.sh > /dev/null 2>&1; then
-        if wait_for_service "http://localhost:${REGISTRY_PORT}/health" "Service Registry"; then
-            success_count=$((success_count + 1))
-            echo "  ✓ Service Registry started and ready"
+        # Check if process started
+        sleep 2
+        if check_process_started "${LOG_DIR}/registry.pid"; then
+            echo "  Process started, waiting for health check..."
+            if wait_for_service "http://localhost:${REGISTRY_PORT}/health" "Service Registry" ${REGISTRY_WAIT_TIMEOUT}; then
+                success_count=$((success_count + 1))
+                echo "  ✓ Service Registry started and ready"
+            else
+                failed_services+=("Service Registry")
+                echo -e "  ${RED}✗ Service Registry failed to become ready${NC}"
+                echo "  Check logs: ${LOG_DIR}/registry_*.log"
+                echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
+                exit 1
+            fi
         else
             failed_services+=("Service Registry")
-            echo -e "  ${RED}✗ Service Registry failed to become ready${NC}"
+            echo -e "  ${RED}✗ Failed to start Service Registry (process did not start)${NC}"
+            echo "  Check logs: ${LOG_DIR}/registry_*.log"
+            echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
+            exit 1
         fi
     else
         failed_services+=("Service Registry")
-        echo -e "  ${RED}✗ Failed to start Service Registry${NC}"
+        echo -e "  ${RED}✗ Failed to launch Service Registry${NC}"
+        echo "  Check logs: ${LOG_DIR}/registry_*.log"
+        echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
+        exit 1
     fi
 fi
 echo ""
@@ -96,18 +141,34 @@ echo -e "${BLUE}[2/4] Launching Distributed Router (port ${ROUTER_PORT})...${NC}
 if check_service_running "${LOG_DIR}/router.pid" "Distributed Router"; then
     echo "  Skipping (already running)"
     success_count=$((success_count + 1))
+    # Verify it's actually responding
+    if ! wait_for_service "http://localhost:${ROUTER_PORT}/health" "Distributed Router" 5; then
+        echo -e "  ${YELLOW}⚠ Warning: Distributed Router PID exists but health check failed${NC}"
+    fi
 else
+    echo "  Starting Distributed Router..."
     if ./launch_router.sh > /dev/null 2>&1; then
-        if wait_for_service "http://localhost:${ROUTER_PORT}/health" "Distributed Router"; then
-            success_count=$((success_count + 1))
-            echo "  ✓ Distributed Router started and ready"
+        # Check if process started
+        sleep 2
+        if check_process_started "${LOG_DIR}/router.pid"; then
+            echo "  Process started, waiting for health check..."
+            if wait_for_service "http://localhost:${ROUTER_PORT}/health" "Distributed Router" ${ROUTER_WAIT_TIMEOUT}; then
+                success_count=$((success_count + 1))
+                echo "  ✓ Distributed Router started and ready"
+            else
+                failed_services+=("Distributed Router")
+                echo -e "  ${RED}✗ Distributed Router failed to become ready${NC}"
+                echo "  Check logs: ${LOG_DIR}/router_*.log"
+            fi
         else
             failed_services+=("Distributed Router")
-            echo -e "  ${RED}✗ Distributed Router failed to become ready${NC}"
+            echo -e "  ${RED}✗ Failed to start Distributed Router (process did not start)${NC}"
+            echo "  Check logs: ${LOG_DIR}/router_*.log"
         fi
     else
         failed_services+=("Distributed Router")
-        echo -e "  ${RED}✗ Failed to start Distributed Router${NC}"
+        echo -e "  ${RED}✗ Failed to launch Distributed Router${NC}"
+        echo "  Check logs: ${LOG_DIR}/router_*.log"
     fi
 fi
 echo ""
@@ -118,21 +179,31 @@ if check_service_running "${LOG_DIR}/babysitter_8100.pid" "Babysitter (9g8b)"; t
     echo "  Skipping (already running)"
     success_count=$((success_count + 1))
 else
+    echo "  Starting Babysitter (9g8b)..."
     if ./launch_babysitter_9g8b.sh > /dev/null 2>&1; then
-        # Wait a bit longer for babysitter as it needs to start the InfiniLM server
-        echo -n "Waiting for Babysitter (9g8b) to be ready..."
-        if wait_for_service "http://localhost:8101/health" "Babysitter (9g8b)"; then
-            success_count=$((success_count + 1))
-            echo "  ✓ Babysitter (9g8b) started and ready"
+        # Check if process started
+        sleep 2
+        if check_process_started "${LOG_DIR}/babysitter_8100.pid"; then
+            echo "  Process started, waiting for babysitter to be ready..."
+            if wait_for_service "http://localhost:8101/health" "Babysitter (9g8b)" ${BABYSITTER_WAIT_TIMEOUT}; then
+                success_count=$((success_count + 1))
+                echo "  ✓ Babysitter (9g8b) started and ready"
+            else
+                echo -e "  ${YELLOW}⚠ Babysitter (9g8b) started but health check timed out${NC}"
+                echo "  (This is normal if model is still loading - can take several minutes)"
+                echo "  Check logs: ${LOG_DIR}/babysitter_8100_*.log"
+                echo "  Check status: curl http://localhost:8101/health"
+                success_count=$((success_count + 1))  # Count as success since process started
+            fi
         else
             failed_services+=("Babysitter (9g8b)")
-            echo -e "  ${YELLOW}⚠ Babysitter (9g8b) started but may still be loading model${NC}"
-            echo "  (Model loading can take several minutes - check logs if needed)"
-            success_count=$((success_count + 1))  # Count as success since it started
+            echo -e "  ${RED}✗ Failed to start Babysitter (9g8b) (process did not start)${NC}"
+            echo "  Check logs: ${LOG_DIR}/babysitter_8100_*.log"
         fi
     else
         failed_services+=("Babysitter (9g8b)")
-        echo -e "  ${RED}✗ Failed to start Babysitter (9g8b)${NC}"
+        echo -e "  ${RED}✗ Failed to launch Babysitter (9g8b)${NC}"
+        echo "  Check logs: ${LOG_DIR}/babysitter_8100_*.log"
     fi
 fi
 echo ""
@@ -143,21 +214,31 @@ if check_service_running "${LOG_DIR}/babysitter_8200.pid" "Babysitter (Qwen)"; t
     echo "  Skipping (already running)"
     success_count=$((success_count + 1))
 else
+    echo "  Starting Babysitter (Qwen)..."
     if ./launch_babysitter_qwen.sh > /dev/null 2>&1; then
-        # Wait a bit longer for babysitter as it needs to start the InfiniLM server
-        echo -n "Waiting for Babysitter (Qwen) to be ready..."
-        if wait_for_service "http://localhost:8201/health" "Babysitter (Qwen)"; then
-            success_count=$((success_count + 1))
-            echo "  ✓ Babysitter (Qwen) started and ready"
+        # Check if process started
+        sleep 2
+        if check_process_started "${LOG_DIR}/babysitter_8200.pid"; then
+            echo "  Process started, waiting for babysitter to be ready..."
+            if wait_for_service "http://localhost:8201/health" "Babysitter (Qwen)" ${BABYSITTER_WAIT_TIMEOUT}; then
+                success_count=$((success_count + 1))
+                echo "  ✓ Babysitter (Qwen) started and ready"
+            else
+                echo -e "  ${YELLOW}⚠ Babysitter (Qwen) started but health check timed out${NC}"
+                echo "  (This is normal if model is still loading - can take several minutes)"
+                echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
+                echo "  Check status: curl http://localhost:8201/health"
+                success_count=$((success_count + 1))  # Count as success since process started
+            fi
         else
             failed_services+=("Babysitter (Qwen)")
-            echo -e "  ${YELLOW}⚠ Babysitter (Qwen) started but may still be loading model${NC}"
-            echo "  (Model loading can take several minutes - check logs if needed)"
-            success_count=$((success_count + 1))  # Count as success since it started
+            echo -e "  ${RED}✗ Failed to start Babysitter (Qwen) (process did not start)${NC}"
+            echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
         fi
     else
         failed_services+=("Babysitter (Qwen)")
-        echo -e "  ${RED}✗ Failed to start Babysitter (Qwen)${NC}"
+        echo -e "  ${RED}✗ Failed to launch Babysitter (Qwen)${NC}"
+        echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
     fi
 fi
 echo ""
@@ -182,8 +263,17 @@ echo ""
 echo "Quick status checks:"
 echo "  curl http://localhost:${REGISTRY_PORT}/health  # Registry"
 echo "  curl http://localhost:${ROUTER_PORT}/health  # Router"
+echo "  curl http://localhost:${ROUTER_PORT}/models  # Router - aggregated models"
 echo "  curl http://localhost:8101/health  # Babysitter (9g8b)"
 echo "  curl http://localhost:8201/health  # Babysitter (Qwen)"
+echo "  curl http://localhost:8100/models  # InfiniLM server (9g8b)"
+echo "  curl http://localhost:8200/models  # InfiniLM server (Qwen)"
+echo ""
+echo "Registry services:"
+echo "  curl http://localhost:${REGISTRY_PORT}/services  # List all registered services"
+echo ""
+echo "Note: If models are still loading, they may not appear in the router's /models endpoint yet."
+echo "      Check babysitter logs to verify model loading progress."
 echo ""
 echo "To stop all services:"
 echo "  ./stop_all.sh"
