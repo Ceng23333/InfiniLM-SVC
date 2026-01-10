@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${SCRIPT_DIR}/logs"
 REGISTRY_WAIT_TIMEOUT=60  # Maximum wait time for Registry to become ready (seconds)
 ROUTER_WAIT_TIMEOUT=60    # Maximum wait time for Router to become ready (seconds)
-BABYSITTER_WAIT_TIMEOUT=180  # Maximum wait time for Babysitter to become ready (seconds) - longer for model loading
+BABYSITTER_WAIT_TIMEOUT=300  # Maximum wait time for Babysitter to become ready (seconds) - longer for model loading
 
 # Change to script directory
 cd "${SCRIPT_DIR}" || exit 1
@@ -184,17 +184,9 @@ else
         # Check if process started
         sleep 2
         if check_process_started "${LOG_DIR}/babysitter_8100.pid"; then
-            echo "  Process started, waiting for babysitter to be ready..."
-            if wait_for_service "http://localhost:8101/health" "Babysitter (9g8b)" ${BABYSITTER_WAIT_TIMEOUT}; then
-                success_count=$((success_count + 1))
-                echo "  ✓ Babysitter (9g8b) started and ready"
-            else
-                echo -e "  ${YELLOW}⚠ Babysitter (9g8b) started but health check timed out${NC}"
-                echo "  (This is normal if model is still loading - can take several minutes)"
-                echo "  Check logs: ${LOG_DIR}/babysitter_8100_*.log"
-                echo "  Check status: curl http://localhost:8101/health"
-                success_count=$((success_count + 1))  # Count as success since process started
-            fi
+            success_count=$((success_count + 1))
+            echo "  ✓ Babysitter (9g8b) process started (model may still be loading)"
+            echo "  (Health check will be verified at the end - model loading can take several minutes)"
         else
             failed_services+=("Babysitter (9g8b)")
             echo -e "  ${RED}✗ Failed to start Babysitter (9g8b) (process did not start)${NC}"
@@ -208,7 +200,7 @@ else
 fi
 echo ""
 
-# 4. Launch Babysitter for Qwen model
+# 4. Launch Babysitter for Qwen model (non-blocking - starts immediately after 9g8b launch)
 echo -e "${BLUE}[4/4] Launching Enhanced Babysitter (Qwen)...${NC}"
 if check_service_running "${LOG_DIR}/babysitter_8200.pid" "Babysitter (Qwen)"; then
     echo "  Skipping (already running)"
@@ -219,17 +211,9 @@ else
         # Check if process started
         sleep 2
         if check_process_started "${LOG_DIR}/babysitter_8200.pid"; then
-            echo "  Process started, waiting for babysitter to be ready..."
-            if wait_for_service "http://localhost:8201/health" "Babysitter (Qwen)" ${BABYSITTER_WAIT_TIMEOUT}; then
-                success_count=$((success_count + 1))
-                echo "  ✓ Babysitter (Qwen) started and ready"
-            else
-                echo -e "  ${YELLOW}⚠ Babysitter (Qwen) started but health check timed out${NC}"
-                echo "  (This is normal if model is still loading - can take several minutes)"
-                echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
-                echo "  Check status: curl http://localhost:8201/health"
-                success_count=$((success_count + 1))  # Count as success since process started
-            fi
+            success_count=$((success_count + 1))
+            echo "  ✓ Babysitter (Qwen) process started (model may still be loading)"
+            echo "  (Health check will be verified at the end - model loading can take several minutes)"
         else
             failed_services+=("Babysitter (Qwen)")
             echo -e "  ${RED}✗ Failed to start Babysitter (Qwen) (process did not start)${NC}"
@@ -239,6 +223,36 @@ else
         failed_services+=("Babysitter (Qwen)")
         echo -e "  ${RED}✗ Failed to launch Babysitter (Qwen)${NC}"
         echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
+    fi
+fi
+echo ""
+
+# Verify babysitter health checks (non-blocking quick verification)
+echo -e "${BLUE}Quick Health Status Check (non-blocking)...${NC}"
+
+# Check 9g8b babysitter health (quick check, don't wait long)
+if [ -f "${LOG_DIR}/babysitter_8100.pid" ]; then
+    pid=$(cat "${LOG_DIR}/babysitter_8100.pid" 2>/dev/null)
+    if [ -n "${pid}" ] && ps -p ${pid} > /dev/null 2>&1; then
+        echo -n "  Babysitter (9g8b): "
+        if curl -s -f "http://localhost:8101/health" > /dev/null 2>&1; then
+            echo -e "${GREEN}[ready]${NC}"
+        else
+            echo -e "${YELLOW}[loading model - normal if just started]${NC}"
+        fi
+    fi
+fi
+
+# Check Qwen babysitter health (quick check, don't wait long)
+if [ -f "${LOG_DIR}/babysitter_8200.pid" ]; then
+    pid=$(cat "${LOG_DIR}/babysitter_8200.pid" 2>/dev/null)
+    if [ -n "${pid}" ] && ps -p ${pid} > /dev/null 2>&1; then
+        echo -n "  Babysitter (Qwen): "
+        if curl -s -f "http://localhost:8201/health" > /dev/null 2>&1; then
+            echo -e "${GREEN}[ready]${NC}"
+        else
+            echo -e "${YELLOW}[loading model - normal if just started]${NC}"
+        fi
     fi
 fi
 echo ""
