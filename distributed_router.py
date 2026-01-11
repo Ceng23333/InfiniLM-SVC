@@ -43,12 +43,15 @@ class ServiceInstance:
     weight: int = 1
     metadata: Dict = None
     models: List[str] = None  # List of model IDs supported by this service
+    last_seen_in_registry: float = 0  # Timestamp when service was last seen in registry
 
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
         if self.models is None:
             self.models = []
+        if self.last_seen_in_registry == 0:
+            self.last_seen_in_registry = time.time()
         # Generate babysitter_url using service port plus 1
         # Rule: babysitter_port = service_port + 1
         babysitter_port = self.port + 1
@@ -69,6 +72,7 @@ class DistributedLoadBalancer:
         self.running = True
         self.registry_url = registry_url
         self.registry_sync_interval = 10  # seconds - increased frequency for active service checks
+        self.service_removal_grace_period = 60  # seconds - keep services for 60s after they disappear from registry
 
         # Initialize static services if provided
         if static_services:
@@ -105,6 +109,8 @@ class DistributedLoadBalancer:
 
                         # Update services from registry
                         registry_service_names = set()
+                        current_time = time.time()
+
                         for service_data in registry_services:
                             service_name = service_data['name']
                             registry_service_names.add(service_name)
@@ -123,6 +129,8 @@ class DistributedLoadBalancer:
                                 service.url = service_data['url']
                                 service.healthy = service_data.get('is_healthy', True)
                                 service.metadata = service_data.get('metadata', {})
+                                # Update last seen timestamp
+                                service.last_seen_in_registry = current_time
                                 # Update models from metadata
                                 models_from_metadata = service.metadata.get("models", [])
                                 service.models = models_from_metadata if isinstance(models_from_metadata, list) else []
@@ -142,21 +150,30 @@ class DistributedLoadBalancer:
                                     healthy=service_data.get('is_healthy', True),
                                     weight=service_data.get('weight', 1),
                                     metadata=service_metadata,
-                                    models=models_from_metadata if isinstance(models_from_metadata, list) else []
+                                    models=models_from_metadata if isinstance(models_from_metadata, list) else [],
+                                    last_seen_in_registry=current_time
                                 )
                                 self.services[service_name] = service
                                 logger.info(f"Added OpenAI API service from registry: {service_name} at {service.url} (babysitter: {service.babysitter_url}, models: {service.models})")
 
                         # Remove services that are no longer in registry (but keep static services)
+                        # Only remove if they've been missing from registry for longer than grace period
                         services_to_remove = []
                         for service_name, service in self.services.items():
                             if (service_name not in registry_service_names and
                                 not service.metadata.get('static', False)):
-                                services_to_remove.append(service_name)
+                                # Check if grace period has expired
+                                time_since_last_seen = current_time - service.last_seen_in_registry
+                                if time_since_last_seen >= self.service_removal_grace_period:
+                                    services_to_remove.append(service_name)
+                                else:
+                                    # Service is temporarily missing, but still within grace period
+                                    remaining_grace = self.service_removal_grace_period - time_since_last_seen
+                                    logger.debug(f"Service {service_name} not in registry, but within grace period ({remaining_grace:.1f}s remaining)")
 
                         for service_name in services_to_remove:
                             del self.services[service_name]
-                            logger.info(f"Removed service from registry: {service_name}")
+                            logger.info(f"Removed service from registry (after {self.service_removal_grace_period}s grace period): {service_name}")
 
         except Exception as e:
             logger.warning(f"Failed to sync with registry: {e}")
@@ -627,6 +644,7 @@ def main():
     parser.add_argument("--health-timeout", type=int, default=5, help="Health check timeout in seconds (default: 5)")
     parser.add_argument("--max-errors", type=int, default=3, help="Max errors before marking service unhealthy (default: 3)")
     parser.add_argument("--registry-sync-interval", type=int, default=10, help="Registry sync interval in seconds (default: 10)")
+    parser.add_argument("--service-removal-grace-period", type=int, default=60, help="Grace period in seconds before removing services that disappear from registry (default: 60)")
 
     args = parser.parse_args()
 
@@ -656,6 +674,7 @@ def main():
     router.load_balancer.health_check_timeout = args.health_timeout
     router.load_balancer.max_errors = args.max_errors
     router.load_balancer.registry_sync_interval = args.registry_sync_interval
+    router.load_balancer.service_removal_grace_period = args.service_removal_grace_period
 
     # Run the router
     try:
