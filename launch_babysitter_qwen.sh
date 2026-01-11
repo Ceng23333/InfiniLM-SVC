@@ -34,7 +34,6 @@ MAX_TOKENS=""  # Optional, leave empty for default
 AWQ=false  # Set to true to use AWQ quantized model
 REQUEST_TIMEOUT=30  # Request timeout in seconds
 MAX_CONCURRENCY="5"  # Max concurrent requests (leave empty for unlimited)
-FIX_REPLACEMENT_CHARS="true"  # Enable automatic removal of replacement characters (U+FFFD) from responses
 
 # Environment Variables
 HCCL_PCIE_BUFFER_MODE=0   # Disable PCIe buffer mode for two GPUs
@@ -147,10 +146,6 @@ if [ "${SERVICE_TYPE}" = "InfiniLM" ]; then
 
     if [ "${AWQ}" = "true" ]; then
         CMD_ARGS+=("--awq")
-    fi
-
-    if [ -n "${FIX_REPLACEMENT_CHARS}" ]; then
-        CMD_ARGS+=("--fix-replacement-chars" "${FIX_REPLACEMENT_CHARS}")
     fi
 fi
 

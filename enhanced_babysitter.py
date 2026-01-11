@@ -718,15 +718,7 @@ class EnhancedServiceBabysitter:
             else:
                 arg = f"--{key.replace('_', '-')}"
 
-            # Special handling for fix_replacement_chars - needs string value
-            if key == "fix_replacement_chars":
-                if value is True:
-                    cmd.extend([arg, "true"])
-                elif value is False:
-                    cmd.extend([arg, "false"])
-                elif value is not None:
-                    cmd.extend([arg, str(value)])
-            elif value is True:
+            if value is True:
                 cmd.append(arg)
             elif value is False:
                 continue  # Skip False flags
@@ -915,9 +907,6 @@ def main():
                        help="Maximum number of concurrent requests for InfiniLM server (default: None, unlimited)")
     parser.add_argument("--launch-script", default=None,
                        help="Path to launch_server.py script (default: auto-detect from common locations)")
-    parser.add_argument("--fix-replacement-chars", type=lambda x: x.lower() in ('true', '1', 'yes', 'on'),
-                       default=None,
-                       help="Whether to automatically remove replacement characters (U+FFFD) from responses for InfiniLM server")
 
     args = parser.parse_args()
 
@@ -940,8 +929,6 @@ def main():
             infinilm_server_args["awq"] = True
         if args.max_concurrency is not None:
             infinilm_server_args["max_concurrency"] = args.max_concurrency
-        if args.fix_replacement_chars is not None:
-            infinilm_server_args["fix_replacement_chars"] = args.fix_replacement_chars
     else:
         # For InfiniLM-Rust, --path is the config file path
         if not os.path.exists(args.path):
