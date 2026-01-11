@@ -9,6 +9,7 @@ import time
 import signal
 import sys
 import os
+import shutil
 import logging
 import threading
 import asyncio
@@ -602,46 +603,67 @@ class EnhancedServiceBabysitter:
 
     def _start_rust_service(self):
         """Start the InfiniLM-Rust service"""
-        # Find the InfiniLM-Rust repository directory
-        possible_paths = [
-            Path(__file__).parent.parent / "InfiniLM-Rust",
-            Path("/home/zenghua/repos/InfiniLM-Rust"),
-            Path("InfiniLM-Rust"),
-        ]
-
+        # Use xtask binary directly if available in PATH, otherwise try cargo xtask
+        # First check if xtask is available
+        xtask_cmd = None
         repo_dir = None
-        for path in possible_paths:
-            if path.exists():
-                repo_dir = path
-                break
 
-        if repo_dir is None:
-            logger.error("Could not find InfiniLM-Rust repository directory")
+        # Try to find xtask in PATH
+        xtask_path = shutil.which("xtask")
+        if xtask_path:
+            xtask_cmd = "xtask"
+            logger.info(f"Found xtask binary at: {xtask_path}")
+
+        # If xtask not in PATH, try to find InfiniLM-Rust directory for cargo xtask
+        if not xtask_cmd:
+            possible_paths = [
+                Path(__file__).parent.parent / "InfiniLM-Rust",
+                Path("/home/zenghua/repos/InfiniLM-Rust"),
+                Path("InfiniLM-Rust"),
+            ]
+
+            for path in possible_paths:
+                if path.exists() and (path / "Cargo.toml").exists():
+                    repo_dir = path
+                    xtask_cmd = "cargo xtask"
+                    logger.info(f"Found InfiniLM-Rust repository at: {repo_dir}, will use cargo xtask")
+                    break
+
+        if not xtask_cmd:
+            logger.error("Could not find xtask binary in PATH or InfiniLM-Rust repository directory")
+            logger.error("Please ensure xtask is installed and in PATH, or InfiniLM-Rust repository is available")
             return False
 
-        # Build the cargo command
-        cmd = [
-            "xtask",
-            "service", self.config_file,
-            "-p", str(self.service_target_port)
-        ]
+        # Build the command
+        if xtask_cmd == "cargo xtask":
+            cmd = [
+                "cargo",
+                "xtask", "service", self.config_file,
+                "-p", str(self.service_target_port)
+            ]
+        else:
+            cmd = [
+                "xtask",
+                "service", self.config_file,
+                "-p", str(self.service_target_port)
+            ]
 
         logger.info(f"Starting InfiniLM-Rust service with command: {' '.join(cmd)}")
-        logger.info(f"Working directory: {repo_dir}")
+        if repo_dir:
+            logger.info(f"Working directory: {repo_dir}")
+        else:
+            logger.info("Working directory: current directory (xtask in PATH)")
 
         # Start the process with proper environment
         env = os.environ.copy()
-        # Source cargo environment
-        cargo_env_path = os.path.expanduser("~/.cargo/env")
-        if os.path.exists(cargo_env_path):
-            # Add cargo bin to PATH
-            cargo_bin = os.path.expanduser("~/.cargo/bin")
-            if cargo_bin not in env.get("PATH", ""):
-                env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
+        # Ensure cargo bin is in PATH for xtask if needed
+        cargo_bin = os.path.expanduser("~/.cargo/bin")
+        if cargo_bin not in env.get("PATH", ""):
+            env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
 
         self.process = subprocess.Popen(
             cmd,
-            cwd=repo_dir,
+            cwd=repo_dir if repo_dir else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
