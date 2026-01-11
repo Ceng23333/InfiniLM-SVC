@@ -81,31 +81,57 @@ async def make_request(
             # First response time: when status code is received (server started processing)
             first_response_time = time.time()
 
+            # Log status code for debugging
+            if status_code != 200:
+                error_body = await response.text()
+                print(f"❌ Request {request_id} failed with status {status_code}")
+                print(f"   Error response: {error_body[:500]}")  # First 500 chars
+                return (request_id, {"error": f"HTTP {status_code}: {error_body[:200]}"},
+                        time.time() - send_time, status_code, send_time, first_response_time, time.time())
+
             if stream:
                 # Handle streaming response
                 content_parts = []
                 first_chunk_time = None
-                async for line in response.content:
-                    if line:
-                        if first_chunk_time is None:
-                            first_chunk_time = time.time()  # When first chunk actually arrives
-                            first_response_time = first_chunk_time
-                        line_str = line.decode('utf-8').strip()
-                        if line_str.startswith('data: '):
-                            data_str = line_str[6:]  # Remove 'data: ' prefix
-                            if data_str == '[DONE]':
-                                break
+                chunk_count = 0
+                try:
+                    async for line in response.content:
+                        if line:
+                            chunk_count += 1
+                            if first_chunk_time is None:
+                                first_chunk_time = time.time()  # When first chunk actually arrives
+                                first_response_time = first_chunk_time
+                            line_str = line.decode('utf-8').strip()
+                            if line_str.startswith('data: '):
+                                data_str = line_str[6:]  # Remove 'data: ' prefix
+                                if data_str == '[DONE]':
+                                    break
                             try:
                                 chunk_data = json.loads(data_str)
                                 if 'choices' in chunk_data and len(chunk_data['choices']) > 0:
                                     delta = chunk_data['choices'][0].get('delta', {})
-                                    if 'content' in delta:
+                                    if 'content' in delta and delta['content'] is not None:
                                         content_parts.append(delta['content'])
-                            except json.JSONDecodeError:
-                                pass
+                            except json.JSONDecodeError as e:
+                                print(f"⚠️  Request {request_id}: Failed to parse chunk {chunk_count}: {data_str[:100]}")
+                                print(f"   JSON error: {e}")
+                except Exception as stream_error:
+                    print(f"❌ Request {request_id}: Stream error after {chunk_count} chunks")
+                    print(f"   Error: {stream_error}")
+                    # Filter out None values and ensure all are strings before joining
+                    valid_content = [str(c) for c in content_parts if c is not None and isinstance(c, (str, int, float))]
+                    print(f"   Content collected so far: {len(''.join(valid_content))} chars from {len(valid_content)} chunks")
+                    return (request_id, {"error": f"Stream error: {str(stream_error)}"},
+                            time.time() - send_time, status_code, send_time, first_response_time, time.time())
+
+                # Filter out None values and ensure all are strings before joining
+                valid_content = [str(c) for c in content_parts if c is not None and isinstance(c, (str, int, float))]
+
+                if not valid_content:
+                    print(f"⚠️  Request {request_id}: No content received in stream (got {chunk_count} chunks, {len(content_parts)} content parts)")
 
                 response_data = {
-                    "content": "".join(content_parts),
+                    "content": "".join(valid_content),
                     "stream": True
                 }
             else:
@@ -115,7 +141,16 @@ async def make_request(
                 # So we'll use a heuristic: assume processing starts when response body arrives
                 # We'll update first_response_time when we actually get the data
                 body_start_time = time.time()
-                response_data = await response.json()
+                try:
+                    response_data = await response.json()
+                except Exception as json_error:
+                    error_text = await response.text()
+                    print(f"❌ Request {request_id}: Failed to parse JSON response")
+                    print(f"   Status: {status_code}")
+                    print(f"   Error: {json_error}")
+                    print(f"   Response text: {error_text[:500]}")
+                    return (request_id, {"error": f"JSON parse error: {str(json_error)}"},
+                            time.time() - send_time, status_code, send_time, first_response_time, time.time())
                 # Update first_response_time to when body actually arrived (better proxy for processing start)
                 # For non-streaming, this is still an estimate, but better than status code time
                 first_response_time = body_start_time
@@ -127,6 +162,11 @@ async def make_request(
             if first_response_time is None:
                 first_response_time = send_time
 
+            # Log successful completion for debugging
+            if status_code == 200:
+                content_len = len(response_data.get("content", "")) if isinstance(response_data, dict) else 0
+                print(f"✅ Request {request_id}: Completed successfully in {elapsed_time:.2f}s (content: {content_len} chars)")
+
             return (request_id, response_data, elapsed_time, status_code, send_time, first_response_time, end_time)
 
     except asyncio.TimeoutError:
@@ -134,24 +174,32 @@ async def make_request(
         elapsed_time = end_time - send_time
         if first_response_time is None:
             first_response_time = send_time
+        print(f"❌ Request {request_id}: Timeout after {elapsed_time:.2f}s")
         return (request_id, {"error": "Request timeout"}, elapsed_time, 0, send_time, first_response_time, end_time)
     except aiohttp.ClientConnectorError as e:
         end_time = time.time()
         elapsed_time = end_time - send_time
         if first_response_time is None:
             first_response_time = send_time
+        print(f"❌ Request {request_id}: Connection error: {e}")
         return (request_id, {"error": f"Connection error: {str(e)}"}, elapsed_time, 0, send_time, first_response_time, end_time)
     except aiohttp.ClientError as e:
         end_time = time.time()
         elapsed_time = end_time - send_time
         if first_response_time is None:
             first_response_time = send_time
+        print(f"❌ Request {request_id}: Client error: {e}")
+        import traceback
+        traceback.print_exc()
         return (request_id, {"error": f"Client error: {str(e)}"}, elapsed_time, 0, send_time, first_response_time, end_time)
     except Exception as e:
         end_time = time.time()
         elapsed_time = end_time - send_time
         if first_response_time is None:
             first_response_time = send_time
+        print(f"❌ Request {request_id}: Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
         return (request_id, {"error": str(e)}, elapsed_time, 0, send_time, first_response_time, end_time)
 
 
@@ -432,13 +480,30 @@ def print_summary(results: List[Tuple], total_time: float):
     print(f"Successful (200): {successful} ({successful/total_requests*100:.1f}%)")
     print(f"Failed: {failed} ({failed/total_requests*100:.1f}%)")
 
+    # Print details of failed requests
+    failed_results = [r for r in results if len(r) >= 4 and r[3] != 200]
+    if failed_results:
+        print(f"\n❌ Failed Request Details:")
+        for req_id, response_data, elapsed, status, *_ in failed_results[:10]:  # Show first 10 failures
+            error_msg = response_data.get("error", "Unknown error") if isinstance(response_data, dict) else str(response_data)
+            print(f"   Request {req_id}: Status {status}, Error: {error_msg[:100]}")
+        if len(failed_results) > 10:
+            print(f"   ... and {len(failed_results) - 10} more failures")
+
     successful_results = [r for r in results if len(r) >= 4 and r[3] == 200]
     if successful_results:
         times = [r[2] for r in successful_results]
-        print(f"\nResponse Times (successful requests):")
+        print(f"\n✅ Response Times (successful requests):")
         print(f"  Min: {min(times):.2f}s")
         print(f"  Max: {max(times):.2f}s")
         print(f"  Avg: {sum(times)/len(times):.2f}s")
+        # Show content length for successful streaming requests
+        if len(successful_results) > 0 and isinstance(successful_results[0][1], dict):
+            contents = [r[1].get("content", "") for r in successful_results if isinstance(r[1], dict)]
+            if contents:
+                content_lens = [len(c) for c in contents if c]
+                if content_lens:
+                    print(f"  Content lengths: min={min(content_lens)}, max={max(content_lens)}, avg={sum(content_lens)/len(content_lens):.0f}")
 
     print(f"\nTotal Test Duration: {total_time:.2f}s")
     total_time_safe = total_time if total_time > 0 else 1e-6

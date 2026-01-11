@@ -175,7 +175,7 @@ echo ""
 
 # 3. Launch Babysitter for 9g8b model
 echo -e "${BLUE}[3/4] Launching Enhanced Babysitter (9g8b)...${NC}"
-if check_service_running "${LOG_DIR}/babysitter_8100.pid" "Babysitter (9g8b)"; then
+if check_service_running "${LOG_DIR}/babysitter_9g8b_8100.pid" "Babysitter (9g8b)"; then
     echo "  Skipping (already running)"
     success_count=$((success_count + 1))
 else
@@ -183,46 +183,47 @@ else
     if ./launch_babysitter_9g8b.sh > /dev/null 2>&1; then
         # Check if process started
         sleep 2
-        if check_process_started "${LOG_DIR}/babysitter_8100.pid"; then
+        if check_process_started "${LOG_DIR}/babysitter_9g8b_8100.pid"; then
             success_count=$((success_count + 1))
             echo "  ✓ Babysitter (9g8b) process started (model may still be loading)"
             echo "  (Health check will be verified at the end - model loading can take several minutes)"
         else
             failed_services+=("Babysitter (9g8b)")
             echo -e "  ${RED}✗ Failed to start Babysitter (9g8b) (process did not start)${NC}"
-            echo "  Check logs: ${LOG_DIR}/babysitter_8100_*.log"
+            echo "  Check logs: ${LOG_DIR}/babysitter_9g8b_*.log"
         fi
     else
         failed_services+=("Babysitter (9g8b)")
         echo -e "  ${RED}✗ Failed to launch Babysitter (9g8b)${NC}"
-        echo "  Check logs: ${LOG_DIR}/babysitter_8100_*.log"
+        echo "  Check logs: ${LOG_DIR}/babysitter_9g8b_*.log"
     fi
 fi
 echo ""
 
 # 4. Launch Babysitter for Qwen model (non-blocking - starts immediately after 9g8b launch)
 echo -e "${BLUE}[4/4] Launching Enhanced Babysitter (Qwen)...${NC}"
-if check_service_running "${LOG_DIR}/babysitter_8200.pid" "Babysitter (Qwen)"; then
+if check_service_running "${LOG_DIR}/babysitter_qwen_8200.pid" "Babysitter (Qwen)"; then
     echo "  Skipping (already running)"
     success_count=$((success_count + 1))
 else
     echo "  Starting Babysitter (Qwen)..."
-    if ./launch_babysitter_qwen.sh > /dev/null 2>&1; then
+    # if ./launch_babysitter_qwen.sh > /dev/null 2>&1; then
+    if ./launch_babysitter_qwen_rust.sh > /dev/null 2>&1; then
         # Check if process started
         sleep 2
-        if check_process_started "${LOG_DIR}/babysitter_8200.pid"; then
+        if check_process_started "${LOG_DIR}/babysitter_qwen_8200.pid"; then
             success_count=$((success_count + 1))
             echo "  ✓ Babysitter (Qwen) process started (model may still be loading)"
             echo "  (Health check will be verified at the end - model loading can take several minutes)"
         else
             failed_services+=("Babysitter (Qwen)")
             echo -e "  ${RED}✗ Failed to start Babysitter (Qwen) (process did not start)${NC}"
-            echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
+            echo "  Check logs: ${LOG_DIR}/babysitter_qwen_*.log"
         fi
     else
         failed_services+=("Babysitter (Qwen)")
         echo -e "  ${RED}✗ Failed to launch Babysitter (Qwen)${NC}"
-        echo "  Check logs: ${LOG_DIR}/babysitter_8200_*.log"
+        echo "  Check logs: ${LOG_DIR}/babysitter_qwen_*.log"
     fi
 fi
 echo ""
@@ -231,8 +232,8 @@ echo ""
 echo -e "${BLUE}Quick Health Status Check (non-blocking)...${NC}"
 
 # Check 9g8b babysitter health (quick check, don't wait long)
-if [ -f "${LOG_DIR}/babysitter_8100.pid" ]; then
-    pid=$(cat "${LOG_DIR}/babysitter_8100.pid" 2>/dev/null)
+if [ -f "${LOG_DIR}/babysitter_9g8b_8100.pid" ]; then
+    pid=$(cat "${LOG_DIR}/babysitter_9g8b_8100.pid" 2>/dev/null)
     if [ -n "${pid}" ] && ps -p ${pid} > /dev/null 2>&1; then
         echo -n "  Babysitter (9g8b): "
         if curl -s -f "http://localhost:8101/health" > /dev/null 2>&1; then
@@ -244,8 +245,8 @@ if [ -f "${LOG_DIR}/babysitter_8100.pid" ]; then
 fi
 
 # Check Qwen babysitter health (quick check, don't wait long)
-if [ -f "${LOG_DIR}/babysitter_8200.pid" ]; then
-    pid=$(cat "${LOG_DIR}/babysitter_8200.pid" 2>/dev/null)
+if [ -f "${LOG_DIR}/babysitter_qwen_8200.pid" ]; then
+    pid=$(cat "${LOG_DIR}/babysitter_qwen_8200.pid" 2>/dev/null)
     if [ -n "${pid}" ] && ps -p ${pid} > /dev/null 2>&1; then
         echo -n "  Babysitter (Qwen): "
         if curl -s -f "http://localhost:8201/health" > /dev/null 2>&1; then

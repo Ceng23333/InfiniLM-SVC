@@ -50,8 +50,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Log directory
 LOG_DIR="${SCRIPT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/babysitter_${PORT}_$(date +%y%m%d%H%M).log"
-PID_FILE="${LOG_DIR}/babysitter_${PORT}.pid"
+LOG_FILE="${LOG_DIR}/babysitter_9g8b_$(date +%y%m%d%H%M).log"
+PID_FILE="${LOG_DIR}/babysitter_9g8b_${PORT}.pid"
 
 # ============================================================================
 # SCRIPT - Do not edit below unless you know what you're doing

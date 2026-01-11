@@ -984,7 +984,69 @@ tar -czf config_backup_$(date +%Y%m%d).tar.gz \
 
 ### Environment Setup
 
-#### Option 1: Using Conda (Recommended)
+#### Option 1: Using Docker (Recommended for Deployment)
+
+**Build Docker Image:**
+```bash
+cd /home/zenghua/repos/InfiniLM-SVC
+docker build -t infinilm-svc:latest .
+```
+
+**Run Container:**
+```bash
+# Run in detached mode with port mappings
+docker run -d \
+  --name infinilm-svc \
+  -p 8000:8000 \
+  -p 8080:8080 \
+  -p 8081:8081 \
+  -p 8100:8100 \
+  -p 8101:8101 \
+  -p 8200:8200 \
+  -p 8201:8201 \
+  infinilm-svc:latest
+
+# View logs
+docker logs -f infinilm-svc
+
+# Stop gracefully (sends SIGTERM, triggers stop_all.sh)
+docker stop infinilm-svc
+
+# Start again
+docker start infinilm-svc
+
+# Remove container
+docker rm infinilm-svc
+```
+
+**Docker Entrypoint:**
+The Docker container uses `docker_entrypoint.sh` which:
+- Automatically runs `./launch_all.sh` on container start
+- Handles graceful shutdown via SIGTERM/SIGINT
+- Stops all services gracefully when container stops
+- Keeps container running using `sleep infinity`
+
+**Docker Commit (Save Running Container as Image):**
+```bash
+# After starting and configuring a container, save it as a new image
+docker commit infinilm-svc infinilm-svc:configured
+
+# Export as tar archive
+docker save infinilm-svc:configured -o infinilm-svc-configured.tar
+
+# Load from tar archive
+docker load -i infinilm-svc-configured.tar
+
+# Tag for registry push
+docker tag infinilm-svc:configured your-registry/infinilm-svc:configured
+
+# Push to registry
+docker push your-registry/infinilm-svc:configured
+```
+
+**Note:** When committing a container, the entrypoint script and all running services are saved in their current state. When the new image is run, it will execute the entrypoint script again, which will launch all services.
+
+#### Option 2: Using Conda (Recommended for Development)
 ```bash
 # Create conda environment
 conda create -n infinilm-distributed python=3.11

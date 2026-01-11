@@ -1,0 +1,9 @@
+[Qwen3-32B]
+path = "/models/Qwen3-32B-F16.gguf"
+gpus = [0,1,2,3]
+max-tokens = 32768
+temperature = 0.6
+top-p = 0.95
+repetition-penalty = 1.02
+thinking = false
+max-sessions = 1

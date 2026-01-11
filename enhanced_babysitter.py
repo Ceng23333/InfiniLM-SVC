@@ -621,7 +621,7 @@ class EnhancedServiceBabysitter:
 
         # Build the cargo command
         cmd = [
-            "cargo",
+            "xtask",
             "service", self.config_file,
             "-p", str(self.service_target_port)
         ]
