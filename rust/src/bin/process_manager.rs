@@ -303,7 +303,7 @@ impl ProcessManager {
                     .timeout(http_timeout)
                     .build()
                     .unwrap_or_else(|_| reqwest::Client::new());
-                
+
                 for url in urls {
                     match timeout(http_timeout, client.get(&url).send()).await {
                         Ok(Ok(response)) => {
