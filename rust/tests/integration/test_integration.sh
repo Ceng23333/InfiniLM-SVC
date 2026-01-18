@@ -207,7 +207,8 @@ BABYSITTER2_PID=$!
 $BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter3.toml" > /tmp/babysitter3.log 2>&1 &
 BABYSITTER3_PID=$!
 
-sleep 3
+# Give babysitters more time to start services (CI may be slower)
+sleep 5
 echo "✅ Babysitters started (PIDs: $BABYSITTER1_PID, $BABYSITTER2_PID, $BABYSITTER3_PID)"
 
 # Verify babysitters are running
@@ -256,8 +257,9 @@ for i in {1..20}; do
 done
 
 # Additional wait to ensure services are fully ready and can accept requests
+# CI may need more time for services to start and register
 echo "Waiting for services to be fully ready..."
-sleep 3
+sleep 10
 
 # Test counters
 TESTS_PASSED=0

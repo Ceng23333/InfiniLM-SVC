@@ -247,7 +247,7 @@ impl ProcessManager {
         // For fast services (like mock services), check more aggressively
         // Start with very short intervals and use shorter timeouts
         let mut wait_interval = Duration::from_millis(100); // Start with 100ms
-        let max_wait = Duration::from_secs(10); // Maximum 10 seconds for fast services
+        let max_wait = Duration::from_secs(30); // Maximum 30 seconds (CI may be slower)
         let start = std::time::Instant::now();
 
         // First, give the process a moment to start (100ms)

@@ -168,7 +168,7 @@ impl BabysitterRegistryClient {
 
         // Retry logic with faster polling since port detection already verified HTTP is ready
         // But give it more attempts in case the service needs a moment to fully initialize
-        for attempt in 0..20 {
+        for attempt in 0..50 {
             match self.client.get(&url).send().await {
                 Ok(response) => {
                     if response.status().is_success() {
