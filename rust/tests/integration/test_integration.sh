@@ -61,21 +61,23 @@ fi
 cleanup() {
     echo ""
     echo "Cleaning up..."
+    # Send SIGTERM to all processes
     kill $ROUTER_PID 2>/dev/null || true
     kill $REGISTRY_PID 2>/dev/null || true
     kill $BABYSITTER1_PID 2>/dev/null || true
     kill $BABYSITTER2_PID 2>/dev/null || true
     kill $BABYSITTER3_PID 2>/dev/null || true
-    wait $ROUTER_PID 2>/dev/null || true
-    wait $REGISTRY_PID 2>/dev/null || true
-    wait $BABYSITTER1_PID 2>/dev/null || true
-    wait $BABYSITTER2_PID 2>/dev/null || true
-    wait $BABYSITTER3_PID 2>/dev/null || true
-    pkill -f "mock_service.py" 2>/dev/null || true
-    pkill -f "service_registry.py" 2>/dev/null || true
-    pkill -f "infini-router" 2>/dev/null || true
-    pkill -f "infini-babysitter" 2>/dev/null || true
-    pkill -f "infini-registry" 2>/dev/null || true
+    
+    # Give processes 2 seconds to exit gracefully
+    sleep 2
+    
+    # Force kill any remaining processes (pkill handles both parent and child processes)
+    pkill -9 -f "mock_service.py" 2>/dev/null || true
+    pkill -9 -f "service_registry.py" 2>/dev/null || true
+    pkill -9 -f "infini-router" 2>/dev/null || true
+    pkill -9 -f "infini-babysitter" 2>/dev/null || true
+    pkill -9 -f "infini-registry" 2>/dev/null || true
+    
     # Clean up any processes on test ports
     lsof -ti:$ROUTER_PORT | xargs kill -9 2>/dev/null || true
     lsof -ti:$REGISTRY_PORT | xargs kill -9 2>/dev/null || true
