@@ -2,10 +2,8 @@
 
 use crate::router::service_instance::ServiceInstance;
 use reqwest::Client;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::warn;
 
 /// Health checker
 pub struct HealthChecker {

@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Instant};
-use tracing::{error, info};
+use tracing::info;
 
 /// Service information stored in registry
 #[derive(Debug, Clone, Serialize, Deserialize)]

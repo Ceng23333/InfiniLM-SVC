@@ -293,25 +293,33 @@ impl ProcessManager {
         {
             Ok(Ok(_)) => {
                 // Port is listening, now verify HTTP endpoint is actually ready
-                let url = format!("http://127.0.0.1:{}/models", port);
+                // Try /v1/models first (OpenAI API format), then fallback to /models
+                let urls = vec![
+                    format!("http://127.0.0.1:{}/v1/models", port),
+                    format!("http://127.0.0.1:{}/models", port),
+                ];
                 let http_timeout = Duration::from_millis(500); // Give it a bit more time
                 let client = reqwest::Client::builder()
                     .timeout(http_timeout)
                     .build()
                     .unwrap_or_else(|_| reqwest::Client::new());
-                match timeout(http_timeout, client.get(&url).send()).await {
-                    Ok(Ok(response)) => {
-                        // Service is ready if we get a successful response or 404 (endpoint exists)
-                        // 404 means the server is running but endpoint doesn't exist (unlikely for /models)
-                        // We accept 404 because it means the HTTP server is responding
-                        response.status().is_success() || response.status() == 404
-                    }
-                    _ => {
-                        // Port is listening but HTTP endpoint not ready yet
-                        // Don't mark as ready - wait for HTTP to be functional
-                        false
+                
+                for url in urls {
+                    match timeout(http_timeout, client.get(&url).send()).await {
+                        Ok(Ok(response)) => {
+                            // Service is ready if we get a successful response or 404 (endpoint exists)
+                            if response.status().is_success() || response.status() == 404 {
+                                return true;
+                            }
+                        }
+                        _ => {
+                            // Try next URL
+                            continue;
+                        }
                     }
                 }
+                // Port is listening but HTTP endpoint not ready yet
+                false
             }
             _ => false,
         }

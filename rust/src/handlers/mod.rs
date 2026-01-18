@@ -1,7 +1,6 @@
 //! HTTP request handlers
 
-use axum::{extract::State, response::Json, routing::get, Router};
-use serde_json::json;
+use axum::{routing::get, Router};
 use std::sync::Arc;
 
 use crate::proxy::handler::proxy_handler;

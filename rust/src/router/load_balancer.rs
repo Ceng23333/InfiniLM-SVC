@@ -1,7 +1,7 @@
 //! Load balancer implementation
 
 use crate::config::Config;
-use crate::registry::client::{RegistryClient, RegistryService};
+use crate::registry::client::RegistryClient;
 use crate::router::health_checker::HealthChecker;
 use crate::router::service_instance::ServiceInstance;
 use crate::utils::errors::RouterError;
@@ -211,12 +211,12 @@ impl LoadBalancer {
 
         info!("Health check task started (interval: {}s)", interval);
 
-        tokio::spawn(async move {
+        let _ = tokio::spawn(async move {
             while *running.read().await {
                 let services_clone = services.clone();
                 let health_checker_clone = health_checker.clone();
 
-                tokio::spawn(async move {
+                let _ = tokio::spawn(async move {
                     let services_guard = services_clone.read().await;
                     let services_list: Vec<_> = services_guard.values().cloned().collect();
                     drop(services_guard);
@@ -275,12 +275,12 @@ impl LoadBalancer {
 
         info!("Registry sync task started (interval: {}s)", interval);
 
-        tokio::spawn(async move {
+        let _ = tokio::spawn(async move {
             while *running.read().await {
                 let services_clone = services.clone();
                 let registry_client_clone = registry_client.clone();
 
-                tokio::spawn(async move {
+                let _ = tokio::spawn(async move {
                     match registry_client_clone.fetch_services(true).await {
                         Ok(registry_response) => {
                             let mut services_guard = services_clone.write().await;
