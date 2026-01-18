@@ -34,9 +34,10 @@ PYTHON_CMD=python3
 
 # Script directory (auto-detected, or set manually)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Log directory
-LOG_DIR="${SCRIPT_DIR}/logs"
+LOG_DIR="${PROJECT_ROOT}/logs"
 LOG_FILE="${LOG_DIR}/router_$(date +%y%m%d%H%M).log"
 PID_FILE="${LOG_DIR}/router.pid"
 
@@ -47,12 +48,12 @@ PID_FILE="${LOG_DIR}/router.pid"
 # Create log directory if it doesn't exist
 mkdir -p "${LOG_DIR}"
 
-# Change to script directory
-cd "${SCRIPT_DIR}" || exit 1
+# Change to project root directory
+cd "${PROJECT_ROOT}" || exit 1
 
 # Check if Python script exists
-if [ ! -f "distributed_router.py" ]; then
-    echo "Error: distributed_router.py not found in ${SCRIPT_DIR}"
+if [ ! -f "python/distributed_router.py" ]; then
+    echo "Error: python/distributed_router.py not found in ${PROJECT_ROOT}"
     exit 1
 fi
 
@@ -63,7 +64,7 @@ if ! command -v "${PYTHON_CMD}" &> /dev/null; then
 fi
 
 # Build command
-CMD="${PYTHON_CMD} distributed_router.py \
+CMD="${PYTHON_CMD} python/distributed_router.py \
     --router-port ${ROUTER_PORT} \
     --health-interval ${HEALTH_INTERVAL} \
     --health-timeout ${HEALTH_TIMEOUT} \

@@ -10,7 +10,7 @@
 
 # Service Configuration
 HOST="localhost"
-PORT=8200
+PORT=8100
 SERVICE_NAME=""  # Leave empty for auto-generated name
 SERVICE_TYPE="InfiniLM"  # Options: "InfiniLM" or "InfiniLM-Rust"
 
@@ -24,11 +24,11 @@ RESTART_DELAY=5
 HEARTBEAT_INTERVAL=30
 
 # InfiniLM Server Configuration (for SERVICE_TYPE="InfiniLM")
-MODEL_PATH="/models/Qwen3-32B"  # Required for InfiniLM
+MODEL_PATH="/models/9g_8b_thinking"  # Required for InfiniLM
 MODEL_NAME=""  # Model name for /models endpoint (leave empty to use directory name from MODEL_PATH, like vLLM/llama.cpp)
 LAUNCH_SCRIPT=""  # Path to launch_server.py (leave empty for auto-detect)
 DEV="metax"  # Device type: nvidia, metax, etc.
-NDEV=4  # Number of devices
+NDEV=1  # Number of devices
 MAX_BATCH=16  # Max batch size
 MAX_TOKENS=""  # Optional, leave empty for default
 AWQ=false  # Set to true to use AWQ quantized model
@@ -36,8 +36,7 @@ REQUEST_TIMEOUT=30  # Request timeout in seconds
 MAX_CONCURRENCY="5"  # Max concurrent requests (leave empty for unlimited)
 
 # Environment Variables
-HCCL_PCIE_BUFFER_MODE=0   # Disable PCIe buffer mode for two GPUs
-HPCC_VISIBLE_DEVICES="4,5,6,7"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
+HPCC_VISIBLE_DEVICES="1"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2")
 # CUDA_VISIBLE_DEVICES="0"  # CUDA visible devices (uncomment for future use, e.g., "0", "0,1", "0,1,2")
 
 # InfiniLM-Rust Configuration (for SERVICE_TYPE="InfiniLM-Rust")
@@ -47,12 +46,13 @@ CONFIG_FILE=""  # Required for InfiniLM-Rust, e.g., "/path/to/config.toml"
 PYTHON_CMD=python3
 
 # Script directory (auto-detected, or set manually)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" pwd)"
 
 # Log directory
-LOG_DIR="${SCRIPT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/babysitter_qwen_$(date +%y%m%d%H%M).log"
-PID_FILE="${LOG_DIR}/babysitter_qwen_${PORT}.pid"
+LOG_DIR="${PROJECT_ROOT}/logs"
+LOG_FILE="${LOG_DIR}/babysitter_9g8b_$(date +%y%m%d%H%M).log"
+PID_FILE="${LOG_DIR}/babysitter_9g8b_${PORT}.pid"
 
 # ============================================================================
 # SCRIPT - Do not edit below unless you know what you're doing
@@ -62,11 +62,11 @@ PID_FILE="${LOG_DIR}/babysitter_qwen_${PORT}.pid"
 mkdir -p "${LOG_DIR}"
 
 # Change to script directory
-cd "${SCRIPT_DIR}" || exit 1
+cd "${PROJECT_ROOT}" || exit 1
 
 # Check if Python script exists
-if [ ! -f "enhanced_babysitter.py" ]; then
-    echo "Error: enhanced_babysitter.py not found in ${SCRIPT_DIR}"
+if [ ! -f "python/enhanced_babysitter.py" ]; then
+    echo "Error: python/enhanced_babysitter.py not found in ${PROJECT_ROOT}"
     exit 1
 fi
 
@@ -99,7 +99,7 @@ fi
 # Build command array to properly handle paths with spaces (no quotes in values)
 CMD_ARGS=(
     "${PYTHON_CMD}"
-    "enhanced_babysitter.py"
+    "python/enhanced_babysitter.py"
     "--host" "${HOST}"
     "--port" "${PORT}"
     "--service-type" "${SERVICE_TYPE}"

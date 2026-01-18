@@ -1,0 +1,379 @@
+#!/bin/bash
+# Integration tests for Rust router with mock services
+
+set -e
+
+ROUTER_PORT=8900
+REGISTRY_PORT=8901
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+ROUTER_BIN="$PROJECT_ROOT/rust/target/release/infini-router"
+REGISTRY_SCRIPT="$PROJECT_ROOT/python/service_registry.py"
+MOCK_SERVICE_SCRIPT="$SCRIPT_DIR/mock_service.py"
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "=========================================="
+echo "Integration Tests: Rust Router with Mock Services"
+echo "=========================================="
+echo ""
+
+# Check prerequisites
+if [ ! -f "$ROUTER_BIN" ]; then
+    echo "Error: Router binary not found. Please build it first:"
+    echo "  cd rust && cargo build --release"
+    exit 1
+fi
+
+if [ ! -f "$REGISTRY_SCRIPT" ]; then
+    echo "Error: Registry script not found: $REGISTRY_SCRIPT"
+    exit 1
+fi
+
+if [ ! -f "$MOCK_SERVICE_SCRIPT" ]; then
+    echo "Error: Mock service script not found: $MOCK_SERVICE_SCRIPT"
+    exit 1
+fi
+
+# Cleanup function
+cleanup() {
+    echo ""
+    echo "Cleaning up..."
+    kill $ROUTER_PID 2>/dev/null || true
+    kill $REGISTRY_PID 2>/dev/null || true
+    kill $SERVICE1_PID 2>/dev/null || true
+    kill $SERVICE2_PID 2>/dev/null || true
+    kill $SERVICE3_PID 2>/dev/null || true
+    wait $ROUTER_PID 2>/dev/null || true
+    wait $REGISTRY_PID 2>/dev/null || true
+    wait $SERVICE1_PID 2>/dev/null || true
+    wait $SERVICE2_PID 2>/dev/null || true
+    wait $SERVICE3_PID 2>/dev/null || true
+    pkill -f "mock_service.py" 2>/dev/null || true
+    pkill -f "service_registry.py" 2>/dev/null || true
+    pkill -f "infini-router" 2>/dev/null || true
+    # Clean up any processes on test ports
+    lsof -ti:$ROUTER_PORT | xargs kill -9 2>/dev/null || true
+    lsof -ti:$REGISTRY_PORT | xargs kill -9 2>/dev/null || true
+    lsof -ti:6001,6002,6003,6002,6003,6004 | xargs kill -9 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Start registry
+echo "Starting registry on port $REGISTRY_PORT..."
+mkdir -p "$PROJECT_ROOT/logs"
+cd "$PROJECT_ROOT"
+
+# Setup Python environment - use dedicated integration test environment
+PYTHON_CMD="python3"
+CONDA_ENV="infinilm-integration-test"
+
+if command -v conda &> /dev/null; then
+    # Check if integration test environment exists
+    if conda env list | grep -q "^${CONDA_ENV} "; then
+        PYTHON_CMD="conda run -n ${CONDA_ENV} python"
+        echo "Using conda environment: ${CONDA_ENV}"
+        
+        # Verify aiohttp is available
+        if ! $PYTHON_CMD -c "import aiohttp" 2>/dev/null; then
+            echo "Installing dependencies in ${CONDA_ENV}..."
+            conda run -n ${CONDA_ENV} pip install aiohttp requests > /dev/null 2>&1
+        fi
+    elif [ -f "$PROJECT_ROOT/python/activate_env.sh" ]; then
+        source "$PROJECT_ROOT/python/activate_env.sh"
+        echo "Using activated environment from activate_env.sh"
+    else
+        echo "⚠️  Conda environment '${CONDA_ENV}' not found. Creating it..."
+        conda create -n ${CONDA_ENV} python=3.10 -y > /dev/null 2>&1
+        conda run -n ${CONDA_ENV} pip install aiohttp requests > /dev/null 2>&1
+        PYTHON_CMD="conda run -n ${CONDA_ENV} python"
+        echo "✅ Created and configured ${CONDA_ENV} environment"
+    fi
+elif [ -f "$PROJECT_ROOT/python/activate_env.sh" ]; then
+    source "$PROJECT_ROOT/python/activate_env.sh"
+    echo "Using activated environment from activate_env.sh"
+fi
+
+# Final verification
+if ! $PYTHON_CMD -c "import aiohttp" 2>/dev/null; then
+    echo "Error: aiohttp not available. Please install it:"
+    echo "  conda run -n ${CONDA_ENV} pip install aiohttp"
+    exit 1
+fi
+
+$PYTHON_CMD "$REGISTRY_SCRIPT" --port $REGISTRY_PORT > /tmp/registry_integration.log 2>&1 &
+REGISTRY_PID=$!
+sleep 5
+
+# Verify registry is running
+if ! curl -s http://127.0.0.1:$REGISTRY_PORT/health > /dev/null; then
+    echo "Error: Registry failed to start"
+    echo "Registry log:"
+    cat /tmp/registry_integration.log
+    exit 1
+fi
+echo "✅ Registry started (PID: $REGISTRY_PID)"
+
+# Start mock services
+echo ""
+echo "Starting mock services..."
+
+# Service 1: model-a and model-shared
+$PYTHON_CMD "$MOCK_SERVICE_SCRIPT" \
+    --name "service-model-a" \
+    --port 6001 \
+    --models "model-a,model-shared" \
+    --registry-url "http://127.0.0.1:$REGISTRY_PORT" \
+    > /tmp/service1.log 2>&1 &
+SERVICE1_PID=$!
+
+# Service 2: model-b and model-shared
+$PYTHON_CMD "$MOCK_SERVICE_SCRIPT" \
+    --name "service-model-b" \
+    --port 6002 \
+    --models "model-b,model-shared" \
+    --registry-url "http://127.0.0.1:$REGISTRY_PORT" \
+    > /tmp/service2.log 2>&1 &
+SERVICE2_PID=$!
+
+# Service 3: model-c only
+$PYTHON_CMD "$MOCK_SERVICE_SCRIPT" \
+    --name "service-model-c" \
+    --port 6003 \
+    --models "model-c" \
+    --registry-url "http://127.0.0.1:$REGISTRY_PORT" \
+    > /tmp/service3.log 2>&1 &
+SERVICE3_PID=$!
+
+sleep 5
+echo "✅ Mock services started"
+
+# Start router
+echo ""
+echo "Starting router on port $ROUTER_PORT..."
+$ROUTER_BIN \
+    --router-port $ROUTER_PORT \
+    --registry-url "http://127.0.0.1:$REGISTRY_PORT" \
+    --health-interval 5 \
+    --registry-sync-interval 2 \
+    > /tmp/router_integration.log 2>&1 &
+ROUTER_PID=$!
+
+sleep 8
+echo "✅ Router started (PID: $ROUTER_PID)"
+
+# Wait for services to be discovered and health checks to pass
+echo ""
+echo "Waiting for service discovery and health checks..."
+sleep 15
+
+# Verify services are registered and healthy
+echo "Checking service registration..."
+for i in {1..3}; do
+    SERVICES=$(curl -s http://127.0.0.1:$ROUTER_PORT/services 2>/dev/null || echo '{"services":[]}')
+    HEALTHY_COUNT=$(echo "$SERVICES" | python3 -c "import sys, json; data=json.load(sys.stdin); print(sum(1 for s in data.get('services', []) if s.get('healthy', False)))" 2>/dev/null || echo "0")
+    if [ "$HEALTHY_COUNT" -ge 2 ]; then
+        echo "✅ $HEALTHY_COUNT services are healthy"
+        break
+    fi
+    echo "Waiting for services to become healthy... ($i/3)"
+    sleep 5
+done
+
+# Test counters
+TESTS_PASSED=0
+TESTS_FAILED=0
+
+# Test function
+test_case() {
+    local test_name="$1"
+    local test_command="$2"
+    local expected_status="${3:-200}"
+    
+    echo ""
+    echo "=== Test: $test_name ==="
+    
+    if eval "$test_command" > /tmp/test_output.json 2>&1; then
+        HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/test_response.json $(echo "$test_command" | grep -o 'http://[^ ]*') 2>/dev/null | tail -1)
+        if [ "$HTTP_CODE" = "$expected_status" ]; then
+            echo "✅ PASSED"
+            ((TESTS_PASSED++))
+            return 0
+        else
+            echo "❌ FAILED: Expected HTTP $expected_status, got $HTTP_CODE"
+            ((TESTS_FAILED++))
+            return 1
+        fi
+    else
+        echo "❌ FAILED: Command execution error"
+        ((TESTS_FAILED++))
+        return 1
+    fi
+}
+
+# Test 1: /models endpoint - should aggregate models
+echo ""
+echo "=========================================="
+echo "Test 1: Model Aggregation"
+echo "=========================================="
+MODELS_RESPONSE=$(curl -s http://127.0.0.1:$ROUTER_PORT/models)
+echo "Response: $MODELS_RESPONSE"
+
+MODEL_COUNT=$(echo "$MODELS_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('data', [])))" 2>/dev/null || echo "0")
+echo "Models found: $MODEL_COUNT"
+
+if [ "$MODEL_COUNT" -ge 4 ]; then
+    echo "✅ Test 1 PASSED: Model aggregation works ($MODEL_COUNT models)"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 1 FAILED: Expected at least 4 models, got $MODEL_COUNT"
+    ((TESTS_FAILED++))
+fi
+
+# Test 2: Model-aware routing - route to service with model-a
+echo ""
+echo "=========================================="
+echo "Test 2: Model-Aware Routing (model-a)"
+echo "=========================================="
+RESPONSE=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "model-a", "messages": [{"role": "user", "content": "test"}]}')
+
+if echo "$RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-a'; print('OK')" 2>/dev/null; then
+    echo "✅ Test 2 PASSED: Model-aware routing works for model-a"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 2 FAILED: Model routing failed"
+    echo "Response: $RESPONSE"
+    ((TESTS_FAILED++))
+fi
+
+# Test 3: Model-aware routing - route to service with model-b
+echo ""
+echo "=========================================="
+echo "Test 3: Model-Aware Routing (model-b)"
+echo "=========================================="
+RESPONSE=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "model-b", "messages": [{"role": "user", "content": "test"}]}')
+
+if echo "$RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-b'; print('OK')" 2>/dev/null; then
+    echo "✅ Test 3 PASSED: Model-aware routing works for model-b"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 3 FAILED: Model routing failed"
+    echo "Response: $RESPONSE"
+    ((TESTS_FAILED++))
+fi
+
+# Test 4: Model-aware routing - route to service with model-shared (should load balance)
+echo ""
+echo "=========================================="
+echo "Test 4: Model-Aware Routing (model-shared - load balancing)"
+echo "=========================================="
+RESPONSE1=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "model-shared", "messages": [{"role": "user", "content": "test1"}]}')
+
+RESPONSE2=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "model-shared", "messages": [{"role": "user", "content": "test2"}]}')
+
+SERVICE1_IN_RESPONSE1=$(echo "$RESPONSE1" | grep -q "service-model-a" && echo "yes" || echo "no")
+SERVICE2_IN_RESPONSE2=$(echo "$RESPONSE2" | grep -q "service-model-b" && echo "yes" || echo "no")
+
+if echo "$RESPONSE1" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-shared'; print('OK')" 2>/dev/null && \
+   echo "$RESPONSE2" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-shared'; print('OK')" 2>/dev/null; then
+    echo "✅ Test 4 PASSED: Model-aware routing with load balancing works"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 4 FAILED: Load balancing failed"
+    ((TESTS_FAILED++))
+fi
+
+# Test 5: Unsupported model
+echo ""
+echo "=========================================="
+echo "Test 5: Unsupported Model Handling"
+echo "=========================================="
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "non-existent-model", "messages": [{"role": "user", "content": "test"}]}')
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+if [ "$HTTP_CODE" = "503" ]; then
+    echo "✅ Test 5 PASSED: Unsupported model returns 503"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 5 FAILED: Expected 503, got $HTTP_CODE"
+    ((TESTS_FAILED++))
+fi
+
+# Test 6: Streaming response
+echo ""
+echo "=========================================="
+echo "Test 6: Streaming Response"
+echo "=========================================="
+STREAM_RESPONSE=$(curl -s -N -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model": "model-a", "messages": [{"role": "user", "content": "test"}], "stream": true}' | head -5)
+
+if echo "$STREAM_RESPONSE" | grep -q "data:"; then
+    echo "✅ Test 6 PASSED: Streaming response works"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 6 FAILED: Streaming response not detected"
+    echo "Response: $STREAM_RESPONSE"
+    ((TESTS_FAILED++))
+fi
+
+# Test 7: /services endpoint
+echo ""
+echo "=========================================="
+echo "Test 7: /services Endpoint"
+echo "=========================================="
+SERVICES_RESPONSE=$(curl -s http://127.0.0.1:$ROUTER_PORT/services)
+SERVICE_COUNT=$(echo "$SERVICES_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('services', [])))" 2>/dev/null || echo "0")
+
+if [ "$SERVICE_COUNT" -ge 3 ]; then
+    echo "✅ Test 7 PASSED: /services endpoint works ($SERVICE_COUNT services)"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 7 FAILED: Expected at least 3 services, got $SERVICE_COUNT"
+    ((TESTS_FAILED++))
+fi
+
+# Test 8: Health checks
+echo ""
+echo "=========================================="
+echo "Test 8: Health Checks"
+echo "=========================================="
+HEALTH_RESPONSE=$(curl -s http://127.0.0.1:$ROUTER_PORT/health)
+if echo "$HEALTH_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'status' in data; print('OK')" 2>/dev/null; then
+    echo "✅ Test 8 PASSED: Health endpoint works"
+    ((TESTS_PASSED++))
+else
+    echo "❌ Test 8 FAILED: Health endpoint failed"
+    ((TESTS_FAILED++))
+fi
+
+# Summary
+echo ""
+echo "=========================================="
+echo "Test Summary"
+echo "=========================================="
+echo "Tests Passed: $TESTS_PASSED"
+echo "Tests Failed: $TESTS_FAILED"
+echo ""
+
+if [ $TESTS_FAILED -eq 0 ]; then
+    echo "✅ All integration tests passed!"
+    exit 0
+else
+    echo "❌ Some tests failed"
+    exit 1
+fi

@@ -517,6 +517,16 @@ async fn proxy_handler(
 }
 ```
 
+#### 5. “Optional Prefill–Decode Disaggregation” compatibility
+
+- Role-based backend registration
+
+- Two-phase routing
+
+- Opaque KV handles
+
+- Backward compatible with unified backends
+
 ### Feature Parity Checklist
 
 - [x] Service discovery from registry
@@ -571,6 +581,7 @@ async fn proxy_handler(
 - Streaming support (SSE/chunked)
 - Model aggregation
 - Statistics endpoints
+- “Optional Prefill–Decode Disaggregation” compatibility
 
 **Deliverables**:
 - Model extraction from request body

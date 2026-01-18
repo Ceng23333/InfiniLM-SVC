@@ -5,8 +5,12 @@
 
 set -e
 
+# Script directory (auto-detected)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 # Default values
-DEPLOYMENT_CONFIG="deployment_configs"
+DEPLOYMENT_CONFIG="${PROJECT_ROOT}/config/deployment_configs"
 REGISTRY_PORT=8081
 ROUTER_PORT=8080
 INFINILM_ROOT=/root/zenghua/repos/InfiniLM
@@ -103,19 +107,23 @@ start_registry() {
         local health_timeout=$(jq -r '.registry.health_timeout // 5' "$registry_config")
         local cleanup_interval=$(jq -r '.registry.cleanup_interval // 60' "$registry_config")
 
-        nohup python3 service_registry.py \
+        cd "${PROJECT_ROOT}" || exit 1
+        nohup python3 python/service_registry.py \
             --port "$config_port" \
             --health-interval "$health_interval" \
             --health-timeout "$health_timeout" \
-            --cleanup-interval "$cleanup_interval" > "logs/registry.log" 2>&1 &
+            --cleanup-interval "$cleanup_interval" > "${PROJECT_ROOT}/logs/registry.log" 2>&1 &
 
         local pid=$!
-        echo "$pid" > "logs/registry.pid"
+        mkdir -p "${PROJECT_ROOT}/logs"
+        echo "$pid" > "${PROJECT_ROOT}/logs/registry.pid"
         echo "Service registry started with PID: $pid"
     else
-        nohup python3 service_registry.py --port "$REGISTRY_PORT" > "logs/registry.log" 2>&1 &
+        cd "${PROJECT_ROOT}" || exit 1
+        nohup python3 python/service_registry.py --port "$REGISTRY_PORT" > "${PROJECT_ROOT}/logs/registry.log" 2>&1 &
         local pid=$!
-        echo "$pid" > "logs/registry.pid"
+        mkdir -p "${PROJECT_ROOT}/logs"
+        echo "$pid" > "${PROJECT_ROOT}/logs/registry.pid"
         echo "Service registry started with PID: $pid"
     fi
 }
@@ -131,19 +139,21 @@ start_router() {
         local registry_url=$(jq -r '.router.registry_url // ""' "$router_config")
         local static_services_file="$DEPLOYMENT_CONFIG/router_config.json"
 
+        cd "${PROJECT_ROOT}" || exit 1
         if [[ -n "$registry_url" ]]; then
-            nohup python3 distributed_router.py \
+            nohup python3 python/distributed_router.py \
                 --router-port "$config_port" \
                 --registry-url "$registry_url" \
-                --static-services "$static_services_file" > "logs/distributed_router.log" 2>&1 &
+                --static-services "$static_services_file" > "${PROJECT_ROOT}/logs/distributed_router.log" 2>&1 &
         else
-            nohup python3 distributed_router.py \
+            nohup python3 python/distributed_router.py \
                 --router-port "$config_port" \
-                --static-services "$static_services_file" > "logs/distributed_router.log" 2>&1 &
+                --static-services "$static_services_file" > "${PROJECT_ROOT}/logs/distributed_router.log" 2>&1 &
         fi
 
         local pid=$!
-        echo "$pid" > "logs/distributed_router.pid"
+        mkdir -p "${PROJECT_ROOT}/logs"
+        echo "$pid" > "${PROJECT_ROOT}/logs/distributed_router.pid"
         echo "Distributed router started with PID: $pid"
     else
         echo "Error: Router config file not found at $router_config"
@@ -212,10 +222,11 @@ start_services() {
                     --port "$port" \
                     --config "$service_config" \
                     --name "$name" \
-                    --registry "$registry_url" > "logs/${name}.log" 2>&1 &
+                    --registry "$registry_url" > "${PROJECT_ROOT}/logs/${name}.log" 2>&1 &
 
                 local pid=$!
-                echo "$pid" > "logs/${name}.pid"
+                mkdir -p "${PROJECT_ROOT}/logs"
+                echo "$pid" > "${PROJECT_ROOT}/logs/${name}.pid"
                 echo "$name started with PID: $pid"
             else
                 echo "Warning: Config file $service_config not found for service $name"
@@ -229,8 +240,8 @@ stop_all() {
     echo "Stopping all services..."
 
     # Stop router
-    if [[ -f "logs/distributed_router.pid" ]]; then
-        local router_pid=$(cat logs/distributed_router.pid)
+    if [[ -f "${PROJECT_ROOT}/logs/distributed_router.pid" ]]; then
+        local router_pid=$(cat "${PROJECT_ROOT}/logs/distributed_router.pid")
         if kill -0 "$router_pid" 2>/dev/null; then
             echo "Stopping distributed router (PID: $router_pid)..."
             kill "$router_pid"
@@ -239,8 +250,8 @@ stop_all() {
     fi
 
     # Stop registry
-    if [[ -f "logs/registry.pid" ]]; then
-        local registry_pid=$(cat logs/registry.pid)
+    if [[ -f "${PROJECT_ROOT}/logs/registry.pid" ]]; then
+        local registry_pid=$(cat "${PROJECT_ROOT}/logs/registry.pid")
         if kill -0 "$registry_pid" 2>/dev/null; then
             echo "Stopping service registry (PID: $registry_pid)..."
             kill "$registry_pid"
@@ -249,7 +260,7 @@ stop_all() {
     fi
 
     # Stop all service instances
-    for pid_file in logs/*.pid; do
+    for pid_file in "${PROJECT_ROOT}/logs"/*.pid; do
         if [[ -f "$pid_file" ]]; then
             local service_name=$(basename "$pid_file" .pid)
             local service_pid=$(cat "$pid_file")
@@ -270,8 +281,8 @@ status() {
     echo "==============="
 
     # Check registry
-    if [[ -f "logs/registry.pid" ]]; then
-        local registry_pid=$(cat logs/registry.pid)
+    if [[ -f "${PROJECT_ROOT}/logs/registry.pid" ]]; then
+        local registry_pid=$(cat "${PROJECT_ROOT}/logs/registry.pid")
         if kill -0 "$registry_pid" 2>/dev/null; then
             echo "✓ Service Registry: Running (PID: $registry_pid)"
         else
@@ -282,8 +293,8 @@ status() {
     fi
 
     # Check router
-    if [[ -f "logs/distributed_router.pid" ]]; then
-        local router_pid=$(cat logs/distributed_router.pid)
+    if [[ -f "${PROJECT_ROOT}/logs/distributed_router.pid" ]]; then
+        local router_pid=$(cat "${PROJECT_ROOT}/logs/distributed_router.pid")
         if kill -0 "$router_pid" 2>/dev/null; then
             echo "✓ Distributed Router: Running (PID: $router_pid)"
         else
@@ -296,7 +307,7 @@ status() {
     # Check service instances
     echo ""
     echo "Service Instances:"
-    for pid_file in logs/*.pid; do
+    for pid_file in "${PROJECT_ROOT}/logs"/*.pid; do
         if [[ -f "$pid_file" ]]; then
             local service_name=$(basename "$pid_file" .pid)
             local service_pid=$(cat "$pid_file")
@@ -309,8 +320,8 @@ status() {
     done
 
     # Show registry status if available
-    if [[ -f "logs/registry.pid" ]]; then
-        local registry_pid=$(cat logs/registry.pid)
+    if [[ -f "${PROJECT_ROOT}/logs/registry.pid" ]]; then
+        local registry_pid=$(cat "${PROJECT_ROOT}/logs/registry.pid")
         if kill -0 "$registry_pid" 2>/dev/null; then
             echo ""
             echo "Registry Services:"
@@ -337,11 +348,12 @@ generate_config() {
 
         if [[ -s /tmp/services.txt ]]; then
             local services_list=$(tr '\n' ',' < /tmp/services.txt | sed 's/,$//')
-            python3 generate_nginx_config.py \
+            cd "${PROJECT_ROOT}" || exit 1
+            python3 python/generate_nginx_config.py \
                 --router-port "$ROUTER_PORT" \
                 --services "$services_list" \
-                --output "nginx_distributed.conf"
-            echo "Nginx configuration generated: nginx_distributed.conf"
+                --output "${PROJECT_ROOT}/nginx_distributed.conf"
+            echo "Nginx configuration generated: ${PROJECT_ROOT}/nginx_distributed.conf"
         else
             echo "No services found in registry"
         fi
@@ -351,10 +363,11 @@ generate_config() {
         # Use static configuration
         local static_config="$DEPLOYMENT_CONFIG/router_config.json"
         if [[ -f "$static_config" ]]; then
-            python3 generate_nginx_config.py \
+            cd "${PROJECT_ROOT}" || exit 1
+            python3 python/generate_nginx_config.py \
                 --config-file "$static_config" \
-                --output "nginx_distributed.conf"
-            echo "Nginx configuration generated: nginx_distributed.conf"
+                --output "${PROJECT_ROOT}/nginx_distributed.conf"
+            echo "Nginx configuration generated: ${PROJECT_ROOT}/nginx_distributed.conf"
         else
             echo "Error: No static configuration found"
             exit 1

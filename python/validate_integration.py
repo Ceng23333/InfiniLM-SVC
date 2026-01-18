@@ -8,6 +8,7 @@ import time
 import requests
 import subprocess
 import sys
+import os
 import json
 import logging
 from typing import Dict, Any, Optional, List
@@ -104,8 +105,8 @@ class IntegrationValidator:
         try:
             # Start registry using the deployment script
             process = subprocess.Popen([
-                "python3", "service_registry.py", "--port", "8081"
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                "python3", "python/service_registry.py", "--port", "8081"
+            ], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             self.processes['registry'] = process
             print(f"🚀 Registry started with PID: {process.pid}")
@@ -151,10 +152,10 @@ class IntegrationValidator:
         try:
             # Start router using the deployment script
             process = subprocess.Popen([
-                "python3", "distributed_router.py",
+                "python3", "python/distributed_router.py",
                 "--router-port", "8080",
                 "--registry-url", self.registry_url
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             self.processes['router'] = process
             print(f"🚀 Router started with PID: {process.pid}")

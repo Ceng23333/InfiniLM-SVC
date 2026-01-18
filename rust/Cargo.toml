@@ -1,0 +1,60 @@
+[package]
+name = "infini-router"
+version = "0.1.0"
+edition = "2021"
+authors = ["InfiniLM Team"]
+description = "High-performance distributed router for InfiniLM services"
+license = "MIT"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros", "tower-log"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Configuration
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Time utilities - using std::time for now
+
+# Async utilities
+futures = "0.3"
+lazy_static = "1.4"
+tokio-stream = "0.1"
+
+# Time utilities
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1.2"
+
+[[bin]]
+name = "infini-babysitter"
+path = "src/bin/babysitter.rs"
+
+[[bin]]
+name = "infini-registry"
+path = "src/bin/registry.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

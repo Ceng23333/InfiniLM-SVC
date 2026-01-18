@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: '3.10'
+          channels: conda-forge,defaults
+          channel-priority: strict
+
+      - name: Create conda environment
+        shell: bash -l {0}
+        run: |
+          conda create -n infinilm-integration-test python=3.10 -y
+          conda run -n infinilm-integration-test pip install aiohttp requests
+
+      - name: Build Rust binaries
+        working-directory: rust
+        run: |
+          cargo build --release --bin infini-router --bin infini-babysitter --bin infini-registry
+          echo "✅ Build completed successfully"
+
+      - name: Verify binaries exist
+        run: |
+          ls -lh rust/target/release/infini-router
+          ls -lh rust/target/release/infini-babysitter
+          ls -lh rust/target/release/infini-registry
+
+      - name: Verify mock service script exists
+        run: |
+          test -f rust/tests/integration/mock_service.py || (echo "Error: mock_service.py not found" && exit 1)
+          echo "✅ Mock service script found"
+
+      - name: Run integration tests
+        working-directory: rust/tests/integration
+        shell: bash -l {0}
+        env:
+          PYTHON_CMD: conda run -n infinilm-integration-test python
+        run: |
+          # Make script executable
+          chmod +x test_integration.sh
+          
+          # Run tests with timeout (120 seconds)
+          timeout 120 bash test_integration.sh || {
+            EXIT_CODE=$?
+            echo "❌ Integration tests failed or timed out (exit code: $EXIT_CODE)"
+            echo ""
+            echo "=== Registry Log ==="
+            cat /tmp/registry_babysitter_test.log 2>/dev/null || echo "No registry log found"
+            echo ""
+            echo "=== Router Log ==="
+            cat /tmp/router_babysitter_test.log 2>/dev/null || echo "No router log found"
+            echo ""
+            echo "=== Babysitter Logs ==="
+            ls -la /tmp/babysitter*.log 2>/dev/null || echo "No babysitter log files found"
+            for log in /tmp/babysitter*.log; do
+              if [ -f "$log" ]; then
+                echo "--- $log ---"
+                cat "$log"
+                echo ""
+              fi
+            done
+            exit $EXIT_CODE
+          }
+
+      - name: Cleanup processes
+        if: always()
+        run: |
+          # Kill any remaining processes
+          pkill -f "infini-router" || true
+          pkill -f "infini-babysitter" || true
+          pkill -f "infini-registry" || true
+          pkill -f "mock_service.py" || true
+          pkill -f "service_registry.py" || true
+          
+          # Clean up ports
+          for port in 8900 8901 6001 6002 6003 6004 6005 6006; do
+            lsof -ti:$port | xargs kill -9 2>/dev/null || true
+          done
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run cargo fmt
+        working-directory: rust
+        run: cargo fmt --all -- --check
+
+      - name: Run cargo clippy
+        working-directory: rust
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        binary: [infini-router, infini-babysitter, infini-registry]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build ${{ matrix.binary }}
+        working-directory: rust
+        run: cargo build --release --bin ${{ matrix.binary }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: rust/target/release/${{ matrix.binary }}
+          retention-days: 1

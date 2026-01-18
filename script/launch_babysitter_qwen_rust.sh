@@ -27,7 +27,8 @@ HEARTBEAT_INTERVAL=30
 PYTHON_CMD=python3
 
 # Script directory (auto-detected, or set manually)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" pwd)"
 
 # InfiniLM-Rust Configuration
 # Set this to your Rust service TOML config file
@@ -39,7 +40,7 @@ HPCC_VISIBLE_DEVICES="4,5,6,7"  # HPCC visible devices (e.g., "0", "0,1", "0,1,2
 # CUDA_VISIBLE_DEVICES="0"  # CUDA visible devices (uncomment for future use, e.g., "0", "0,1", "0,1,2")
 
 # Log directory
-LOG_DIR="${SCRIPT_DIR}/logs"
+LOG_DIR="${PROJECT_ROOT}/logs"
 LOG_FILE="${LOG_DIR}/babysitter_qwen_$(date +%y%m%d%H%M).log"
 PID_FILE="${LOG_DIR}/babysitter_qwen_${PORT}.pid"
 
@@ -68,11 +69,11 @@ PID_FILE="${LOG_DIR}/babysitter_qwen_${PORT}.pid"
 mkdir -p "${LOG_DIR}"
 
 # Change to script directory
-cd "${SCRIPT_DIR}" || exit 1
+cd "${PROJECT_ROOT}" || exit 1
 
 # Check if Python script exists
-if [ ! -f "enhanced_babysitter.py" ]; then
-    echo "Error: enhanced_babysitter.py not found in ${SCRIPT_DIR}"
+if [ ! -f "python/enhanced_babysitter.py" ]; then
+    echo "Error: python/enhanced_babysitter.py not found in ${PROJECT_ROOT}"
     exit 1
 fi
 
@@ -106,7 +107,7 @@ fi
 # Build command array to properly handle paths with spaces (no quotes in values)
 CMD_ARGS=(
     "${PYTHON_CMD}"
-    "enhanced_babysitter.py"
+    "python/enhanced_babysitter.py"
     "--host" "${HOST}"
     "--port" "${PORT}"
     "--service-type" "${SERVICE_TYPE}"

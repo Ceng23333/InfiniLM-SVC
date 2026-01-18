@@ -47,9 +47,10 @@ PYTHON_CMD=python3
 
 # Script directory (auto-detected, or set manually)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Log directory
-LOG_DIR="${SCRIPT_DIR}/logs"
+LOG_DIR="${PROJECT_ROOT}/logs"
 LOG_FILE="${LOG_DIR}/babysitter_${PORT}_$(date +%y%m%d%H%M).log"
 PID_FILE="${LOG_DIR}/babysitter_${PORT}.pid"
 
@@ -60,12 +61,12 @@ PID_FILE="${LOG_DIR}/babysitter_${PORT}.pid"
 # Create log directory if it doesn't exist
 mkdir -p "${LOG_DIR}"
 
-# Change to script directory
-cd "${SCRIPT_DIR}" || exit 1
+# Change to project root directory
+cd "${PROJECT_ROOT}" || exit 1
 
 # Check if Python script exists
-if [ ! -f "enhanced_babysitter.py" ]; then
-    echo "Error: enhanced_babysitter.py not found in ${SCRIPT_DIR}"
+if [ ! -f "python/enhanced_babysitter.py" ]; then
+    echo "Error: python/enhanced_babysitter.py not found in ${PROJECT_ROOT}"
     exit 1
 fi
 
@@ -98,7 +99,7 @@ fi
 # Build command array to properly handle paths with spaces (no quotes in values)
 CMD_ARGS=(
     "${PYTHON_CMD}"
-    "enhanced_babysitter.py"
+    "python/enhanced_babysitter.py"
     "--host" "${HOST}"
     "--port" "${PORT}"
     "--service-type" "${SERVICE_TYPE}"

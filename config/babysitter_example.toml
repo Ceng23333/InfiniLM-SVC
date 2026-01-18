@@ -1,0 +1,62 @@
+# Example Babysitter Configuration File
+# This file demonstrates how to configure the babysitter for different backend types
+
+# Service identification
+name = "vllm-service-1"
+host = "localhost"
+port = 8100
+
+# Registry and router URLs
+registry_url = "http://localhost:18000"
+# router_url = "http://localhost:8000"  # Optional
+
+# Babysitter settings
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+# Backend configuration - choose one type
+
+# Example 1: Command-based backend (universal - works with any backend)
+# [backend]
+# type = "command"
+# command = "python3"
+# args = ["-m", "vllm.entrypoints.openai.api_server", "--model", "/models/llama-2-7b", "--port", "8100"]
+# work_dir = "/path/to/vllm"
+# env = { CUDA_VISIBLE_DEVICES = "0", VLLM_WORKER_MULTIPROC_METHOD = "spawn" }
+
+# Example 2: vLLM backend (pre-configured)
+# [backend]
+# type = "vllm"
+# model = "/models/llama-2-7b"
+# args = ["--tensor-parallel-size", "1", "--gpu-memory-utilization", "0.9"]
+# work_dir = "/path/to/vllm"
+# env = { CUDA_VISIBLE_DEVICES = "0" }
+
+# Example 3: Mock backend
+# [backend]
+# type = "mock"
+# models = ["model-a", "model-b", "model-c"]
+
+# Example 4: InfiniLM-Rust backend
+# [backend]
+# type = "infinilm-rust"
+# config_file = "/path/to/config.toml"
+# work_dir = "/path/to/infinilm-rust"
+
+# Example 5: InfiniLM Python backend
+# [backend]
+# type = "infinilm"
+# model_path = "/models/Qwen3-32B-F16.gguf"
+# args = ["--dev", "metax", "--ndev", "4"]
+# work_dir = "/path/to/infinilm"
+# env = { HPCC_VISIBLE_DEVICES = "0,1,2,3" }
+
+# Example 6: Custom backend (command-based)
+[backend]
+type = "command"
+command = "python3"
+args = ["-m", "vllm.entrypoints.openai.api_server", "--model", "/models/llama-2-7b", "--port", "8100", "--host", "0.0.0.0"]
+work_dir = "/path/to/vllm"
+env = { CUDA_VISIBLE_DEVICES = "0" }

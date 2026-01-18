@@ -1,0 +1,33 @@
+# Test 5: Model-aware routing - route to service with model-shared (should load balance)
+echo ""
+echo "=========================================="
+echo "Test 5: Model-Aware Routing (model-shared - load balancing)"
+echo "=========================================="
+# Retry logic for service readiness
+for retry in 1 2 3; do
+    RESPONSE1=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "model-shared", "messages": [{"role": "user", "content": "test1"}]}')
+    
+    RESPONSE2=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "model-shared", "messages": [{"role": "user", "content": "test2"}]}')
+    
+    # Check if both responses are valid
+    VALID1=$(echo "$RESPONSE1" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-shared'; print('OK')" 2>/dev/null && echo "yes" || echo "no")
+    VALID2=$(echo "$RESPONSE2" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-shared'; print('OK')" 2>/dev/null && echo "yes" || echo "no")
+    
+    if [ "$VALID1" = "yes" ] && [ "$VALID2" = "yes" ]; then
+        echo "✅ Test 5 PASSED: Model-aware routing with load balancing works"
+        ((TESTS_PASSED++))
+        break
+    elif [ $retry -lt 3 ]; then
+        echo "⚠️  Test 5: Services may not be ready yet, retrying... ($retry/3)"
+        sleep 5
+    else
+        echo "❌ Test 5 FAILED: Load balancing failed after retries"
+        echo "Response 1: $RESPONSE1"
+        echo "Response 2: $RESPONSE2"
+        ((TESTS_FAILED++))
+    fi
+done

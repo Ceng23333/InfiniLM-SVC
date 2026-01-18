@@ -1,0 +1,24 @@
+# Test 4: Model-aware routing - route to service with model-b
+echo ""
+echo "=========================================="
+echo "Test 4: Model-Aware Routing (model-b)"
+echo "=========================================="
+# Retry logic for service readiness
+for retry in 1 2 3; do
+    RESPONSE=$(curl -s -X POST http://127.0.0.1:$ROUTER_PORT/v1/chat/completions \
+        -H "Content-Type: application/json" \
+        -d '{"model": "model-b", "messages": [{"role": "user", "content": "test"}]}')
+    
+    if echo "$RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); assert 'choices' in data; assert data['model'] == 'model-b'; print('OK')" 2>/dev/null; then
+        echo "✅ Test 4 PASSED: Model-aware routing works for model-b"
+        ((TESTS_PASSED++))
+        break
+    elif [ $retry -lt 3 ]; then
+        echo "⚠️  Test 4: Service may not be ready yet, retrying... ($retry/3)"
+        sleep 5
+    else
+        echo "❌ Test 4 FAILED: Model routing failed after retries"
+        echo "Response: $RESPONSE"
+        ((TESTS_FAILED++))
+    fi
+done

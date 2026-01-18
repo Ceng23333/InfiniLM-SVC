@@ -1,0 +1,30 @@
+//! HTTP request handlers
+
+use axum::{
+    extract::State,
+    response::Json,
+    routing::get,
+    Router,
+};
+use serde_json::json;
+use std::sync::Arc;
+
+use crate::router::load_balancer::LoadBalancer;
+use crate::proxy::handler::proxy_handler;
+
+mod health;
+mod stats;
+mod services;
+mod models;
+
+/// Create the main router
+pub fn create_router(load_balancer: Arc<LoadBalancer>) -> Router {
+    Router::new()
+        .route("/health", get(health::health_handler))
+        .route("/status", get(health::health_handler)) // Alias for /health
+        .route("/stats", get(stats::stats_handler))
+        .route("/services", get(services::services_handler))
+        .route("/models", get(models::models_handler))
+        .fallback(proxy_handler)
+        .with_state(load_balancer)
+}
