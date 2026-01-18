@@ -4,6 +4,8 @@ use super::BabysitterState;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command as TokioCommand;
 use tokio::time::{sleep, timeout};
 use tracing::{error, info, warn};
 
@@ -89,17 +91,58 @@ impl ProcessManager {
             }
         }
 
-        // Start the process
-        let child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+        // Convert std::process::Command to tokio::process::Command for async I/O
+        let mut tokio_cmd = TokioCommand::new(cmd.get_program());
+        for arg in cmd.get_args() {
+            tokio_cmd.arg(arg);
+        }
+        if let Some(dir) = cmd.get_current_dir() {
+            tokio_cmd.current_dir(dir);
+        }
+        for (key, value) in cmd.get_envs() {
+            if let Some(val) = value {
+                tokio_cmd.env(key, val);
+            }
+        }
+        tokio_cmd.stdout(Stdio::piped());
+        tokio_cmd.stderr(Stdio::piped());
 
-        let pid = child.id();
+        // Start the process
+        let mut child = tokio_cmd.spawn()?;
+
+        let pid = child.id().expect("Failed to get process ID");
         info!("Service started with PID: {}", pid);
 
-        // Store the process
-        {
-            let mut process = self.state.process.write().await;
-            *process = Some(child);
+        // Capture stdout and stderr for logging
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let service_name = self.state.config.service_name().clone();
+
+        // Spawn task to read stdout
+        if let Some(stdout) = stdout {
+            let service_name_clone = service_name.clone();
+            tokio::spawn(async move {
+                let reader = BufReader::new(stdout);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    info!("[{} stdout] {}", service_name_clone, line);
+                }
+            });
         }
+
+        // Spawn task to read stderr
+        if let Some(stderr) = stderr {
+            let service_name_clone = service_name.clone();
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    warn!("[{} stderr] {}", service_name_clone, line);
+                }
+            });
+        }
+
+        // Store the process
 
         // Detect service port
         self.detect_service_port().await;
@@ -330,13 +373,21 @@ impl ProcessManager {
             sleep(Duration::from_secs(5)).await;
 
             let process_died = {
-                let process = self.state.process.read().await;
-                match process.as_ref() {
-                    Some(_p) => {
+                let mut process = self.state.process.write().await;
+                match process.as_mut() {
+                    Some(p) => {
                         // Check if process is still running
-                        // Note: This is simplified - proper implementation would check process status
-                        // In a real implementation, we'd check p.try_wait() or similar
-                        false // For now, assume running
+                        match p.try_wait() {
+                            Ok(Some(status)) => {
+                                error!("Service process exited with status: {:?}", status);
+                                true
+                            }
+                            Ok(None) => false, // Still running
+                            Err(e) => {
+                                error!("Error checking process status: {}", e);
+                                true
+                            }
+                        }
                     }
                     None => true,
                 }

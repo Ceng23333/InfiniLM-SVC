@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
 pub struct BabysitterState {
     config: BabysitterConfig,
     config_file: Option<BabysitterConfigFile>,
-    process: Arc<RwLock<Option<std::process::Child>>>,
+    process: Arc<RwLock<Option<tokio::process::Child>>>,
     service_port: Arc<RwLock<Option<u16>>>,
     start_time: Instant,
     restart_count: Arc<RwLock<u32>>,
