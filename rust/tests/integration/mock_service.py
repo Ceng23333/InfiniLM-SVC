@@ -27,7 +27,7 @@ class MockService:
     def __init__(self, name: str, port: int, models: List[str], registry_url: str = None):
         self.name = name
         self.port = port
-        self.babysitter_port = port + 1
+        # Note: No babysitter_port needed - the Rust babysitter handles that functionality
         self.models = models
         self.registry_url = registry_url
         self.app = web.Application()
@@ -215,17 +215,8 @@ class MockService:
             # Start heartbeat loop
             asyncio.create_task(self.heartbeat_loop())
         
-        # Start babysitter server
-        logger.info(f"Starting babysitter endpoint on port {self.babysitter_port}")
-        print(f"[{self.name}] Starting babysitter endpoint on port {self.babysitter_port}", flush=True)
-        babysitter_app = web.Application()
-        babysitter_app.router.add_get('/health', self.health_handler)
-        babysitter_runner = web.AppRunner(babysitter_app)
-        await babysitter_runner.setup()
-        babysitter_site = web.TCPSite(babysitter_runner, '127.0.0.1', self.babysitter_port)
-        await babysitter_site.start()
-        logger.info(f"Babysitter endpoint started on port {self.babysitter_port}")
-        print(f"[{self.name}] ✅ Babysitter endpoint started on port {self.babysitter_port}", flush=True)
+        # Note: No babysitter endpoint needed - the Rust babysitter handles that
+        # The mock service only needs to expose the main service endpoint
         
         # Start main service
         logger.info(f"Starting main service on port {self.port}")
@@ -238,9 +229,9 @@ class MockService:
         print(f"[{self.name}] ✅ Main service started on port {self.port}", flush=True)
         
         self.running = True
-        logger.info(f"✅ {self.name} fully started on port {self.port} (babysitter: {self.babysitter_port})")
+        logger.info(f"✅ {self.name} fully started on port {self.port}")
         logger.info(f"   Models: {', '.join(self.models)}")
-        print(f"✅ {self.name} started on port {self.port} (babysitter: {self.babysitter_port})", flush=True)
+        print(f"✅ {self.name} started on port {self.port}", flush=True)
         print(f"   Models: {', '.join(self.models)}", flush=True)
         sys.stdout.flush()
         
@@ -255,7 +246,6 @@ class MockService:
             logger.info("Cleaning up...")
             print(f"[{self.name}] Cleaning up...", flush=True)
             await runner.cleanup()
-            await babysitter_runner.cleanup()
 
 def main():
     parser = argparse.ArgumentParser(description='Mock service for integration testing')
