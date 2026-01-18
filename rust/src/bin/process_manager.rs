@@ -60,6 +60,16 @@ impl ProcessManager {
     }
 
     async fn start_service(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Clean up any existing process before starting a new one
+        {
+            let mut process = self.state.process.write().await;
+            if let Some(mut child) = process.take() {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                info!("Cleaned up previous process");
+            }
+        }
+
         info!("Starting {} service...", self.state.config.service_type);
 
         let mut cmd = if self.state.config.is_command_based() {
@@ -143,6 +153,10 @@ impl ProcessManager {
         }
 
         // Store the process
+        {
+            let mut process = self.state.process.write().await;
+            *process = Some(child);
+        }
 
         // Detect service port
         self.detect_service_port().await;
