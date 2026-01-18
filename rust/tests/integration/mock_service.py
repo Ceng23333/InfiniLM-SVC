@@ -13,6 +13,15 @@ import signal
 import sys
 from typing import List, Dict, Any
 import time
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 class MockService:
     def __init__(self, name: str, port: int, models: List[str], registry_url: str = None):
@@ -33,7 +42,12 @@ class MockService:
     async def register_with_registry(self):
         """Register this service with the registry"""
         if not self.registry_url:
+            logger.info("No registry URL provided, skipping registration")
+            print(f"[{self.name}] No registry URL, skipping registration", flush=True)
             return
+        
+        logger.info(f"Registering {self.name} with registry at {self.registry_url}")
+        print(f"[{self.name}] Registering with registry at {self.registry_url}", flush=True)
             
         service_data = {
             "name": self.name,
@@ -59,15 +73,18 @@ class MockService:
                     json=service_data,
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as response:
+                    text = await response.text()
                     if response.status == 201:
-                        print(f"✅ {self.name} registered with registry")
+                        logger.info(f"✅ {self.name} registered with registry")
+                        print(f"[{self.name}] ✅ Registered with registry (status: {response.status})", flush=True)
                         return True
                     else:
-                        text = await response.text()
-                        print(f"⚠️  Failed to register {self.name}: {response.status} - {text}")
+                        logger.warning(f"Failed to register {self.name}: {response.status} - {text}")
+                        print(f"[{self.name}] ⚠️  Registration failed: {response.status} - {text}", flush=True)
                         return False
         except Exception as e:
-            print(f"⚠️  Error registering {self.name}: {e}")
+            logger.error(f"Error registering {self.name}: {e}", exc_info=True)
+            print(f"[{self.name}] ❌ Error registering: {e}", flush=True)
             return False
     
     async def send_heartbeat(self):
@@ -186,38 +203,57 @@ class MockService:
     
     async def start(self):
         """Start the mock service"""
+        logger.info(f"Starting {self.name}...")
+        print(f"[{self.name}] Starting service...", flush=True)
+        sys.stdout.flush()
+        
         # Register with registry
         if self.registry_url:
+            logger.info(f"Registering with registry: {self.registry_url}")
+            print(f"[{self.name}] Registering with registry: {self.registry_url}", flush=True)
             await self.register_with_registry()
             # Start heartbeat loop
             asyncio.create_task(self.heartbeat_loop())
         
         # Start babysitter server
-        babysitter_runner = web.AppRunner(web.Application())
+        logger.info(f"Starting babysitter endpoint on port {self.babysitter_port}")
+        print(f"[{self.name}] Starting babysitter endpoint on port {self.babysitter_port}", flush=True)
         babysitter_app = web.Application()
         babysitter_app.router.add_get('/health', self.health_handler)
         babysitter_runner = web.AppRunner(babysitter_app)
         await babysitter_runner.setup()
         babysitter_site = web.TCPSite(babysitter_runner, '127.0.0.1', self.babysitter_port)
         await babysitter_site.start()
+        logger.info(f"Babysitter endpoint started on port {self.babysitter_port}")
+        print(f"[{self.name}] ✅ Babysitter endpoint started on port {self.babysitter_port}", flush=True)
         
         # Start main service
+        logger.info(f"Starting main service on port {self.port}")
+        print(f"[{self.name}] Starting main service on port {self.port}", flush=True)
         runner = web.AppRunner(self.app)
         await runner.setup()
         site = web.TCPSite(runner, '127.0.0.1', self.port)
         await site.start()
+        logger.info(f"Main service started on port {self.port}")
+        print(f"[{self.name}] ✅ Main service started on port {self.port}", flush=True)
         
         self.running = True
-        print(f"✅ {self.name} started on port {self.port} (babysitter: {self.babysitter_port})")
-        print(f"   Models: {', '.join(self.models)}")
+        logger.info(f"✅ {self.name} fully started on port {self.port} (babysitter: {self.babysitter_port})")
+        logger.info(f"   Models: {', '.join(self.models)}")
+        print(f"✅ {self.name} started on port {self.port} (babysitter: {self.babysitter_port})", flush=True)
+        print(f"   Models: {', '.join(self.models)}", flush=True)
+        sys.stdout.flush()
         
         # Keep running
         try:
             while self.running:
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
-            pass
+            logger.info("Received keyboard interrupt")
+            print(f"[{self.name}] Received keyboard interrupt", flush=True)
         finally:
+            logger.info("Cleaning up...")
+            print(f"[{self.name}] Cleaning up...", flush=True)
             await runner.cleanup()
             await babysitter_runner.cleanup()
 
@@ -230,6 +266,10 @@ def main():
     
     args = parser.parse_args()
     
+    logger.info(f"Mock service starting with args: name={args.name}, port={args.port}, models={args.models}, registry_url={args.registry_url}")
+    print(f"[MOCK_SERVICE] Starting with args: name={args.name}, port={args.port}, models={args.models}", flush=True)
+    sys.stdout.flush()
+    
     models = [m.strip() for m in args.models.split(',')]
     
     service = MockService(
@@ -241,7 +281,8 @@ def main():
     
     # Handle shutdown
     def signal_handler(sig, frame):
-        print(f"\n🛑 Shutting down {service.name}...")
+        logger.info(f"Received signal {sig}, shutting down...")
+        print(f"\n🛑 Shutting down {service.name}...", flush=True)
         service.running = False
         sys.exit(0)
     
@@ -249,9 +290,16 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     try:
+        logger.info("Entering asyncio.run()")
+        print(f"[{service.name}] Entering event loop...", flush=True)
         asyncio.run(service.start())
     except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt caught")
         service.running = False
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        print(f"[{service.name}] ❌ Fatal error: {e}", flush=True)
+        raise
 
 if __name__ == '__main__':
     main()

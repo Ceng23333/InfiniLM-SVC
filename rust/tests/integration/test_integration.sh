@@ -126,7 +126,8 @@ if ! $PYTHON_CMD -c "import aiohttp" 2>/dev/null; then
 fi
 
 # Start Rust registry
-$REGISTRY_BIN --port $REGISTRY_PORT > /tmp/registry_babysitter_test.log 2>&1 &
+echo "Starting registry..."
+$REGISTRY_BIN --port $REGISTRY_PORT 2>&1 | tee /tmp/registry_babysitter_test.log &
 REGISTRY_PID=$!
 sleep 3
 
@@ -198,16 +199,18 @@ EOF
 echo ""
 echo "Starting Rust babysitters with mock services..."
 
-$BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter1.toml" > /tmp/babysitter1.log 2>&1 &
+# Start babysitters and capture both stdout and stderr, also tee to console for debugging
+$BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter1.toml" 2>&1 | tee /tmp/babysitter1.log &
 BABYSITTER1_PID=$!
 
-$BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter2.toml" > /tmp/babysitter2.log 2>&1 &
+$BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter2.toml" 2>&1 | tee /tmp/babysitter2.log &
 BABYSITTER2_PID=$!
 
-$BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter3.toml" > /tmp/babysitter3.log 2>&1 &
+$BABYSITTER_BIN --config-file "$CONFIG_DIR/babysitter3.toml" 2>&1 | tee /tmp/babysitter3.log &
 BABYSITTER3_PID=$!
 
 # Give babysitters more time to start services (CI may be slower)
+echo "Waiting for babysitters to start services..."
 sleep 5
 echo "✅ Babysitters started (PIDs: $BABYSITTER1_PID, $BABYSITTER2_PID, $BABYSITTER3_PID)"
 
@@ -230,7 +233,7 @@ $ROUTER_BIN \
     --registry-url "http://127.0.0.1:$REGISTRY_PORT" \
     --health-interval 5 \
     --registry-sync-interval 2 \
-    > /tmp/router_babysitter_test.log 2>&1 &
+    2>&1 | tee /tmp/router_babysitter_test.log &
 ROUTER_PID=$!
 
 sleep 3
@@ -464,11 +467,26 @@ if [ $TESTS_FAILED -gt 0 ]; then
     echo "=========================================="
     echo "Recent Logs (for debugging)"
     echo "=========================================="
-    echo "--- Babysitter 1 Log (last 20 lines) ---"
-    tail -20 /tmp/babysitter1.log 2>/dev/null || echo "No log file"
+    echo "--- Registry Log (last 30 lines) ---"
+    tail -30 /tmp/registry_babysitter_test.log 2>/dev/null || echo "No registry log file"
     echo ""
-    echo "--- Router Log (last 20 lines) ---"
-    tail -20 /tmp/router_babysitter_test.log 2>/dev/null || echo "No log file"
+    echo "--- Babysitter 1 Log (last 50 lines) ---"
+    tail -50 /tmp/babysitter1.log 2>/dev/null || echo "No babysitter1 log file"
+    echo ""
+    echo "--- Babysitter 2 Log (last 50 lines) ---"
+    tail -50 /tmp/babysitter2.log 2>/dev/null || echo "No babysitter2 log file"
+    echo ""
+    echo "--- Babysitter 3 Log (last 50 lines) ---"
+    tail -50 /tmp/babysitter3.log 2>/dev/null || echo "No babysitter3 log file"
+    echo ""
+    echo "--- Router Log (last 50 lines) ---"
+    tail -50 /tmp/router_babysitter_test.log 2>/dev/null || echo "No router log file"
+    echo ""
+    echo "--- Checking if mock services are running ---"
+    ps aux | grep -E "(mock_service|python.*mock)" | grep -v grep || echo "No mock service processes found"
+    echo ""
+    echo "--- Checking ports ---"
+    netstat -tuln 2>/dev/null | grep -E ":(6001|6003|6005|6002|6004|6006|8900|8901)" || lsof -i :6001,6003,6005,6002,6004,6006,8900,8901 2>/dev/null || echo "Could not check ports"
 fi
 
 if [ $TESTS_FAILED -eq 0 ]; then
