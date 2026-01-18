@@ -7,8 +7,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde_json::json;
 use reqwest::Client;
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
@@ -48,7 +48,7 @@ pub async fn proxy_handler(
     let method = request.method().clone();
     let uri = request.uri().clone();
     let headers = request.headers().clone();
-    
+
     // Read request body first (needed for model extraction and forwarding)
     let body_bytes = match axum::body::to_bytes(request.into_body(), usize::MAX).await {
         Ok(bytes) => bytes,
@@ -90,10 +90,20 @@ pub async fn proxy_handler(
     };
 
     // Build target URL
-    let target_url = format!("{}{}", service.url, uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(""));
+    let target_url = format!(
+        "{}{}",
+        service.url,
+        uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("")
+    );
 
     if let Some(model) = &model_id {
-        info!("Proxying {} {} (model: {}) -> {}", method, uri.path(), model, service.name);
+        info!(
+            "Proxying {} {} (model: {}) -> {}",
+            method,
+            uri.path(),
+            model,
+            service.name
+        );
     } else {
         info!("Proxying {} {} -> {}", method, uri.path(), service.name);
     }
@@ -133,7 +143,7 @@ pub async fn proxy_handler(
         Ok(response) => response,
         Err(e) => {
             error!("Error proxying to service {}: {}", service.name, e);
-            
+
             // Mark service as unhealthy on connection errors
             service.increment_error_count().await;
             service.set_healthy(false).await;
@@ -142,9 +152,15 @@ pub async fn proxy_handler(
             let (status, error_msg) = if e.is_timeout() {
                 (StatusCode::GATEWAY_TIMEOUT, "Service timeout")
             } else if e.is_connect() {
-                (StatusCode::SERVICE_UNAVAILABLE, "Service unavailable - connection refused")
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "Service unavailable - connection refused",
+                )
             } else {
-                (StatusCode::BAD_GATEWAY, "Bad gateway - error communicating with service")
+                (
+                    StatusCode::BAD_GATEWAY,
+                    "Bad gateway - error communicating with service",
+                )
             };
             return (status, Json(json!({"error": error_msg}))).into_response();
         }
@@ -165,7 +181,10 @@ pub async fn proxy_handler(
             if HOP_BY_HOP_HEADERS.contains(&header_name_lower.as_str()) {
                 return None;
             }
-            value.to_str().ok().map(|v| (name.as_str().to_string(), v.to_string()))
+            value
+                .to_str()
+                .ok()
+                .map(|v| (name.as_str().to_string(), v.to_string()))
         })
         .collect();
 
@@ -180,7 +199,7 @@ pub async fn proxy_handler(
         .get("transfer-encoding")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    
+
     let is_sse = content_type.contains("text/event-stream");
     let is_chunked = transfer_encoding.to_lowercase() == "chunked";
 
@@ -234,7 +253,13 @@ pub async fn proxy_handler(
         }
     };
 
-    info!("Proxied {} {} -> {} ({})", method, uri.path(), service.name, status);
+    info!(
+        "Proxied {} {} -> {} ({})",
+        method,
+        uri.path(),
+        service.name,
+        status
+    );
 
     response
 }

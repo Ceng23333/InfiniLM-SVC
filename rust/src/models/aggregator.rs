@@ -31,16 +31,18 @@ impl ModelAggregator {
             }
 
             // Try to get full model info from metadata.models_list first
-            if let Some(models_list) = service.metadata.get("models_list").and_then(|v| v.as_array()) {
+            if let Some(models_list) = service
+                .metadata
+                .get("models_list")
+                .and_then(|v| v.as_array())
+            {
                 for model_info in models_list {
                     if let Some(model_obj) = model_info.as_object() {
                         if let Some(model_id) = model_obj.get("id").and_then(|v| v.as_str()) {
                             // Store full model info, deduplicate by model ID
                             if !aggregated_models.contains_key(model_id) {
-                                aggregated_models.insert(
-                                    model_id.to_string(),
-                                    serde_json::json!(model_obj),
-                                );
+                                aggregated_models
+                                    .insert(model_id.to_string(), serde_json::json!(model_obj));
                             }
                         }
                     }
@@ -70,7 +72,11 @@ impl ModelAggregator {
             id_a.cmp(id_b)
         });
 
-        debug!("Aggregated {} models from {} services", models_vec.len(), services_count);
+        debug!(
+            "Aggregated {} models from {} services",
+            models_vec.len(),
+            services_count
+        );
         models_vec
     }
 }

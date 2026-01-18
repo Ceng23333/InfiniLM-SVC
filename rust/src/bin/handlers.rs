@@ -1,12 +1,6 @@
 //! HTTP handlers for the babysitter
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, response::Json, routing::get, Router};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -45,7 +39,7 @@ impl BabysitterHandlers {
     ) -> Result<Json<serde_json::Value>, StatusCode> {
         let process_running = {
             let process = state.process.read().await;
-            process.as_ref().map_or(false, |p| {
+            process.as_ref().is_some_and(|_p| {
                 // Check if process is still running
                 // Note: This is a simplified check - in production, use proper process status
                 true // For now, assume running if process exists
@@ -83,8 +77,12 @@ impl BabysitterHandlers {
         }
 
         // Proxy request to managed service
-        let url = format!("http://{}:{}/models", state.config.host, service_port.unwrap());
-        
+        let url = format!(
+            "http://{}:{}/models",
+            state.config.host,
+            service_port.unwrap()
+        );
+
         match reqwest::get(&url).await {
             Ok(response) => {
                 if response.status().is_success() {

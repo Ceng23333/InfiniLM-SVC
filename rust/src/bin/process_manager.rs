@@ -33,7 +33,10 @@ impl ProcessManager {
             };
 
             if restart_count >= self.state.config.max_restarts {
-                error!("Maximum restart limit ({}) reached", self.state.config.max_restarts);
+                error!(
+                    "Maximum restart limit ({}) reached",
+                    self.state.config.max_restarts
+                );
                 break;
             }
 
@@ -87,10 +90,7 @@ impl ProcessManager {
         }
 
         // Start the process
-        let child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+        let child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
 
         let pid = child.id();
         info!("Service started with PID: {}", pid);
@@ -120,7 +120,7 @@ impl ProcessManager {
         }
 
         let mut cmd = Command::new(parts[0]);
-        
+
         // Add remaining parts as arguments
         for part in parts.iter().skip(1) {
             cmd.arg(part);
@@ -140,10 +140,13 @@ impl ProcessManager {
     }
 
     fn build_rust_command(&self) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
-        let path = self.state.config.path.as_ref().ok_or_else(|| {
-            "Path not specified for InfiniLM-Rust service".to_string()
-        })?;
-        
+        let path = self
+            .state
+            .config
+            .path
+            .as_ref()
+            .ok_or_else(|| "Path not specified for InfiniLM-Rust service".to_string())?;
+
         let mut cmd = Command::new("xtask");
         cmd.arg("service")
             .arg(path.to_str().unwrap())
@@ -166,9 +169,12 @@ impl ProcessManager {
 
     fn build_vllm_command(&self) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
         // vLLM backend support
-        let path = self.state.config.path.as_ref().ok_or_else(|| {
-            "Model path not specified for vLLM service".to_string()
-        })?;
+        let path = self
+            .state
+            .config
+            .path
+            .as_ref()
+            .ok_or_else(|| "Model path not specified for vLLM service".to_string())?;
 
         let mut cmd = Command::new("python3");
         cmd.arg("-m")
@@ -193,18 +199,16 @@ impl ProcessManager {
     fn build_mock_command(&self) -> Result<Command, Box<dyn std::error::Error + Send + Sync>> {
         // Mock backend support - can use the mock_service.py from integration tests
         let mut cmd = Command::new("python3");
-        
+
         // Try to find mock_service.py
-        let mock_script = std::env::current_dir()
-            .ok()
-            .and_then(|d| {
-                let paths = vec![
-                    d.join("rust/tests/integration/mock_service.py"),
-                    d.join("tests/integration/mock_service.py"),
-                    d.join("mock_service.py"),
-                ];
-                paths.into_iter().find(|p| p.exists())
-            });
+        let mock_script = std::env::current_dir().ok().and_then(|d| {
+            let paths = vec![
+                d.join("rust/tests/integration/mock_service.py"),
+                d.join("tests/integration/mock_service.py"),
+                d.join("mock_service.py"),
+            ];
+            paths.into_iter().find(|p| p.exists())
+        });
 
         if let Some(script) = mock_script {
             cmd.arg(script.to_str().unwrap());
@@ -217,11 +221,12 @@ impl ProcessManager {
         if let Some(name) = &self.state.config.name {
             cmd.arg("--name").arg(name);
         } else {
-            cmd.arg("--name").arg(&self.state.config.service_name());
+            cmd.arg("--name").arg(self.state.config.service_name());
         }
-        
-        cmd.arg("--port").arg(self.state.service_target_port().to_string());
-        
+
+        cmd.arg("--port")
+            .arg(self.state.service_target_port().to_string());
+
         if let Some(models) = &self.state.config.args {
             cmd.arg("--models").arg(models);
         } else {
@@ -238,31 +243,39 @@ impl ProcessManager {
     async fn detect_service_port(&self) {
         // Simplified port detection - in production, parse logs or check HTTP endpoint
         let target_port = self.state.service_target_port();
-        
+
         // For fast services (like mock services), check more aggressively
         // Start with very short intervals and use shorter timeouts
         let mut wait_interval = Duration::from_millis(100); // Start with 100ms
         let max_wait = Duration::from_secs(10); // Maximum 10 seconds for fast services
         let start = std::time::Instant::now();
-        
+
         // First, give the process a moment to start (100ms)
         sleep(Duration::from_millis(100)).await;
-        
+
         loop {
             if start.elapsed() > max_wait {
-                warn!("Could not detect service port within {}s, using target port {}", max_wait.as_secs(), target_port);
+                warn!(
+                    "Could not detect service port within {}s, using target port {}",
+                    max_wait.as_secs(),
+                    target_port
+                );
                 let mut port = self.state.service_port.write().await;
                 *port = Some(target_port);
                 return;
             }
-            
+
             if self.check_service_ready(target_port).await {
-                info!("Service detected on port {} (took {:?})", target_port, start.elapsed());
+                info!(
+                    "Service detected on port {} (took {:?})",
+                    target_port,
+                    start.elapsed()
+                );
                 let mut port = self.state.service_port.write().await;
                 *port = Some(target_port);
                 return;
             }
-            
+
             sleep(wait_interval).await;
             // Exponential backoff, but cap at 1 second for fast services
             wait_interval = std::cmp::min(wait_interval * 2, Duration::from_secs(1));
@@ -272,7 +285,12 @@ impl ProcessManager {
     async fn check_service_ready(&self, port: u16) -> bool {
         // Check if port is listening with very short timeout
         let connect_timeout = Duration::from_millis(50);
-        match timeout(connect_timeout, tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))).await {
+        match timeout(
+            connect_timeout,
+            tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port)),
+        )
+        .await
+        {
             Ok(Ok(_)) => {
                 // Port is listening, now verify HTTP endpoint is actually ready
                 let url = format!("http://127.0.0.1:{}/models", port);

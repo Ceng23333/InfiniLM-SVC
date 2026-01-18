@@ -145,17 +145,17 @@ impl BabysitterConfigFile {
     pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path.as_ref())
             .with_context(|| format!("Failed to read config file: {:?}", path.as_ref()))?;
-        
+
         let config: BabysitterConfigFile = toml::from_str(&content)
             .with_context(|| format!("Failed to parse TOML config file: {:?}", path.as_ref()))?;
-        
+
         Ok(config)
     }
 
     /// Convert to CLI-compatible config
     pub fn to_cli_config(&self) -> super::config::BabysitterConfig {
         use super::config::BabysitterConfig;
-        
+
         BabysitterConfig {
             name: self.name.clone(),
             host: self.host.clone(),
@@ -213,7 +213,7 @@ impl BackendConfig {
 
     fn args_string(&self) -> Option<String> {
         match self {
-            BackendConfig::Command { args, .. } 
+            BackendConfig::Command { args, .. }
             | BackendConfig::VLLM { args, .. }
             | BackendConfig::InfiniLM { args, .. } => {
                 if args.is_empty() {
@@ -222,9 +222,7 @@ impl BackendConfig {
                     Some(args.join(" "))
                 }
             }
-            BackendConfig::Mock { models } => {
-                Some(models.join(","))
-            }
+            BackendConfig::Mock { models } => Some(models.join(",")),
             _ => None,
         }
     }

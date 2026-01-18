@@ -75,10 +75,7 @@ impl RegistryClient {
             .context("Failed to send request to registry")?;
 
         if !response.status().is_success() {
-            anyhow::bail!(
-                "Registry returned error status: {}",
-                response.status()
-            );
+            anyhow::bail!("Registry returned error status: {}", response.status());
         }
 
         let services_response: RegistryServicesResponse = response

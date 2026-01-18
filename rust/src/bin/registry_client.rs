@@ -72,7 +72,7 @@ impl BabysitterRegistryClient {
 
         match self
             .client
-            .post(&format!("{}/services", self.registry_url))
+            .post(format!("{}/services", self.registry_url))
             .json(&service_data)
             .send()
             .await
@@ -105,7 +105,7 @@ impl BabysitterRegistryClient {
 
             // Fetch models from service
             let models = self.fetch_models(service_port.unwrap()).await;
-            
+
             if models.is_empty() {
                 warn!("No models fetched from service, retrying registration...");
                 sleep(Duration::from_secs(2)).await;
@@ -132,19 +132,25 @@ impl BabysitterRegistryClient {
 
             match self
                 .client
-                .post(&format!("{}/services", self.registry_url))
+                .post(format!("{}/services", self.registry_url))
                 .json(&service_data)
                 .send()
                 .await
             {
                 Ok(response) => {
                     if response.status().is_success() {
-                        info!("✅ Managed service registered with registry ({} models)", models.len());
+                        info!(
+                            "✅ Managed service registered with registry ({} models)",
+                            models.len()
+                        );
                         break;
                     } else {
                         let status_text = response.status().to_string();
                         let body = response.text().await.unwrap_or_default();
-                        warn!("Failed to register managed service: {} - {}", status_text, body);
+                        warn!(
+                            "Failed to register managed service: {} - {}",
+                            status_text, body
+                        );
                     }
                 }
                 Err(e) => {
@@ -184,14 +190,21 @@ impl BabysitterRegistryClient {
                     } else {
                         // Non-200 status, log and retry
                         if attempt % 5 == 0 {
-                            debug!("Service returned status {} for /models, retrying... (attempt {})", response.status(), attempt);
+                            debug!(
+                                "Service returned status {} for /models, retrying... (attempt {})",
+                                response.status(),
+                                attempt
+                            );
                         }
                     }
                 }
                 Err(e) => {
                     // Connection error, retry
                     if attempt % 5 == 0 {
-                        debug!("Error fetching models: {}, retrying... (attempt {})", e, attempt);
+                        debug!(
+                            "Error fetching models: {}, retrying... (attempt {})",
+                            e, attempt
+                        );
                     }
                 }
             }
@@ -209,13 +222,20 @@ impl BabysitterRegistryClient {
     async fn send_heartbeat(&self, service_name: &str) {
         match self
             .client
-            .post(&format!("{}/services/{}/heartbeat", self.registry_url, service_name))
+            .post(format!(
+                "{}/services/{}/heartbeat",
+                self.registry_url, service_name
+            ))
             .send()
             .await
         {
             Ok(response) => {
                 if !response.status().is_success() {
-                    warn!("Heartbeat failed for {}: {}", service_name, response.status());
+                    warn!(
+                        "Heartbeat failed for {}: {}",
+                        service_name,
+                        response.status()
+                    );
                 }
             }
             Err(e) => {

@@ -88,7 +88,10 @@ pub struct BabysitterConfig {
 impl BabysitterConfig {
     pub fn service_name(&self) -> String {
         self.name.clone().unwrap_or_else(|| {
-            let port_str = self.port.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string());
+            let port_str = self
+                .port
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
             format!(
                 "{}-{}",
                 self.service_type.to_lowercase().replace(' ', "-"),

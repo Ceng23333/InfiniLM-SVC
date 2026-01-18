@@ -1,9 +1,9 @@
 //! Load balancer implementation
 
 use crate::config::Config;
+use crate::registry::client::{RegistryClient, RegistryService};
 use crate::router::health_checker::HealthChecker;
 use crate::router::service_instance::ServiceInstance;
-use crate::registry::client::{RegistryClient, RegistryService};
 use crate::utils::errors::RouterError;
 use crate::utils::time::current_timestamp;
 use std::collections::HashMap;
@@ -37,11 +37,7 @@ impl LoadBalancer {
                 let metadata: HashMap<String, serde_json::Value> = service_config
                     .metadata
                     .as_object()
-                    .map(|obj| {
-                        obj.iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect()
-                    })
+                    .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                     .unwrap_or_default();
 
                 let service = ServiceInstance::new(
@@ -62,9 +58,10 @@ impl LoadBalancer {
             config.max_errors,
         ));
 
-        let registry_client = config.registry_url.as_ref().map(|url| {
-            Arc::new(RegistryClient::new(url.clone()))
-        });
+        let registry_client = config
+            .registry_url
+            .as_ref()
+            .map(|url| Arc::new(RegistryClient::new(url.clone())));
 
         Ok(LoadBalancer {
             services: Arc::new(RwLock::new(services)),
@@ -85,12 +82,11 @@ impl LoadBalancer {
         let services = self.services.read().await;
         let all_services: Vec<_> = services.values().cloned().collect();
         drop(services); // Release the lock
-        
+
         // Check health status for all services
-        let health_checks: Vec<bool> = futures::future::join_all(
-            all_services.iter().map(|s| s.is_healthy())
-        ).await;
-        
+        let health_checks: Vec<bool> =
+            futures::future::join_all(all_services.iter().map(|s| s.is_healthy())).await;
+
         let healthy_services: Vec<_> = all_services
             .into_iter()
             .zip(health_checks)
@@ -143,12 +139,11 @@ impl LoadBalancer {
         let services = self.services.read().await;
         let all_services: Vec<_> = services.values().cloned().collect();
         drop(services); // Release the lock
-        
+
         // Check health status for all services
-        let health_checks: Vec<bool> = futures::future::join_all(
-            all_services.iter().map(|s| s.is_healthy())
-        ).await;
-        
+        let health_checks: Vec<bool> =
+            futures::future::join_all(all_services.iter().map(|s| s.is_healthy())).await;
+
         let mut healthy_services: Vec<_> = all_services
             .into_iter()
             .zip(health_checks)
@@ -228,29 +223,35 @@ impl LoadBalancer {
 
                     if !services_list.is_empty() {
                         // Perform health checks in parallel
-                        let health_results: Vec<bool> = futures::future::join_all(
-                            services_list.iter().map(|service| {
+                        let health_results: Vec<bool> =
+                            futures::future::join_all(services_list.iter().map(|service| {
                                 let health_checker = health_checker_clone.clone();
                                 let service = service.clone();
-                                async move {
-                                    health_checker.check_health(&service).await
-                                }
-                            })
-                        ).await;
+                                async move { health_checker.check_health(&service).await }
+                            }))
+                            .await;
 
                         let healthy_count = health_results.iter().filter(|&&h| h).count();
-                        info!("Health check completed: {}/{} services healthy", healthy_count, services_list.len());
+                        info!(
+                            "Health check completed: {}/{} services healthy",
+                            healthy_count,
+                            services_list.len()
+                        );
 
                         // Log unhealthy services
                         for service in &services_list {
                             let error_count = *service.error_count.read().await;
                             let is_healthy = service.is_healthy().await;
                             if !is_healthy && error_count >= health_checker_clone.max_errors {
-                                warn!("Service {} is unhealthy (errors: {})", service.name, error_count);
+                                warn!(
+                                    "Service {} is unhealthy (errors: {})",
+                                    service.name, error_count
+                                );
                             }
                         }
                     }
-                }).await;
+                })
+                .await;
 
                 sleep(Duration::from_secs(interval)).await;
             }

@@ -32,19 +32,17 @@ pub async fn handle_streaming_response(
 
     // Create a streaming body from the upstream response
     let stream = upstream_response.bytes_stream();
-    
+
     // Convert reqwest::Stream to axum::Body
     // Map reqwest::Bytes to axum::body::Bytes
-    let body_stream = stream.map(|result| {
-        match result {
-            Ok(bytes) => Ok(axum::body::Bytes::from(bytes.to_vec())),
-            Err(e) => {
-                tracing::error!("Stream error: {}", e);
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Stream error: {}", e),
-                ))
-            }
+    let body_stream = stream.map(|result| match result {
+        Ok(bytes) => Ok(axum::body::Bytes::from(bytes.to_vec())),
+        Err(e) => {
+            tracing::error!("Stream error: {}", e);
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Stream error: {}", e),
+            ))
         }
     });
 
@@ -61,6 +59,9 @@ pub async fn handle_streaming_response(
         }
     };
 
-    info!("Proxied (stream) {} {} -> {} ({})", method, path, service_name, status);
+    info!(
+        "Proxied (stream) {} {} -> {} ({})",
+        method, path, service_name, status
+    );
     response
 }

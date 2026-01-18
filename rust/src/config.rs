@@ -66,19 +66,25 @@ impl Config {
 
     /// Load static services from a JSON file
     fn load_static_services<P: AsRef<Path>>(file_path: P) -> Result<Vec<StaticService>> {
-        let content = fs::read_to_string(&file_path)
-            .with_context(|| format!("Failed to read static services file: {:?}", file_path.as_ref()))?;
+        let content = fs::read_to_string(&file_path).with_context(|| {
+            format!(
+                "Failed to read static services file: {:?}",
+                file_path.as_ref()
+            )
+        })?;
 
-        let config: serde_json::Value = serde_json::from_str(&content)
-            .context("Failed to parse static services JSON")?;
+        let config: serde_json::Value =
+            serde_json::from_str(&content).context("Failed to parse static services JSON")?;
 
         // Handle multiple possible formats:
         // 1. Direct array: [...]
         // 2. Object with "services" key: {"services": [...]}
         // 3. Object with "static_services.services" key: {"static_services": {"services": [...]}}
-        let services = if let Some(services_array) = config.get("static_services")
+        let services = if let Some(services_array) = config
+            .get("static_services")
             .and_then(|v| v.get("services"))
-            .and_then(|v| v.as_array()) {
+            .and_then(|v| v.as_array())
+        {
             services_array
         } else if let Some(services_array) = config.get("services").and_then(|v| v.as_array()) {
             services_array
@@ -88,9 +94,9 @@ impl Config {
             anyhow::bail!("Invalid static services format: expected array or object with 'services' or 'static_services.services' key");
         };
 
-        let static_services: Vec<StaticService> = serde_json::from_value(
-            serde_json::Value::Array(services.clone())
-        ).context("Failed to deserialize static services")?;
+        let static_services: Vec<StaticService> =
+            serde_json::from_value(serde_json::Value::Array(services.clone()))
+                .context("Failed to deserialize static services")?;
 
         Ok(static_services)
     }

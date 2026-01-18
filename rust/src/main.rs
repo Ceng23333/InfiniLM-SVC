@@ -6,14 +6,14 @@ use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
 use tokio::signal;
-use tracing::{info, error};
+use tracing::{error, info};
 
 mod config;
-mod router;
-mod registry;
-mod proxy;
-mod models;
 mod handlers;
+mod models;
+mod proxy;
+mod registry;
+mod router;
 mod utils;
 
 use config::Config;

@@ -1,21 +1,16 @@
 //! HTTP request handlers
 
-use axum::{
-    extract::State,
-    response::Json,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, response::Json, routing::get, Router};
 use serde_json::json;
 use std::sync::Arc;
 
-use crate::router::load_balancer::LoadBalancer;
 use crate::proxy::handler::proxy_handler;
+use crate::router::load_balancer::LoadBalancer;
 
 mod health;
-mod stats;
-mod services;
 mod models;
+mod services;
+mod stats;
 
 /// Create the main router
 pub fn create_router(load_balancer: Arc<LoadBalancer>) -> Router {

@@ -2,7 +2,6 @@
 //! Manages service lifecycle, health monitoring, and registry integration
 
 use anyhow::Result;
-use std::process::Child;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::signal;
@@ -34,14 +33,14 @@ async fn main() -> Result<()> {
 
     // Parse CLI arguments
     let cli_config = <BabysitterConfig as clap::Parser>::parse();
-    
+
     // Load config from file if specified, otherwise use CLI config
     let config = if let Some(config_file) = &cli_config.config_file {
         // Load from TOML file and merge with CLI args (CLI takes precedence)
         let file_config = BabysitterConfigFile::from_file(config_file)
             .with_context(|| format!("Failed to load config file: {:?}", config_file))?;
         let mut merged = file_config.to_cli_config();
-        
+
         // Override with CLI values if provided
         if cli_config.name.is_some() {
             merged.name = cli_config.name.clone();
@@ -53,7 +52,7 @@ async fn main() -> Result<()> {
             merged.registry_url = cli_config.registry_url.clone();
         }
         // ... add more overrides as needed
-        
+
         merged
     } else {
         // Validate required CLI arguments when not using config file
@@ -71,8 +70,10 @@ async fn main() -> Result<()> {
 
     // Load config file if specified
     let config_file = if let Some(config_file_path) = &config.config_file {
-        Some(BabysitterConfigFile::from_file(config_file_path)
-            .with_context(|| format!("Failed to load config file: {:?}", config_file_path))?)
+        Some(
+            BabysitterConfigFile::from_file(config_file_path)
+                .with_context(|| format!("Failed to load config file: {:?}", config_file_path))?,
+        )
     } else {
         None
     };
@@ -97,21 +98,17 @@ async fn main() -> Result<()> {
 
     // Start process manager
     let process_manager = ProcessManager::new(state.clone());
-    let process_handle = tokio::spawn(async move {
-        process_manager.run().await
-    });
+    let process_handle = tokio::spawn(async move { process_manager.run().await });
 
     // Start registry client (if configured)
     if let Some(registry_url) = &config.registry_url {
         let registry_client = BabysitterRegistryClient::new(registry_url.clone(), state.clone());
-        let registry_handle = tokio::spawn(async move {
-            registry_client.run().await
-        });
-        
+        let registry_handle = tokio::spawn(async move { registry_client.run().await });
+
         // Wait for shutdown signal
         signal::ctrl_c().await?;
         info!("Received shutdown signal, cleaning up...");
-        
+
         // Stop registry client
         registry_handle.abort();
     } else {
@@ -122,7 +119,7 @@ async fn main() -> Result<()> {
 
     // Stop process manager
     process_handle.abort();
-    
+
     // Stop HTTP server
     server_handle.abort();
 

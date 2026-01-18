@@ -36,13 +36,22 @@ pub enum RouterError {
 impl IntoResponse for RouterError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
-            RouterError::NoHealthyService => (StatusCode::SERVICE_UNAVAILABLE, "No healthy services available".to_string()),
+            RouterError::NoHealthyService => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "No healthy services available".to_string(),
+            ),
             RouterError::ServiceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
-            RouterError::RegistryError(_) => (StatusCode::BAD_GATEWAY, "Registry communication error".to_string()),
+            RouterError::RegistryError(_) => (
+                StatusCode::BAD_GATEWAY,
+                "Registry communication error".to_string(),
+            ),
             RouterError::JsonError(_) => (StatusCode::BAD_REQUEST, "Invalid JSON".to_string()),
             RouterError::IoError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "IO error".to_string()),
             RouterError::ConfigError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            RouterError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            RouterError::Internal(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Internal server error".to_string(),
+            ),
         };
 
         let body = Json(json!({

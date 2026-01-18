@@ -224,7 +224,9 @@ fn create_router(state: RegistryState) -> Router {
         .with_state(state)
 }
 
-async fn health_handler(axum::extract::State(state): axum::extract::State<RegistryState>) -> Json<Value> {
+async fn health_handler(
+    axum::extract::State(state): axum::extract::State<RegistryState>,
+) -> Json<Value> {
     let services = state.services.read().await;
     let services_vec: Vec<_> = services.values().collect();
     let mut healthy_count = 0;
@@ -502,7 +504,9 @@ async fn heartbeat_handler(
     })))
 }
 
-async fn stats_handler(axum::extract::State(state): axum::extract::State<RegistryState>) -> Json<Value> {
+async fn stats_handler(
+    axum::extract::State(state): axum::extract::State<RegistryState>,
+) -> Json<Value> {
     let services = state.services.read().await;
     let services_vec: Vec<_> = services.values().collect();
     let mut healthy_count = 0;
@@ -570,15 +574,20 @@ async fn perform_health_checks(state: RegistryState) {
         if !services.is_empty() {
             let mut healthy_count = 0;
             for service in &services {
-                let check_url = if service.metadata.get("type").and_then(|v| v.as_str()) == Some("openai-api") {
+                let check_url = if service.metadata.get("type").and_then(|v| v.as_str())
+                    == Some("openai-api")
+                {
                     format!("http://{}:{}", service.host, service.port + 1)
-                } else if service.metadata.get("type").and_then(|v| v.as_str()) == Some("babysitter") {
+                } else if service.metadata.get("type").and_then(|v| v.as_str())
+                    == Some("babysitter")
+                {
                     service.url.clone()
                 } else {
                     service.url.clone()
                 };
 
-                let health_status = check_service_health(&check_url, state.health_check_timeout).await;
+                let health_status =
+                    check_service_health(&check_url, state.health_check_timeout).await;
                 *service.health_status.write().await = health_status.clone();
 
                 if health_status == "healthy" {
