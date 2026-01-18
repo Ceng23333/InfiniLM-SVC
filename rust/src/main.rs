@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::sync::Arc;
 use tokio::signal;
-use tracing::{error, info};
+use tracing::info;
 
 mod config;
 mod handlers;

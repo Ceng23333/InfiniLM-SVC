@@ -17,7 +17,6 @@ use crate::proxy::model_extractor::extract_model_from_body;
 use crate::proxy::streaming::handle_streaming_response;
 use crate::router::load_balancer::LoadBalancer;
 
-/// HTTP client for proxying requests
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = Client::builder()
         .timeout(Duration::from_secs(300)) // 5 minutes total timeout

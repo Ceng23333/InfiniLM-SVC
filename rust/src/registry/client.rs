@@ -92,6 +92,7 @@ impl RegistryClient {
     }
 
     /// Check if registry is available
+    #[allow(dead_code)]
     pub async fn check_health(&self) -> Result<bool> {
         let url = format!("{}/health", self.registry_url);
         match self.client.get(&url).send().await {

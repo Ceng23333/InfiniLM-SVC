@@ -95,6 +95,7 @@ pub enum BackendConfig {
 
     /// vLLM backend
     #[serde(rename = "vllm")]
+    #[allow(clippy::upper_case_acronyms)]
     VLLM {
         /// Model path
         model: PathBuf,

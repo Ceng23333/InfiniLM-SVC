@@ -11,6 +11,7 @@ pub fn current_timestamp() -> f64 {
 }
 
 /// Get current Unix timestamp as u64 (seconds)
+#[allow(dead_code)]
 pub fn current_timestamp_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

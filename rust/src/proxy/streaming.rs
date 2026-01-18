@@ -39,10 +39,7 @@ pub async fn handle_streaming_response(
         Ok(bytes) => Ok(axum::body::Bytes::from(bytes.to_vec())),
         Err(e) => {
             tracing::error!("Stream error: {}", e);
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Stream error: {}", e),
-            ))
+            Err(std::io::Error::other(format!("Stream error: {}", e)))
         }
     });
 

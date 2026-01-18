@@ -26,6 +26,7 @@ pub struct ServiceInstance {
 
 impl ServiceInstance {
     /// Create a new service instance
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
         host: String,
@@ -98,6 +99,7 @@ impl ServiceInstance {
     }
 
     /// Check if service supports a specific model
+    #[allow(dead_code)]
     pub async fn supports_model(&self, model_id: &str) -> bool {
         let models = self.models.read().await;
         models.contains(&model_id.to_string())

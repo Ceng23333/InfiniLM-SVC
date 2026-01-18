@@ -17,7 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::signal;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Instant};
-use tracing::info;
+use tracing::{error, info};
 
 /// Service information stored in registry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -329,6 +329,7 @@ struct RegisterServiceRequest {
     url: String,
     status: String,
     #[serde(default)]
+    #[allow(dead_code)]
     timestamp: Option<String>,
     #[serde(default)]
     metadata: HashMap<String, Value>,
@@ -578,10 +579,6 @@ async fn perform_health_checks(state: RegistryState) {
                     == Some("openai-api")
                 {
                     format!("http://{}:{}", service.host, service.port + 1)
-                } else if service.metadata.get("type").and_then(|v| v.as_str())
-                    == Some("babysitter")
-                {
-                    service.url.clone()
                 } else {
                     service.url.clone()
                 };

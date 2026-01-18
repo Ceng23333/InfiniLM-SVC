@@ -1,6 +1,6 @@
 //! Health check endpoint handler
 
-use axum::{extract::State, http::StatusCode, response::Json};
+use axum::{extract::State, response::Json};
 use serde_json::json;
 use std::sync::Arc;
 

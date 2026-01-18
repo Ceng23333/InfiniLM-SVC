@@ -12,9 +12,11 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum RouterError {
     #[error("No healthy services available")]
+    #[allow(dead_code)]
     NoHealthyService,
 
     #[error("Service not found: {0}")]
+    #[allow(dead_code)]
     ServiceNotFound(String),
 
     #[error("Registry error: {0}")]
@@ -27,6 +29,7 @@ pub enum RouterError {
     IoError(#[from] std::io::Error),
 
     #[error("Configuration error: {0}")]
+    #[allow(dead_code)]
     ConfigError(String),
 
     #[error("Internal error: {0}")]

@@ -36,6 +36,7 @@ fn default_weight() -> u32 {
 
 impl Config {
     /// Create a new configuration from command-line arguments
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         router_port: u16,
         registry_url: Option<String>,

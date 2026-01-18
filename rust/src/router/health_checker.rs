@@ -8,6 +8,7 @@ use tracing::warn;
 /// Health checker
 pub struct HealthChecker {
     client: Client,
+    #[allow(dead_code)]
     timeout: Duration,
     pub max_errors: u32,
 }
@@ -64,6 +65,7 @@ impl HealthChecker {
     }
 
     /// Check if service should be marked unhealthy based on error count
+    #[allow(dead_code)]
     pub fn should_mark_unhealthy(&self, error_count: u32) -> bool {
         error_count >= self.max_errors
     }

@@ -20,6 +20,7 @@ pub struct LoadBalancer {
     health_check_interval: u64,
     registry_sync_interval: u64,
     service_removal_grace_period: u64,
+    #[allow(dead_code)]
     config: Config,
     health_checker: Arc<HealthChecker>,
     registry_client: Option<Arc<RegistryClient>>,
@@ -28,6 +29,7 @@ pub struct LoadBalancer {
 
 impl LoadBalancer {
     /// Create a new load balancer
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(config: &Config) -> Result<Self, RouterError> {
         let mut services = HashMap::new();
 
@@ -78,6 +80,7 @@ impl LoadBalancer {
     }
 
     /// Get next healthy service using weighted round-robin
+    #[allow(dead_code)]
     pub async fn get_next_healthy_service(&self) -> Option<ServiceInstance> {
         let services = self.services.read().await;
         let all_services: Vec<_> = services.values().cloned().collect();
@@ -211,12 +214,12 @@ impl LoadBalancer {
 
         info!("Health check task started (interval: {}s)", interval);
 
-        let _ = tokio::spawn(async move {
+        std::mem::drop(tokio::spawn(async move {
             while *running.read().await {
                 let services_clone = services.clone();
                 let health_checker_clone = health_checker.clone();
 
-                let _ = tokio::spawn(async move {
+                std::mem::drop(tokio::spawn(async move {
                     let services_guard = services_clone.read().await;
                     let services_list: Vec<_> = services_guard.values().cloned().collect();
                     drop(services_guard);
@@ -250,12 +253,11 @@ impl LoadBalancer {
                             }
                         }
                     }
-                })
-                .await;
+                }));
 
                 sleep(Duration::from_secs(interval)).await;
             }
-        });
+        }));
     }
 
     /// Start registry sync background task
@@ -275,42 +277,48 @@ impl LoadBalancer {
 
         info!("Registry sync task started (interval: {}s)", interval);
 
-        let _ = tokio::spawn(async move {
+        std::mem::drop(tokio::spawn(async move {
             while *running.read().await {
                 let services_clone = services.clone();
                 let registry_client_clone = registry_client.clone();
 
-                let _ = tokio::spawn(async move {
+                std::mem::drop(tokio::spawn(async move {
                     match registry_client_clone.fetch_services(true).await {
                         Ok(registry_response) => {
                             let mut services_guard = services_clone.write().await;
                             let current_time = current_timestamp();
-                            let registry_service_names: std::collections::HashSet<String> = registry_response
-                                .services
-                                .iter()
-                                .map(|s| s.name.clone())
-                                .collect();
+                            let registry_service_names: std::collections::HashSet<String> =
+                                registry_response
+                                    .services
+                                    .iter()
+                                    .map(|s| s.name.clone())
+                                    .collect();
 
                             // Update or add services from registry
                             for registry_service in registry_response.services {
                                 // Only add services that are OpenAI API services
                                 let service_metadata = registry_service.metadata.clone();
-                                if service_metadata.get("type")
+                                if !service_metadata
+                                    .get("type")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s == "openai-api")
-                                    .unwrap_or(false) == false
+                                    .unwrap_or(false)
                                 {
                                     continue;
                                 }
 
                                 let service_name = registry_service.name.clone();
 
-                                if let Some(existing_service) = services_guard.get_mut(&service_name) {
+                                if let Some(existing_service) =
+                                    services_guard.get_mut(&service_name)
+                                {
                                     // Update existing service
                                     existing_service.host = registry_service.host.clone();
                                     existing_service.port = registry_service.port;
                                     existing_service.url = registry_service.url.clone();
-                                    existing_service.set_healthy(registry_service.is_healthy).await;
+                                    existing_service
+                                        .set_healthy(registry_service.is_healthy)
+                                        .await;
                                     existing_service.metadata = service_metadata.clone();
                                     existing_service.update_last_seen().await;
 
@@ -328,7 +336,10 @@ impl LoadBalancer {
 
                                     // Update babysitter URL
                                     let babysitter_port = existing_service.port + 1;
-                                    existing_service.babysitter_url = format!("http://{}:{}", existing_service.host, babysitter_port);
+                                    existing_service.babysitter_url = format!(
+                                        "http://{}:{}",
+                                        existing_service.host, babysitter_port
+                                    );
                                 } else {
                                     // Add new service from registry
                                     let models: Vec<String> = service_metadata
@@ -368,7 +379,8 @@ impl LoadBalancer {
                             let mut services_to_remove = Vec::new();
                             for (name, service) in services_guard.iter() {
                                 if !registry_service_names.contains(name) {
-                                    let is_static = service.metadata
+                                    let is_static = service
+                                        .metadata
                                         .get("static")
                                         .and_then(|v| v.as_bool())
                                         .unwrap_or(false);
@@ -384,21 +396,25 @@ impl LoadBalancer {
 
                             for service_name in services_to_remove {
                                 services_guard.remove(&service_name);
-                                info!("Removed service from registry (after {}s grace period): {}", grace_period, service_name);
+                                info!(
+                                    "Removed service from registry (after {}s grace period): {}",
+                                    grace_period, service_name
+                                );
                             }
                         }
                         Err(e) => {
                             warn!("Failed to sync with registry: {}", e);
                         }
                     }
-                }).await;
+                }));
 
                 sleep(Duration::from_secs(interval)).await;
             }
-        });
+        }));
     }
 
     /// Stop background tasks
+    #[allow(dead_code)]
     pub async fn stop(&self) {
         let mut running = self.running.write().await;
         *running = false;
