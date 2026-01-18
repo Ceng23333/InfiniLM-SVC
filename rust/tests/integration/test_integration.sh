@@ -1,7 +1,7 @@
 #!/bin/bash
 # Integration tests for Rust router with Rust babysitter managing mock services
 
-set -e
+set -euo pipefail
 
 ROUTER_PORT=8900
 REGISTRY_PORT=8901
@@ -263,6 +263,9 @@ sleep 3
 TESTS_PASSED=0
 TESTS_FAILED=0
 
+# Disable exit on error for test execution (we handle failures explicitly)
+set +e
+
 # Test 1: Babysitter health endpoints
 echo ""
 echo "=========================================="
@@ -283,7 +286,7 @@ echo ""
 echo "=========================================="
 echo "Test 2: Model Aggregation"
 echo "=========================================="
-MODELS_RESPONSE=$(curl -s http://127.0.0.1:$ROUTER_PORT/models)
+MODELS_RESPONSE=$(curl -s http://127.0.0.1:$ROUTER_PORT/models 2>/dev/null || echo '{"data":[]}')
 echo "Response: $MODELS_RESPONSE"
 
 MODEL_COUNT=$(echo "$MODELS_RESPONSE" | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('data', [])))" 2>/dev/null || echo "0")
@@ -441,6 +444,9 @@ fi
 
 # Test 9 and 10 removed - /models should forward to service, not babysitter
 # /info endpoint is not necessary for core functionality
+
+# Re-enable exit on error for final check
+set -e
 
 # Summary
 echo ""
