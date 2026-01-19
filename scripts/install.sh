@@ -436,6 +436,13 @@ setup_scripts() {
         echo -e "  ${GREEN}✓${NC} Made Docker scripts executable"
     fi
 
+    # Copy docker entrypoint to /app if /app exists (Docker container setup)
+    if [ -d "/app" ] && [ -f "${PROJECT_ROOT}/docker/docker_entrypoint_rust.sh" ]; then
+        cp "${PROJECT_ROOT}/docker/docker_entrypoint_rust.sh" "/app/docker_entrypoint.sh"
+        chmod +x "/app/docker_entrypoint.sh"
+        echo -e "  ${GREEN}✓${NC} Copied docker entrypoint to /app/docker_entrypoint.sh"
+    fi
+
     # Create necessary directories
     mkdir -p "${PROJECT_ROOT}/logs"
     mkdir -p "${PROJECT_ROOT}/config"

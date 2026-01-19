@@ -31,16 +31,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Determine project root
 # If script is at /app/docker_entrypoint.sh, project root is /app
+# If script is at /workspace/docker_entrypoint.sh, project root is /workspace
 # If script is at docker/docker_entrypoint_rust.sh, project root is parent
 if [ -d "${SCRIPT_DIR}/../script" ] && [ -f "${SCRIPT_DIR}/../script/launch_all_rust.sh" ]; then
     PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 elif [ -d "/app/script" ] && [ -f "/app/script/launch_all_rust.sh" ]; then
     PROJECT_ROOT="/app"
+elif [ -d "/workspace/script" ] && [ -f "/workspace/script/launch_all_rust.sh" ]; then
+    PROJECT_ROOT="/workspace"
+elif [ -d "${SCRIPT_DIR}/script" ] && [ -f "${SCRIPT_DIR}/script/launch_all_rust.sh" ]; then
+    # Script is in same directory as entrypoint (e.g., /workspace)
+    PROJECT_ROOT="${SCRIPT_DIR}"
 else
     echo "Error: Cannot find project root. script/launch_all_rust.sh not found."
     echo "SCRIPT_DIR: ${SCRIPT_DIR}"
     echo "Looking for script in: ${SCRIPT_DIR}/../script/launch_all_rust.sh"
+    echo "Looking for script in: ${SCRIPT_DIR}/script/launch_all_rust.sh"
     echo "Looking for script in: /app/script/launch_all_rust.sh"
+    echo "Looking for script in: /workspace/script/launch_all_rust.sh"
     exit 1
 fi
 
