@@ -169,15 +169,10 @@ if [ "${BUILD_ON_STARTUP:-false}" = "true" ]; then
     echo ""
 fi
 
-# Convert BABYSITTER_CONFIGS from space-separated to array if needed
-if [ -n "${BABYSITTER_CONFIGS:-}" ] && [ "${BABYSITTER_CONFIGS}" != "()" ]; then
-    # If it's already an array format, use it; otherwise convert from space-separated
-    if [[ "${BABYSITTER_CONFIGS}" != *"("* ]]; then
-        # Convert space-separated to bash array
-        read -ra BABYSITTER_CONFIGS_ARRAY <<< "${BABYSITTER_CONFIGS}"
-        export BABYSITTER_CONFIGS=("${BABYSITTER_CONFIGS_ARRAY[@]}")
-    fi
-fi
+# Note about BABYSITTER_CONFIGS:
+# In Docker, `-e BABYSITTER_CONFIGS="a b c"` is always a single string.
+# Bash arrays cannot be reliably exported across processes.
+# The launch script (`script/launch_all_rust.sh`) will parse this string into an array.
 
 # Export babysitter registry/router URLs and host for use in launch script
 export BABYSITTER_REGISTRY_URL

@@ -66,9 +66,20 @@ ROUTER_HEALTH_TIMEOUT="${ROUTER_HEALTH_TIMEOUT:-5}"
 ROUTER_REGISTRY_SYNC_INTERVAL="${ROUTER_REGISTRY_SYNC_INTERVAL:-10}"
 
 # Babysitter configurations (TOML config files)
-# Add multiple babysitters by adding more config files to this array
-# Example: BABYSITTER_CONFIGS=("config/babysitter1.toml" "config/babysitter2.toml")
-BABYSITTER_CONFIGS=("${BABYSITTER_CONFIGS[@]:-}")
+# Docker-friendly: BABYSITTER_CONFIGS is usually a space-separated string passed via `docker run -e`.
+# Bash arrays cannot be exported across processes, so we parse here.
+#
+# Supported:
+#   - Exported string:   BABYSITTER_CONFIGS="config/a.toml config/b.toml"
+#   - Shell array (dev): BABYSITTER_CONFIGS=("config/a.toml" "config/b.toml")
+BABYSITTER_CONFIGS_LIST=()
+if declare -p BABYSITTER_CONFIGS >/dev/null 2>&1 && declare -p BABYSITTER_CONFIGS 2>/dev/null | grep -q 'declare -a'; then
+    # shell array
+    BABYSITTER_CONFIGS_LIST=("${BABYSITTER_CONFIGS[@]}")
+elif [ -n "${BABYSITTER_CONFIGS:-}" ] && [ "${BABYSITTER_CONFIGS}" != "()" ]; then
+    # space-separated string
+    read -ra BABYSITTER_CONFIGS_LIST <<< "${BABYSITTER_CONFIGS}"
+fi
 
 # Timeouts (seconds)
 REGISTRY_WAIT_TIMEOUT="${REGISTRY_WAIT_TIMEOUT:-60}"
@@ -326,8 +337,8 @@ total_services=0
 # Count services that will be launched
 [ "${LAUNCH_REGISTRY}" = "true" ] && total_services=$((total_services + 1))
 [ "${LAUNCH_ROUTER}" = "true" ] && total_services=$((total_services + 1))
-if [ "${LAUNCH_BABYSITTER}" = "true" ] && [ ${#BABYSITTER_CONFIGS[@]} -gt 0 ]; then
-    total_services=$((total_services + ${#BABYSITTER_CONFIGS[@]}))
+if [ "${LAUNCH_BABYSITTER}" = "true" ] && [ ${#BABYSITTER_CONFIGS_LIST[@]} -gt 0 ]; then
+    total_services=$((total_services + ${#BABYSITTER_CONFIGS_LIST[@]}))
 fi
 
 service_idx=1
@@ -360,8 +371,8 @@ fi
 
 # 3. Launch Babysitters (if enabled)
 if [ "${LAUNCH_BABYSITTER}" = "true" ]; then
-    if [ ${#BABYSITTER_CONFIGS[@]} -gt 0 ]; then
-        for config_file in "${BABYSITTER_CONFIGS[@]}"; do
+    if [ ${#BABYSITTER_CONFIGS_LIST[@]} -gt 0 ]; then
+        for config_file in "${BABYSITTER_CONFIGS_LIST[@]}"; do
             # Resolve relative paths
             if [[ ! "${config_file}" = /* ]]; then
                 config_file="${CONFIG_DIR}/${config_file}"
@@ -378,8 +389,9 @@ if [ "${LAUNCH_BABYSITTER}" = "true" ]; then
         done
     else
         echo -e "${YELLOW}⚠ No babysitter configs specified (BABYSITTER_CONFIGS is empty)${NC}"
-        echo "  Set BABYSITTER_CONFIGS environment variable or edit this script"
-        echo "  Example: export BABYSITTER_CONFIGS=('config/babysitter1.toml' 'config/babysitter2.toml')"
+        echo "  Set BABYSITTER_CONFIGS environment variable"
+        echo "  Example (docker): -e BABYSITTER_CONFIGS=\"config/babysitter1.toml config/babysitter2.toml\""
+        echo "  Example (shell): export BABYSITTER_CONFIGS=(\"config/babysitter1.toml\" \"config/babysitter2.toml\")"
         echo ""
     fi
 fi
