@@ -27,6 +27,8 @@ SKIP_BUILD=false
 INSTALL_PATH="/usr/local/bin"
 BUILD_ONLY=false
 PROJECT_ROOT=""
+APP_ROOT="${APP_ROOT:-/app}"
+SETUP_APP_ROOT="${SETUP_APP_ROOT:-auto}" # auto|true|false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -47,6 +49,15 @@ while [[ $# -gt 0 ]]; do
             BUILD_ONLY=true
             shift
             ;;
+        --app-root)
+            APP_ROOT="$2"
+            shift 2
+            ;;
+        --setup-app-root)
+            # auto|true|false
+            SETUP_APP_ROOT="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -57,6 +68,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-build           Skip building binaries"
             echo "  --install-path PATH    Installation path (default: /usr/local/bin)"
             echo "  --build-only           Only build, don't install"
+            echo "  --app-root PATH        App root to stage runtime files (default: /app; env: APP_ROOT)"
+            echo "  --setup-app-root MODE  auto|true|false (default: auto; env: SETUP_APP_ROOT)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -447,6 +460,58 @@ setup_scripts() {
     mkdir -p "${PROJECT_ROOT}/logs"
     mkdir -p "${PROJECT_ROOT}/config"
     echo -e "  ${GREEN}✓${NC} Created directories (logs, config)"
+
+    # Stage a runnable layout into APP_ROOT (useful for base-image installs)
+    # We only do this when running as root (or explicitly requested),
+    # because creating /app on a host machine can be undesirable.
+    should_setup_app_root=false
+    if [ "${SETUP_APP_ROOT}" = "true" ]; then
+        should_setup_app_root=true
+    elif [ "${SETUP_APP_ROOT}" = "false" ]; then
+        should_setup_app_root=false
+    else
+        # auto: do it if we're root or inside a container
+        if [ "$(id -u)" = "0" ]; then
+            should_setup_app_root=true
+        elif [ -f "/.dockerenv" ]; then
+            should_setup_app_root=true
+        fi
+    fi
+
+    if [ "${should_setup_app_root}" = "true" ]; then
+        if [ "$(id -u)" != "0" ]; then
+            echo -e "  ${YELLOW}⚠${NC} Skipping APP_ROOT staging (needs root). Set --setup-app-root false to silence."
+        else
+            mkdir -p "${APP_ROOT}"
+            mkdir -p "${APP_ROOT}/script"
+            mkdir -p "${APP_ROOT}/config"
+            mkdir -p "${APP_ROOT}/logs"
+
+            # Copy entrypoint
+            if [ -f "${PROJECT_ROOT}/docker/docker_entrypoint_rust.sh" ]; then
+                cp "${PROJECT_ROOT}/docker/docker_entrypoint_rust.sh" "${APP_ROOT}/docker_entrypoint.sh"
+                chmod +x "${APP_ROOT}/docker_entrypoint.sh"
+                echo -e "  ${GREEN}✓${NC} Staged entrypoint: ${APP_ROOT}/docker_entrypoint.sh"
+            else
+                echo -e "  ${YELLOW}⚠${NC} docker/docker_entrypoint_rust.sh not found; entrypoint not staged"
+            fi
+
+            # Copy launch scripts (runtime needs these)
+            if [ -d "${PROJECT_ROOT}/script" ]; then
+                cp -a "${PROJECT_ROOT}/script/." "${APP_ROOT}/script/"
+                chmod +x "${APP_ROOT}"/script/*.sh 2>/dev/null || true
+                echo -e "  ${GREEN}✓${NC} Staged scripts: ${APP_ROOT}/script/"
+            else
+                echo -e "  ${YELLOW}⚠${NC} script/ directory not found; scripts not staged"
+            fi
+
+            # Copy configs as examples/defaults
+            if [ -d "${PROJECT_ROOT}/config" ]; then
+                cp -a "${PROJECT_ROOT}/config/." "${APP_ROOT}/config/" 2>/dev/null || true
+                echo -e "  ${GREEN}✓${NC} Staged configs: ${APP_ROOT}/config/"
+            fi
+        fi
+    fi
 
     echo -e "${GREEN}✓ Setup complete${NC}"
     echo ""

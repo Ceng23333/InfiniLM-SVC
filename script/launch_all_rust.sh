@@ -27,9 +27,28 @@ LOG_DIR="${PROJECT_ROOT}/logs"
 
 # Rust binary paths (defaults to release builds, can be overridden)
 RUST_TARGET="${RUST_TARGET:-release}"
-REGISTRY_BIN="${REGISTRY_BIN:-${RUST_DIR}/target/${RUST_TARGET}/infini-registry}"
-ROUTER_BIN="${ROUTER_BIN:-${RUST_DIR}/target/${RUST_TARGET}/infini-router}"
-BABYSITTER_BIN="${BABYSITTER_BIN:-${RUST_DIR}/target/${RUST_TARGET}/infini-babysitter}"
+#
+# Prefer installed binaries (e.g. from install.sh into /usr/local/bin) if available in PATH.
+# Fall back to build-tree binaries under rust/target/... for dev workflows.
+if command -v infini-registry >/dev/null 2>&1; then
+    DEFAULT_REGISTRY_BIN="$(command -v infini-registry)"
+else
+    DEFAULT_REGISTRY_BIN="${RUST_DIR}/target/${RUST_TARGET}/infini-registry"
+fi
+if command -v infini-router >/dev/null 2>&1; then
+    DEFAULT_ROUTER_BIN="$(command -v infini-router)"
+else
+    DEFAULT_ROUTER_BIN="${RUST_DIR}/target/${RUST_TARGET}/infini-router"
+fi
+if command -v infini-babysitter >/dev/null 2>&1; then
+    DEFAULT_BABYSITTER_BIN="$(command -v infini-babysitter)"
+else
+    DEFAULT_BABYSITTER_BIN="${RUST_DIR}/target/${RUST_TARGET}/infini-babysitter"
+fi
+
+REGISTRY_BIN="${REGISTRY_BIN:-${DEFAULT_REGISTRY_BIN}}"
+ROUTER_BIN="${ROUTER_BIN:-${DEFAULT_ROUTER_BIN}}"
+BABYSITTER_BIN="${BABYSITTER_BIN:-${DEFAULT_BABYSITTER_BIN}}"
 
 # Service ports (can be overridden via environment variables)
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
