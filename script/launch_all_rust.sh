@@ -223,6 +223,16 @@ launch_babysitter() {
     # Build command with optional registry and router URLs
     local cmd_args=("${BABYSITTER_BIN}" "--config-file" "${config_file}")
 
+    # Add host override if provided (from entrypoint or environment)
+    # This is important for cross-server registration - host in config may be "0.0.0.0" for binding
+    # but we need the actual IP for registration
+    # Only override if BABYSITTER_HOST is explicitly set (not empty)
+    if [ -n "${BABYSITTER_HOST:-}" ]; then
+        cmd_args+=("--host" "${BABYSITTER_HOST}")
+        echo "    Host (override for registration): ${BABYSITTER_HOST}"
+        echo "    Note: Service still binds on 0.0.0.0, but registers with ${BABYSITTER_HOST}"
+    fi
+
     # Add registry URL if provided (from entrypoint or environment)
     if [ -n "${BABYSITTER_REGISTRY_URL:-}" ]; then
         cmd_args+=("--registry-url" "${BABYSITTER_REGISTRY_URL}")

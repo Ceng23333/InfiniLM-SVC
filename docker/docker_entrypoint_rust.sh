@@ -153,9 +153,12 @@ if [ -n "${BABYSITTER_CONFIGS:-}" ] && [ "${BABYSITTER_CONFIGS}" != "()" ]; then
     fi
 fi
 
-# Export babysitter registry/router URLs for use in launch script
+# Export babysitter registry/router URLs and host for use in launch script
 export BABYSITTER_REGISTRY_URL
 export BABYSITTER_ROUTER_URL
+# BABYSITTER_HOST can be set to override host for registration (useful for cross-server)
+# If not set, config file host will be used
+export BABYSITTER_HOST="${BABYSITTER_HOST:-}"
 
 # Export component launch flags
 export LAUNCH_REGISTRY

@@ -48,6 +48,15 @@ async fn main() -> Result<()> {
         if let Some(port) = cli_config.port {
             merged.port = Some(port);
         }
+        // Override host if provided via CLI (important for cross-server registration)
+        // Config file may have "0.0.0.0" for binding, but we need actual IP for registration
+        // Only override if CLI host is explicitly provided (not default "localhost")
+        // This allows config file "0.0.0.0" to be used when CLI host is default
+        // But if --host is explicitly passed, it overrides config
+        // We detect explicit override by checking if host differs from default AND from config
+        if cli_config.host != "localhost" && cli_config.host != merged.host {
+            merged.host = cli_config.host.clone();
+        }
         if cli_config.registry_url.is_some() {
             merged.registry_url = cli_config.registry_url.clone();
         }

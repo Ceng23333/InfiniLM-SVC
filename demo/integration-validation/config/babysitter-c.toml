@@ -1,0 +1,31 @@
+# Babysitter C Configuration
+# Server 2: Deploys Model 1 (registers to Server 1)
+
+name = "babysitter-c"
+# host = "0.0.0.0"  # For binding/listening (all interfaces)
+# Note: For cross-server registration, host will be overridden by --host CLI arg
+# passed via BABYSITTER_HOST environment variable in start-server2.sh
+host = "0.0.0.0"
+port = 8100
+
+# Registry URL (remote on Server 1)
+# Note: These will be overridden by --registry-url and --router-url CLI args
+# passed by the entrypoint script using BABYSITTER_REGISTRY_URL and BABYSITTER_ROUTER_URL
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+[backend]
+type = "command"
+command = "python3"
+args = [
+    "/app/mock_service.py",
+    "--name", "mock-service-c",
+    "--port", "8100",
+    "--models", "model-1"
+]
+work_dir = "/app"

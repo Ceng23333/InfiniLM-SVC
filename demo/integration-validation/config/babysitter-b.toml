@@ -1,0 +1,26 @@
+# Babysitter B Configuration
+# Server 1: Deploys Model 2
+
+name = "babysitter-b"
+host = "0.0.0.0"
+port = 8200
+
+# Registry URL (local on Server 1)
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+[backend]
+type = "command"
+command = "python3"
+args = [
+    "/app/mock_service.py",
+    "--name", "mock-service-b",
+    "--port", "8200",
+    "--models", "model-2"
+]
+work_dir = "/app"

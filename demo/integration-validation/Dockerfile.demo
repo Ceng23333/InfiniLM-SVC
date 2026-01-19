@@ -1,0 +1,19 @@
+# Dockerfile for Integration Validation Demo
+# Extends the base InfiniLM-SVC image with Python and dependencies for mock services
+
+FROM infinilm-svc:latest
+
+# Install Python 3 and pip
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for mock service
+RUN pip3 install --no-cache-dir aiohttp
+
+# Verify installation
+RUN python3 --version && python3 -c "import aiohttp; print('aiohttp installed')"
+
+# The base image already has the entrypoint and binaries
+# We just added Python support for mock services
