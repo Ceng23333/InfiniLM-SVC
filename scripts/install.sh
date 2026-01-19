@@ -29,6 +29,7 @@ BUILD_ONLY=false
 PROJECT_ROOT=""
 APP_ROOT="${APP_ROOT:-/app}"
 SETUP_APP_ROOT="${SETUP_APP_ROOT:-auto}" # auto|true|false
+INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-auto}" # auto|true|false (installs python3 + pip + aiohttp for mock service)
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -58,6 +59,11 @@ while [[ $# -gt 0 ]]; do
             SETUP_APP_ROOT="$2"
             shift 2
             ;;
+        --install-python-deps)
+            # auto|true|false
+            INSTALL_PYTHON_DEPS="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -70,6 +76,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --build-only           Only build, don't install"
             echo "  --app-root PATH        App root to stage runtime files (default: /app; env: APP_ROOT)"
             echo "  --setup-app-root MODE  auto|true|false (default: auto; env: SETUP_APP_ROOT)"
+            echo "  --install-python-deps MODE  auto|true|false (default: auto; env: INSTALL_PYTHON_DEPS)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -277,6 +284,100 @@ install_system_deps() {
     else
         echo -e "${YELLOW}⚠ Could not install system dependencies automatically${NC}"
         echo "Please install manually: build-essential/gcc, pkg-config, libssl-dev/openssl-devel, curl, bash"
+    fi
+    echo ""
+}
+
+# Install Python deps for the integration demo mock service (aiohttp)
+# This is needed when babysitter backend runs demo/integration-validation/mock_service.py
+install_python_deps() {
+    # Decide whether to run
+    local should_install=false
+    if [ "${INSTALL_PYTHON_DEPS}" = "true" ]; then
+        should_install=true
+    elif [ "${INSTALL_PYTHON_DEPS}" = "false" ]; then
+        should_install=false
+    else
+        # auto: install if we're root and inside a container OR python3 already exists
+        if [ "$(id -u)" = "0" ] && [ -f "/.dockerenv" ]; then
+            should_install=true
+        elif command_exists python3; then
+            should_install=true
+        fi
+    fi
+
+    if [ "${should_install}" != "true" ]; then
+        return 0
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${YELLOW}⚠ Skipping Python deps install (needs root). Set INSTALL_PYTHON_DEPS=false to silence.${NC}"
+        return 0
+    fi
+
+    echo -e "${BLUE}Installing Python deps for mock service (python3 + pip + aiohttp)...${NC}"
+    detect_os
+
+    # Ensure python3 + pip
+    if ! command_exists python3 || ! command_exists pip3; then
+        case $OS in
+            ubuntu|debian)
+                apt-get update
+                apt-get install -y python3 python3-pip
+                ;;
+            alpine)
+                apk add --no-cache python3 py3-pip
+                ;;
+            centos|rhel|fedora)
+                if command_exists yum; then
+                    yum install -y python3 python3-pip
+                elif command_exists dnf; then
+                    dnf install -y python3 python3-pip
+                fi
+                ;;
+            *)
+                # Package-manager fallback
+                if command_exists apt-get; then
+                    apt-get update && apt-get install -y python3 python3-pip
+                elif command_exists apk; then
+                    apk add --no-cache python3 py3-pip
+                elif command_exists yum; then
+                    yum install -y python3 python3-pip
+                elif command_exists dnf; then
+                    dnf install -y python3 python3-pip
+                else
+                    echo -e "${YELLOW}⚠ Could not install python3/pip automatically. Please install python3 + pip manually.${NC}"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
+    # Install Python dependencies from requirements.txt
+    # Look for requirements files in common locations (priority order)
+    local requirements_file=""
+    if [ -f "${PROJECT_ROOT}/requirements.txt" ]; then
+        # Root-level requirements (for demo/integration testing)
+        requirements_file="${PROJECT_ROOT}/requirements.txt"
+    elif [ -f "${PROJECT_ROOT}/python/requirements.txt" ]; then
+        # Full Python implementation requirements
+        requirements_file="${PROJECT_ROOT}/python/requirements.txt"
+    fi
+
+    if command_exists pip3; then
+        if [ -n "${requirements_file}" ] && [ -f "${requirements_file}" ]; then
+            echo "Installing Python dependencies from ${requirements_file}..."
+            pip3 install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
+                pip3 install --no-cache-dir -r "${requirements_file}"
+            echo -e "${GREEN}✓ Python deps installed from ${requirements_file}${NC}"
+        else
+            # Fallback: install minimal deps for mock service
+            echo "No requirements.txt found, installing minimal deps (aiohttp)..."
+            pip3 install --no-cache-dir aiohttp >/dev/null 2>&1 || pip3 install --no-cache-dir aiohttp
+            echo -e "${GREEN}✓ Python deps installed (aiohttp)${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠ pip3 not found; cannot install Python dependencies${NC}"
     fi
     echo ""
 }
@@ -523,6 +624,7 @@ main() {
     install_rust
     build_binaries
     install_binaries
+    install_python_deps
     setup_scripts
 
     echo -e "${GREEN}========================================${NC}"

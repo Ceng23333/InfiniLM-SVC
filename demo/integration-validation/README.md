@@ -27,7 +27,15 @@ Server 2 (Worker Server):
 1. Docker installed on both servers
 2. InfiniLM-SVC Docker image built or available
 3. Network connectivity between servers
-4. Ports available: 18000, 8000, 8100, 8200, 8101, 8201, 8102, 8202
+4. Ports available on each host: 18000, 8000, 8100, 8200, 8101, 8201
+
+### Networking Note (important)
+
+This demo **defaults to `--network host`** in `start-server1.sh` / `start-server2.sh`.
+
+- This avoids Docker NAT/iptables and works even when `net.ipv4.ip_forward=0` (common on hardened systems).
+- It requires the ports above to be free on the host.
+- To use bridge networking + `-p` instead, set `USE_HOST_NETWORK=false` when running the scripts.
 
 ## Quick Start
 

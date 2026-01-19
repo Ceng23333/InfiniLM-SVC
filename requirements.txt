@@ -1,0 +1,6 @@
+# Python dependencies for InfiniLM-SVC integration validation demo
+# Required by mock_service.py and other demo components
+# This is a minimal requirements file for demo/integration testing
+
+# Async HTTP framework for mock service
+aiohttp>=3.8.0,<4.0.0

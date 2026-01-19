@@ -5,6 +5,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:demo}"
+USE_HOST_NETWORK="${USE_HOST_NETWORK:-true}"
 
 if [ $# -lt 2 ]; then
     echo "Usage: $0 <SERVER1_IP> <SERVER2_IP>"
@@ -23,6 +24,7 @@ echo "=========================================="
 echo "Server 1 IP (Registry/Router): ${SERVER1_IP}"
 echo "Server 2 IP (This server): ${SERVER2_IP}"
 echo "Components: Babysitter C, Babysitter D"
+echo "Docker network: $([ "${USE_HOST_NETWORK}" = "true" ] && echo "host" || echo "bridge (-p ports)")"
 echo ""
 
 # Check if container already exists
@@ -51,20 +53,36 @@ echo "✅ Server 1 registry is reachable"
 echo ""
 echo "🚀 Starting Docker container..."
 echo "  Setting BABYSITTER_HOST=${SERVER2_IP} for proper registration"
-docker run -d \
-  --name infinilm-svc-server2 \
-  -e LAUNCH_COMPONENTS=babysitter \
-  -e REGISTRY_URL="http://${SERVER1_IP}:18000" \
-  -e ROUTER_URL="http://${SERVER1_IP}:8000" \
-  -e BABYSITTER_REGISTRY_URL="http://${SERVER1_IP}:18000" \
-  -e BABYSITTER_ROUTER_URL="http://${SERVER1_IP}:8000" \
-  -e BABYSITTER_HOST="${SERVER2_IP}" \
-  -e BABYSITTER_CONFIGS="config/babysitter-c.toml config/babysitter-d.toml" \
-  -p 8100:8100 -p 8101:8101 \
-  -p 8200:8200 -p 8201:8201 \
-  -v "${SCRIPT_DIR}/config:/app/config:ro" \
-  -v "${SCRIPT_DIR}/mock_service.py:/app/mock_service.py:ro" \
-  "${IMAGE_NAME}"
+if [ "${USE_HOST_NETWORK}" = "true" ]; then
+  docker run -d \
+    --network host \
+    --name infinilm-svc-server2 \
+    -e LAUNCH_COMPONENTS=babysitter \
+    -e REGISTRY_URL="http://${SERVER1_IP}:18000" \
+    -e ROUTER_URL="http://${SERVER1_IP}:8000" \
+    -e BABYSITTER_REGISTRY_URL="http://${SERVER1_IP}:18000" \
+    -e BABYSITTER_ROUTER_URL="http://${SERVER1_IP}:8000" \
+    -e BABYSITTER_HOST="${SERVER2_IP}" \
+    -e BABYSITTER_CONFIGS="babysitter-c.toml babysitter-d.toml" \
+    -v "${SCRIPT_DIR}/config:/app/config:ro" \
+    -v "${SCRIPT_DIR}/mock_service.py:/app/mock_service.py:ro" \
+    "${IMAGE_NAME}"
+else
+  docker run -d \
+    --name infinilm-svc-server2 \
+    -e LAUNCH_COMPONENTS=babysitter \
+    -e REGISTRY_URL="http://${SERVER1_IP}:18000" \
+    -e ROUTER_URL="http://${SERVER1_IP}:8000" \
+    -e BABYSITTER_REGISTRY_URL="http://${SERVER1_IP}:18000" \
+    -e BABYSITTER_ROUTER_URL="http://${SERVER1_IP}:8000" \
+    -e BABYSITTER_HOST="${SERVER2_IP}" \
+    -e BABYSITTER_CONFIGS="babysitter-c.toml babysitter-d.toml" \
+    -p 8100:8100 -p 8101:8101 \
+    -p 8200:8200 -p 8201:8201 \
+    -v "${SCRIPT_DIR}/config:/app/config:ro" \
+    -v "${SCRIPT_DIR}/mock_service.py:/app/mock_service.py:ro" \
+    "${IMAGE_NAME}"
+fi
 
 echo ""
 echo "✅ Server 2 started!"

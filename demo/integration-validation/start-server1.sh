@@ -6,12 +6,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER1_IP="${1:-localhost}"
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:demo}"
+USE_HOST_NETWORK="${USE_HOST_NETWORK:-true}"
 
 echo "=========================================="
 echo "Starting InfiniLM-SVC Server 1"
 echo "=========================================="
 echo "Server IP: ${SERVER1_IP}"
 echo "Components: Registry, Router, Babysitter A, Babysitter B"
+echo "Docker network: $([ "${USE_HOST_NETWORK}" = "true" ] && echo "host" || echo "bridge (-p ports)")"
 echo ""
 
 # Check if container already exists
@@ -29,12 +31,25 @@ fi
 
 # Start container
 echo "🚀 Starting Docker container..."
-docker run -d \
+if [ "${USE_HOST_NETWORK}" = "true" ]; then
+  # Host networking avoids Docker NAT/iptables (works even when net.ipv4.ip_forward=0)
+  docker run -d \
+    --network host \
+    --name infinilm-svc-server1 \
+    -e LAUNCH_COMPONENTS=all \
+    -e REGISTRY_PORT=18000 \
+    -e ROUTER_PORT=8000 \
+    -e BABYSITTER_CONFIGS="babysitter-a.toml babysitter-b.toml" \
+    -v "${SCRIPT_DIR}/config:/app/config:ro" \
+    -v "${SCRIPT_DIR}/mock_service.py:/app/mock_service.py:ro" \
+    "${IMAGE_NAME}"
+else
+  docker run -d \
   --name infinilm-svc-server1 \
   -e LAUNCH_COMPONENTS=all \
   -e REGISTRY_PORT=18000 \
   -e ROUTER_PORT=8000 \
-  -e BABYSITTER_CONFIGS="config/babysitter-a.toml config/babysitter-b.toml" \
+  -e BABYSITTER_CONFIGS="babysitter-a.toml babysitter-b.toml" \
   -p 18000:18000 \
   -p 8000:8000 \
   -p 8100:8100 -p 8101:8101 \
@@ -42,6 +57,7 @@ docker run -d \
   -v "${SCRIPT_DIR}/config:/app/config:ro" \
   -v "${SCRIPT_DIR}/mock_service.py:/app/mock_service.py:ro" \
   "${IMAGE_NAME}"
+fi
 
 echo ""
 echo "✅ Server 1 started!"
