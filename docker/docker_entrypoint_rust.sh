@@ -27,6 +27,22 @@
 
 set -e
 
+# Optional conda activation (for images that provide /opt/conda)
+if [ -f /opt/conda/etc/profile.d/conda.sh ]; then
+  # shellcheck disable=SC1091
+  source /opt/conda/etc/profile.d/conda.sh
+  conda activate base
+fi
+
+# Source environment setup if present (prefer project root /app for base-image installs)
+if [ -f /app/env-set.sh ]; then
+  # shellcheck disable=SC1091
+  source /app/env-set.sh
+elif [ -f /workspace/env-set.sh ]; then
+  # shellcheck disable=SC1091
+  source /workspace/env-set.sh
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Determine project root

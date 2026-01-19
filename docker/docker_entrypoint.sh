@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -e
 
-source /opt/conda/etc/profile.d/conda.sh
-conda activate base
+# Optional conda activation (for images that provide /opt/conda)
+if [ -f /opt/conda/etc/profile.d/conda.sh ]; then
+  # shellcheck disable=SC1091
+  source /opt/conda/etc/profile.d/conda.sh
+  conda activate base
+fi
 
-source /workspace/env-set.sh
+# Source environment setup if present (prefer /app for base-image installs)
+if [ -f /app/env-set.sh ]; then
+  # shellcheck disable=SC1091
+  source /app/env-set.sh
+elif [ -f /workspace/env-set.sh ]; then
+  # shellcheck disable=SC1091
+  source /workspace/env-set.sh
+fi
 
 
 # Docker entrypoint script for InfiniLM-SVC

@@ -288,7 +288,7 @@ install_system_deps() {
     echo ""
 }
 
-# Install Python deps for the integration demo mock service (aiohttp)
+# Install Python deps for the integration demo mock service
 # This is needed when babysitter backend runs demo/integration-validation/mock_service.py
 install_python_deps() {
     # Decide whether to run
@@ -315,7 +315,7 @@ install_python_deps() {
         return 0
     fi
 
-    echo -e "${BLUE}Installing Python deps for mock service (python3 + pip + aiohttp)...${NC}"
+    echo -e "${BLUE}Installing Python deps for mock service (python3 + pip + requirements.txt)...${NC}"
     detect_os
 
     # Ensure python3 + pip
@@ -364,20 +364,33 @@ install_python_deps() {
         requirements_file="${PROJECT_ROOT}/python/requirements.txt"
     fi
 
-    if command_exists pip3; then
-        if [ -n "${requirements_file}" ] && [ -f "${requirements_file}" ]; then
-            echo "Installing Python dependencies from ${requirements_file}..."
-            pip3 install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
-                pip3 install --no-cache-dir -r "${requirements_file}"
-            echo -e "${GREEN}✓ Python deps installed from ${requirements_file}${NC}"
-        else
-            # Fallback: install minimal deps for mock service
-            echo "No requirements.txt found, installing minimal deps (aiohttp)..."
-            pip3 install --no-cache-dir aiohttp >/dev/null 2>&1 || pip3 install --no-cache-dir aiohttp
-            echo -e "${GREEN}✓ Python deps installed (aiohttp)${NC}"
-        fi
-    else
-        echo -e "${YELLOW}⚠ pip3 not found; cannot install Python dependencies${NC}"
+    if [ -z "${requirements_file}" ] || [ ! -f "${requirements_file}" ]; then
+        echo -e "${YELLOW}⚠ No requirements file found; skipping python deps install${NC}"
+        echo ""
+        return 0
+    fi
+
+    # Install deps into system python3 (if present)
+    if command_exists python3; then
+        echo "Installing Python dependencies into system python3 from ${requirements_file}..."
+        python3 -m pip install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
+            python3 -m pip install --no-cache-dir -r "${requirements_file}"
+        echo -e "${GREEN}✓ Python deps installed into system python3${NC}"
+    fi
+
+    # Also install into conda base if present (some images have python3 pointing to conda)
+    if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+        echo "Installing Python dependencies into conda base from ${requirements_file}..."
+        # shellcheck disable=SC1091
+        source /opt/conda/etc/profile.d/conda.sh
+        conda activate base
+        python -m pip install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
+            python -m pip install --no-cache-dir -r "${requirements_file}"
+        echo -e "${GREEN}✓ Python deps installed into conda base${NC}"
+    fi
+
+    if ! command_exists python3 && [ ! -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+        echo -e "${YELLOW}⚠ python3 not found; cannot install Python dependencies${NC}"
     fi
     echo ""
 }
@@ -610,6 +623,17 @@ setup_scripts() {
             if [ -d "${PROJECT_ROOT}/config" ]; then
                 cp -a "${PROJECT_ROOT}/config/." "${APP_ROOT}/config/" 2>/dev/null || true
                 echo -e "  ${GREEN}✓${NC} Staged configs: ${APP_ROOT}/config/"
+            fi
+
+            # Copy env-set.sh if available (used by conda-based entrypoints / hardware env)
+            if [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+                cp "${PROJECT_ROOT}/env-set.sh" "${APP_ROOT}/env-set.sh"
+                chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
+                echo -e "  ${GREEN}✓${NC} Staged env-set.sh: ${APP_ROOT}/env-set.sh"
+            elif [ -f "${PROJECT_ROOT}/demo/integration-validation/env-set.sh" ]; then
+                cp "${PROJECT_ROOT}/demo/integration-validation/env-set.sh" "${APP_ROOT}/env-set.sh"
+                chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
+                echo -e "  ${GREEN}✓${NC} Staged env-set.sh (demo): ${APP_ROOT}/env-set.sh"
             fi
         fi
     fi
