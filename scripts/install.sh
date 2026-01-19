@@ -98,11 +98,50 @@ detect_os() {
         . /etc/os-release
         OS=$ID
         OS_VERSION=$VERSION_ID
+
+        # Handle Kylin Linux and other Debian/Ubuntu-based distributions
+        if [ "$OS" = "kylin" ] || [ "$ID_LIKE" = "debian" ] || [ "$ID_LIKE" = "ubuntu" ]; then
+            # Check if apt-get is available (Debian/Ubuntu-based)
+            if command_exists apt-get; then
+                OS="debian"
+                echo -e "${BLUE}Detected Debian/Ubuntu-based OS (${ID})${NC}"
+            fi
+        fi
     elif command_exists uname; then
         OS=$(uname -s | tr '[:upper:]' '[:lower:]')
     else
         OS="unknown"
     fi
+
+    # Fallback: detect by package manager
+    if [ "$OS" = "unknown" ] || [ -z "$OS" ]; then
+        if command_exists apt-get; then
+            OS="debian"
+            echo -e "${BLUE}Detected Debian/Ubuntu-based OS via package manager${NC}"
+        elif command_exists yum; then
+            OS="centos"
+            echo -e "${BLUE}Detected CentOS/RHEL-based OS via package manager${NC}"
+        elif command_exists apk; then
+            OS="alpine"
+            echo -e "${BLUE}Detected Alpine Linux via package manager${NC}"
+        fi
+    fi
+}
+
+# Function to check if OpenSSL is available
+check_openssl() {
+    if command_exists pkg-config; then
+        if pkg-config --exists openssl 2>/dev/null; then
+            return 0
+        fi
+    fi
+
+    # Check for OpenSSL headers
+    if [ -f /usr/include/openssl/ssl.h ] || [ -f /usr/local/include/openssl/ssl.h ]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # Function to install system dependencies
@@ -111,61 +150,121 @@ install_system_deps() {
 
     detect_os
 
+    INSTALLED=false
+
     case $OS in
         ubuntu|debian)
             if ! command_exists apt-get; then
-                echo -e "${YELLOW}Warning: apt-get not found, skipping system dependencies${NC}"
-                return
+                echo -e "${YELLOW}Warning: apt-get not found, trying alternative methods...${NC}"
+            else
+                echo "Installing dependencies via apt-get..."
+                apt-get update
+                if apt-get install -y \
+                    build-essential \
+                    pkg-config \
+                    libssl-dev \
+                    ca-certificates \
+                    curl \
+                    bash; then
+                    INSTALLED=true
+                else
+                    echo -e "${YELLOW}Warning: Some packages may have failed to install${NC}"
+                fi
             fi
-            apt-get update
-            apt-get install -y \
-                build-essential \
-                pkg-config \
-                libssl-dev \
-                ca-certificates \
-                curl \
-                bash \
-                || echo -e "${YELLOW}Warning: Some packages may have failed to install${NC}"
             ;;
         alpine)
             if ! command_exists apk; then
                 echo -e "${YELLOW}Warning: apk not found, skipping system dependencies${NC}"
-                return
+            else
+                echo "Installing dependencies via apk..."
+                if apk add --no-cache \
+                    build-base \
+                    pkgconfig \
+                    openssl-dev \
+                    ca-certificates \
+                    curl \
+                    bash; then
+                    INSTALLED=true
+                fi
             fi
-            apk add --no-cache \
-                build-base \
-                pkgconfig \
-                openssl-dev \
-                ca-certificates \
-                curl \
-                bash
             ;;
         centos|rhel|fedora)
             if command_exists yum; then
-                yum install -y \
+                echo "Installing dependencies via yum..."
+                if yum install -y \
                     gcc \
                     pkgconfig \
                     openssl-devel \
                     ca-certificates \
                     curl \
-                    bash
+                    bash; then
+                    INSTALLED=true
+                fi
             elif command_exists dnf; then
-                dnf install -y \
+                echo "Installing dependencies via dnf..."
+                if dnf install -y \
                     gcc \
                     pkgconfig \
                     openssl-devel \
                     ca-certificates \
                     curl \
-                    bash
+                    bash; then
+                    INSTALLED=true
+                fi
             fi
             ;;
         *)
-            echo -e "${YELLOW}Warning: Unknown OS ($OS), skipping system dependencies${NC}"
-            echo "Please install: build-essential/gcc, pkg-config, libssl-dev/openssl-devel, curl, bash"
+            echo -e "${YELLOW}Warning: Unknown OS ($OS), trying to detect package manager...${NC}"
+            # Try common package managers as fallback
+            if command_exists apt-get; then
+                echo "Detected apt-get, attempting installation..."
+                apt-get update && \
+                apt-get install -y build-essential pkg-config libssl-dev ca-certificates curl bash && \
+                INSTALLED=true
+            elif command_exists yum; then
+                echo "Detected yum, attempting installation..."
+                yum install -y gcc pkgconfig openssl-devel ca-certificates curl bash && \
+                INSTALLED=true
+            elif command_exists apk; then
+                echo "Detected apk, attempting installation..."
+                apk add --no-cache build-base pkgconfig openssl-dev ca-certificates curl bash && \
+                INSTALLED=true
+            fi
             ;;
     esac
 
-    echo -e "${GREEN}✓ System dependencies installed${NC}"
+    # Verify OpenSSL is available
+    if ! check_openssl; then
+        echo -e "${RED}Error: OpenSSL development libraries not found${NC}"
+        echo ""
+        echo "Please install OpenSSL development packages:"
+        case $OS in
+            ubuntu|debian)
+                echo "  sudo apt-get install libssl-dev pkg-config"
+                ;;
+            alpine)
+                echo "  apk add openssl-dev pkgconfig"
+                ;;
+            centos|rhel|fedora)
+                echo "  sudo yum install openssl-devel pkgconfig"
+                ;;
+            *)
+                echo "  Install libssl-dev (Debian/Ubuntu) or openssl-devel (CentOS/RHEL/Fedora)"
+                ;;
+        esac
+        echo ""
+        echo "If OpenSSL is installed in a non-standard location, set:"
+        echo "  export OPENSSL_DIR=/path/to/openssl"
+        echo "  export PKG_CONFIG_PATH=/path/to/openssl/lib/pkgconfig"
+        exit 1
+    fi
+
+    if [ "$INSTALLED" = "true" ]; then
+        echo -e "${GREEN}✓ System dependencies installed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Could not install system dependencies automatically${NC}"
+        echo "Please install manually: build-essential/gcc, pkg-config, libssl-dev/openssl-devel, curl, bash"
+    fi
     echo ""
 }
 
@@ -231,6 +330,21 @@ build_binaries() {
 
     echo -e "${BLUE}[3/5] Building Rust binaries...${NC}"
 
+    # Verify OpenSSL before building
+    if ! check_openssl; then
+        echo -e "${RED}Error: OpenSSL development libraries not found${NC}"
+        echo ""
+        echo "The build requires OpenSSL development libraries."
+        echo "Please install them and run the script again:"
+        echo "  - Debian/Ubuntu/Kylin: sudo apt-get install libssl-dev pkg-config"
+        echo "  - CentOS/RHEL: sudo yum install openssl-devel pkgconfig"
+        echo "  - Alpine: apk add openssl-dev pkgconfig"
+        echo ""
+        echo "Or set OPENSSL_DIR if installed in non-standard location:"
+        echo "  export OPENSSL_DIR=/path/to/openssl"
+        exit 1
+    fi
+
     cd "${PROJECT_ROOT}/rust" || exit 1
 
     # Ensure Cargo is in PATH
@@ -240,17 +354,32 @@ build_binaries() {
 
     # Build release binaries
     echo "Building infini-registry, infini-router, and infini-babysitter..."
-    cargo build --release --bin infini-registry --bin infini-router --bin infini-babysitter
 
-    if [ $? -eq 0 ]; then
+    # Set OpenSSL environment variables if needed
+    if [ -n "${OPENSSL_DIR:-}" ]; then
+        export OPENSSL_DIR
+        echo "Using OPENSSL_DIR: ${OPENSSL_DIR}"
+    fi
+
+    if cargo build --release --bin infini-registry --bin infini-router --bin infini-babysitter; then
         echo -e "${GREEN}✓ Build completed successfully${NC}"
 
         # Show binary sizes
         echo ""
         echo "Built binaries:"
-        ls -lh target/release/infini-* | awk '{print "  " $9 " (" $5 ")"}'
+        ls -lh target/release/infini-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}' || true
     else
         echo -e "${RED}Error: Build failed${NC}"
+        echo ""
+        echo "Common issues:"
+        echo "  1. Missing OpenSSL development libraries"
+        echo "     Fix: Install libssl-dev (Debian/Ubuntu) or openssl-devel (CentOS/RHEL)"
+        echo ""
+        echo "  2. OpenSSL not found by pkg-config"
+        echo "     Fix: Set PKG_CONFIG_PATH or OPENSSL_DIR environment variables"
+        echo ""
+        echo "  3. Insufficient memory"
+        echo "     Fix: Set CARGO_BUILD_JOBS=2 to reduce parallelism"
         exit 1
     fi
 

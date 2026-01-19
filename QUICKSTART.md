@@ -30,6 +30,7 @@ This guide will help you build and install InfiniLM-SVC in a base Docker image o
 InfiniLM-SVC can be installed on various base images:
 
 - **Ubuntu/Debian**: `ubuntu:22.04`, `debian:bullseye`
+- **Kylin Linux**: Kylin Linux (Debian/Ubuntu-based, automatically detected)
 - **Alpine**: `alpine:latest` (requires additional dependencies)
 - **Rust Official**: `rust:1.75-slim` (Rust pre-installed)
 - **Python**: `python:3.11-slim` (for Python version)
@@ -319,21 +320,43 @@ cargo build --release
 
 ### Build Errors
 
+#### OpenSSL Not Found
+
+This is the most common issue. The build requires OpenSSL development libraries.
+
 ```bash
-# Missing OpenSSL
-# Ubuntu/Debian:
-sudo apt-get install libssl-dev
+# Ubuntu/Debian/Kylin:
+sudo apt-get update
+sudo apt-get install libssl-dev pkg-config
 
 # Alpine:
-apk add openssl-dev
+apk add openssl-dev pkgconfig
 
-# Missing pkg-config
-# Ubuntu/Debian:
+# CentOS/RHEL:
+sudo yum install openssl-devel pkgconfig
+
+# If OpenSSL is in non-standard location:
+export OPENSSL_DIR=/path/to/openssl
+export PKG_CONFIG_PATH=/path/to/openssl/lib/pkgconfig
+```
+
+#### Missing pkg-config
+
+```bash
+# Ubuntu/Debian/Kylin:
 sudo apt-get install pkg-config
 
 # Alpine:
 apk add pkgconfig
+
+# CentOS/RHEL:
+sudo yum install pkgconfig
 ```
+
+#### OS Detection Issues (Kylin Linux, etc.)
+
+The script now automatically detects Kylin Linux and other Debian/Ubuntu-based distributions.
+If detection fails, the script will try to use available package managers (apt-get, yum, apk) as fallback.
 
 ### Permission Issues
 

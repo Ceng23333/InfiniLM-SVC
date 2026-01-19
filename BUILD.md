@@ -79,7 +79,7 @@ cargo build --release --bin infini-registry
 - **Cargo**: Included with Rust
 - **Build Tools**: gcc/clang, pkg-config, libssl-dev
 
-### Ubuntu/Debian
+### Ubuntu/Debian/Kylin Linux
 
 ```bash
 sudo apt-get install -y \
@@ -88,6 +88,8 @@ sudo apt-get install -y \
     libssl-dev \
     curl
 ```
+
+**Note:** Kylin Linux is automatically detected as Debian/Ubuntu-based by the install script.
 
 ### Alpine
 
@@ -143,15 +145,42 @@ pkill infini-registry
 
 ### Build Fails with OpenSSL Error
 
+This is the most common build error. The Rust `openssl-sys` crate requires OpenSSL development libraries.
+
+**Error message:**
+```
+Could not find directory of OpenSSL installation
+The system library `openssl` required by crate `openssl-sys` was not found.
+```
+
+**Solutions:**
+
 ```bash
-# Ubuntu/Debian
-sudo apt-get install libssl-dev
+# Ubuntu/Debian/Kylin Linux
+sudo apt-get update
+sudo apt-get install libssl-dev pkg-config
 
 # Alpine
-apk add openssl-dev
+apk add openssl-dev pkgconfig
 
-# CentOS/RHEL
-sudo yum install openssl-devel
+# CentOS/RHEL/Fedora
+sudo yum install openssl-devel pkgconfig
+# or
+sudo dnf install openssl-devel pkgconfig
+```
+
+**If OpenSSL is in non-standard location:**
+
+```bash
+export OPENSSL_DIR=/path/to/openssl
+export PKG_CONFIG_PATH=/path/to/openssl/lib/pkgconfig
+cargo build --release
+```
+
+**Verify OpenSSL is found:**
+
+```bash
+pkg-config --exists openssl && echo "OpenSSL found" || echo "OpenSSL not found"
 ```
 
 ### Build Fails with pkg-config Error
