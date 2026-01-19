@@ -1,0 +1,92 @@
+# Multi-stage Dockerfile for InfiniLM-SVC (Rust version)
+# Builds optimized release binaries and creates a minimal runtime image
+
+# ============================================================================
+# Stage 1: Builder
+# ============================================================================
+FROM rust:1.75-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Cargo files first for better caching
+COPY rust/Cargo.toml ./rust/
+COPY rust/Cargo.lock ./rust/ 2>/dev/null || true
+
+# Copy source code
+COPY rust/src ./rust/src
+COPY rust/tests ./rust/tests 2>/dev/null || true
+
+# Build release binaries
+WORKDIR /build/rust
+RUN cargo build --release --bin infini-registry --bin infini-router --bin infini-babysitter
+
+# Verify binaries were built
+RUN ls -lh target/release/infini-* || (echo "Error: Binaries not found" && exit 1)
+
+# ============================================================================
+# Stage 2: Runtime
+# ============================================================================
+FROM ubuntu:22.04
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binaries from builder stage
+COPY --from=builder /build/rust/target/release/infini-registry /usr/local/bin/
+COPY --from=builder /build/rust/target/release/infini-router /usr/local/bin/
+COPY --from=builder /build/rust/target/release/infini-babysitter /usr/local/bin/
+
+# Copy scripts and configuration
+COPY script/ ./script/
+COPY config/ ./config/
+COPY docker/docker_entrypoint_rust.sh ./docker_entrypoint.sh
+
+# Make scripts executable
+RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p logs config
+
+# Set working directory
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+# Expose default ports
+# REGISTRY_PORT (default: 18000)
+# ROUTER_PORT (default: 8000)
+EXPOSE 18000 8000
+
+# Health check (optional)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:18000/health || exit 1
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Distributed service virtualization and control system"
+LABEL version="0.1.0"
+
+# Usage:
+#   Build: docker build -f docker/Dockerfile.rust -t infinilm-svc:latest .
+#   Run: docker run -d --name infinilm-svc \
+#        -e LAUNCH_COMPONENTS=all \
+#        -e REGISTRY_PORT=18000 \
+#        -e ROUTER_PORT=8000 \
+#        -p 18000:18000 -p 8000:8000 \
+#        infinilm-svc:latest
+#   Stop: docker stop infinilm-svc
+#   Logs: docker logs -f infinilm-svc

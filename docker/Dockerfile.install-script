@@ -1,0 +1,43 @@
+# Dockerfile using install script
+# Alternative approach: uses the install.sh script for installation
+
+FROM ubuntu:22.04
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY . .
+
+# Run install script
+# This will install Rust, build binaries, and set up the environment
+RUN ./scripts/install.sh --install-path /usr/local/bin
+
+# Verify installation
+RUN which infini-registry && \
+    which infini-router && \
+    which infini-babysitter && \
+    infini-registry --help > /dev/null 2>&1 || true
+
+# Set entrypoint
+ENTRYPOINT ["/bin/bash", "/app/docker/docker_entrypoint_rust.sh"]
+
+# Expose default ports
+EXPOSE 18000 8000
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Built using install script"
+
+# Usage:
+#   Build: docker build -f docker/Dockerfile.install-script -t infinilm-svc:install .
+#   Run: Same as Dockerfile.rust

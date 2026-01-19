@@ -124,27 +124,27 @@ check_service_running() {
 launch_registry() {
     local pid_file="${LOG_DIR}/registry.pid"
     local log_file="${LOG_DIR}/registry_$(date +%y%m%d%H%M).log"
-    
+
     if check_service_running "${pid_file}" "Service Registry"; then
         if ! wait_for_service "http://localhost:${REGISTRY_PORT}/health" "Service Registry" 5; then
             echo -e "  ${YELLOW}⚠ Warning: Service Registry PID exists but health check failed${NC}"
         fi
         return 0
     fi
-    
+
     echo "  Starting Service Registry..."
     mkdir -p "${LOG_DIR}"
-    
+
     nohup "${REGISTRY_BIN}" \
         --port "${REGISTRY_PORT}" \
         --health-interval "${REGISTRY_HEALTH_INTERVAL}" \
         --health-timeout "${REGISTRY_HEALTH_TIMEOUT}" \
         --cleanup-interval "${REGISTRY_CLEANUP_INTERVAL}" \
         >> "${log_file}" 2>&1 &
-    
+
     local pid=$!
     echo ${pid} > "${pid_file}"
-    
+
     sleep 2
     if check_process_started "${pid_file}"; then
         if wait_for_service "http://localhost:${REGISTRY_PORT}/health" "Service Registry" ${REGISTRY_WAIT_TIMEOUT}; then
@@ -164,17 +164,17 @@ launch_registry() {
 launch_router() {
     local pid_file="${LOG_DIR}/router.pid"
     local log_file="${LOG_DIR}/router_$(date +%y%m%d%H%M).log"
-    
+
     if check_service_running "${pid_file}" "Distributed Router"; then
         if ! wait_for_service "http://localhost:${ROUTER_PORT}/health" "Distributed Router" 5; then
             echo -e "  ${YELLOW}⚠ Warning: Distributed Router PID exists but health check failed${NC}"
         fi
         return 0
     fi
-    
+
     echo "  Starting Distributed Router..."
     mkdir -p "${LOG_DIR}"
-    
+
     nohup "${ROUTER_BIN}" \
         --router-port "${ROUTER_PORT}" \
         --registry-url "${ROUTER_REGISTRY_URL}" \
@@ -182,10 +182,10 @@ launch_router() {
         --health-timeout "${ROUTER_HEALTH_TIMEOUT}" \
         --registry-sync-interval "${ROUTER_REGISTRY_SYNC_INTERVAL}" \
         >> "${log_file}" 2>&1 &
-    
+
     local pid=$!
     echo ${pid} > "${pid_file}"
-    
+
     sleep 2
     if check_process_started "${pid_file}"; then
         if wait_for_service "http://localhost:${ROUTER_PORT}/health" "Distributed Router" ${ROUTER_WAIT_TIMEOUT}; then
@@ -207,26 +207,39 @@ launch_babysitter() {
     local config_name=$(basename "${config_file}" .toml)
     local pid_file="${LOG_DIR}/babysitter_${config_name}.pid"
     local log_file="${LOG_DIR}/babysitter_${config_name}_$(date +%y%m%d%H%M).log"
-    
+
     if check_service_running "${pid_file}" "Babysitter (${config_name})"; then
         return 0
     fi
-    
+
     if [ ! -f "${config_file}" ]; then
         echo -e "  ${RED}✗ Config file not found: ${config_file}${NC}"
         return 1
     fi
-    
+
     echo "  Starting Babysitter (${config_name})..."
     mkdir -p "${LOG_DIR}"
-    
-    nohup "${BABYSITTER_BIN}" \
-        --config-file "${config_file}" \
-        >> "${log_file}" 2>&1 &
-    
+
+    # Build command with optional registry and router URLs
+    local cmd_args=("${BABYSITTER_BIN}" "--config-file" "${config_file}")
+
+    # Add registry URL if provided (from entrypoint or environment)
+    if [ -n "${BABYSITTER_REGISTRY_URL:-}" ]; then
+        cmd_args+=("--registry-url" "${BABYSITTER_REGISTRY_URL}")
+        echo "    Registry URL: ${BABYSITTER_REGISTRY_URL}"
+    fi
+
+    # Add router URL if provided (from entrypoint or environment)
+    if [ -n "${BABYSITTER_ROUTER_URL:-}" ]; then
+        cmd_args+=("--router-url" "${BABYSITTER_ROUTER_URL}")
+        echo "    Router URL: ${BABYSITTER_ROUTER_URL}"
+    fi
+
+    nohup "${cmd_args[@]}" >> "${log_file}" 2>&1 &
+
     local pid=$!
     echo ${pid} > "${pid_file}"
-    
+
     sleep 2
     if check_process_started "${pid_file}"; then
         echo "  ✓ Babysitter (${config_name}) process started"
@@ -242,82 +255,104 @@ launch_babysitter() {
 # ============================================================================
 
 echo "========================================"
-echo "Launching All InfiniLM-SVC Services (Rust)"
+echo "Launching InfiniLM-SVC Services (Rust)"
 echo "========================================"
 echo ""
 
-# Verify binaries exist
-if [ ! -f "${REGISTRY_BIN}" ]; then
-    echo -e "${RED}Error: Registry binary not found: ${REGISTRY_BIN}${NC}"
-    echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-registry"
-    exit 1
+# Check which components to launch (default to all if not set)
+LAUNCH_REGISTRY="${LAUNCH_REGISTRY:-true}"
+LAUNCH_ROUTER="${LAUNCH_ROUTER:-true}"
+LAUNCH_BABYSITTER="${LAUNCH_BABYSITTER:-true}"
+
+# Verify binaries exist only for components that will be launched
+if [ "${LAUNCH_REGISTRY}" = "true" ]; then
+    if [ ! -f "${REGISTRY_BIN}" ]; then
+        echo -e "${RED}Error: Registry binary not found: ${REGISTRY_BIN}${NC}"
+        echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-registry"
+        exit 1
+    fi
 fi
 
-if [ ! -f "${ROUTER_BIN}" ]; then
-    echo -e "${RED}Error: Router binary not found: ${ROUTER_BIN}${NC}"
-    echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-router"
-    exit 1
+if [ "${LAUNCH_ROUTER}" = "true" ]; then
+    if [ ! -f "${ROUTER_BIN}" ]; then
+        echo -e "${RED}Error: Router binary not found: ${ROUTER_BIN}${NC}"
+        echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-router"
+        exit 1
+    fi
 fi
 
-if [ ! -f "${BABYSITTER_BIN}" ]; then
-    echo -e "${RED}Error: Babysitter binary not found: ${BABYSITTER_BIN}${NC}"
-    echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-babysitter"
-    exit 1
+if [ "${LAUNCH_BABYSITTER}" = "true" ]; then
+    if [ ! -f "${BABYSITTER_BIN}" ]; then
+        echo -e "${RED}Error: Babysitter binary not found: ${BABYSITTER_BIN}${NC}"
+        echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-babysitter"
+        exit 1
+    fi
 fi
 
 # Track results
 success_count=0
 failed_services=()
-total_services=2  # Registry + Router
+total_services=0
 
-# Count babysitters
-if [ ${#BABYSITTER_CONFIGS[@]} -gt 0 ]; then
+# Count services that will be launched
+[ "${LAUNCH_REGISTRY}" = "true" ] && total_services=$((total_services + 1))
+[ "${LAUNCH_ROUTER}" = "true" ] && total_services=$((total_services + 1))
+if [ "${LAUNCH_BABYSITTER}" = "true" ] && [ ${#BABYSITTER_CONFIGS[@]} -gt 0 ]; then
     total_services=$((total_services + ${#BABYSITTER_CONFIGS[@]}))
 fi
 
-# 1. Launch Service Registry
-echo -e "${BLUE}[1/${total_services}] Launching Service Registry (port ${REGISTRY_PORT})...${NC}"
-if launch_registry; then
-    success_count=$((success_count + 1))
-else
-    failed_services+=("Service Registry")
-    echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
-    exit 1
-fi
-echo ""
+service_idx=1
 
-# 2. Launch Distributed Router
-echo -e "${BLUE}[2/${total_services}] Launching Distributed Router (port ${ROUTER_PORT})...${NC}"
-if launch_router; then
-    success_count=$((success_count + 1))
-else
-    failed_services+=("Distributed Router")
-fi
-echo ""
-
-# 3. Launch Babysitters
-if [ ${#BABYSITTER_CONFIGS[@]} -gt 0 ]; then
-    idx=3
-    for config_file in "${BABYSITTER_CONFIGS[@]}"; do
-        # Resolve relative paths
-        if [[ ! "${config_file}" = /* ]]; then
-            config_file="${CONFIG_DIR}/${config_file}"
-        fi
-        
-        echo -e "${BLUE}[${idx}/${total_services}] Launching Babysitter (${config_file})...${NC}"
-        if launch_babysitter "${config_file}"; then
-            success_count=$((success_count + 1))
-        else
-            failed_services+=("Babysitter ($(basename ${config_file}))")
-        fi
-        echo ""
-        idx=$((idx + 1))
-    done
-else
-    echo -e "${YELLOW}⚠ No babysitter configs specified (BABYSITTER_CONFIGS is empty)${NC}"
-    echo "  Set BABYSITTER_CONFIGS environment variable or edit this script"
-    echo "  Example: export BABYSITTER_CONFIGS=('config/babysitter1.toml' 'config/babysitter2.toml')"
+# 1. Launch Service Registry (if enabled)
+if [ "${LAUNCH_REGISTRY}" = "true" ]; then
+    echo -e "${BLUE}[${service_idx}/${total_services}] Launching Service Registry (port ${REGISTRY_PORT})...${NC}"
+    if launch_registry; then
+        success_count=$((success_count + 1))
+    else
+        failed_services+=("Service Registry")
+        echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
+        exit 1
+    fi
     echo ""
+    service_idx=$((service_idx + 1))
+fi
+
+# 2. Launch Distributed Router (if enabled)
+if [ "${LAUNCH_ROUTER}" = "true" ]; then
+    echo -e "${BLUE}[${service_idx}/${total_services}] Launching Distributed Router (port ${ROUTER_PORT})...${NC}"
+    if launch_router; then
+        success_count=$((success_count + 1))
+    else
+        failed_services+=("Distributed Router")
+    fi
+    echo ""
+    service_idx=$((service_idx + 1))
+fi
+
+# 3. Launch Babysitters (if enabled)
+if [ "${LAUNCH_BABYSITTER}" = "true" ]; then
+    if [ ${#BABYSITTER_CONFIGS[@]} -gt 0 ]; then
+        for config_file in "${BABYSITTER_CONFIGS[@]}"; do
+            # Resolve relative paths
+            if [[ ! "${config_file}" = /* ]]; then
+                config_file="${CONFIG_DIR}/${config_file}"
+            fi
+
+            echo -e "${BLUE}[${service_idx}/${total_services}] Launching Babysitter (${config_file})...${NC}"
+            if launch_babysitter "${config_file}"; then
+                success_count=$((success_count + 1))
+            else
+                failed_services+=("Babysitter ($(basename ${config_file}))")
+            fi
+            echo ""
+            service_idx=$((service_idx + 1))
+        done
+    else
+        echo -e "${YELLOW}⚠ No babysitter configs specified (BABYSITTER_CONFIGS is empty)${NC}"
+        echo "  Set BABYSITTER_CONFIGS environment variable or edit this script"
+        echo "  Example: export BABYSITTER_CONFIGS=('config/babysitter1.toml' 'config/babysitter2.toml')"
+        echo ""
+    fi
 fi
 
 # Summary
@@ -338,13 +373,15 @@ echo ""
 echo "All services launched successfully!"
 echo ""
 echo "Quick status checks:"
-echo "  curl http://localhost:${REGISTRY_PORT}/health  # Registry"
-echo "  curl http://localhost:${ROUTER_PORT}/health  # Router"
-echo "  curl http://localhost:${ROUTER_PORT}/models  # Router - aggregated models"
-echo "  curl http://localhost:${ROUTER_PORT}/services  # Router - list services"
-echo ""
-echo "Registry services:"
-echo "  curl http://localhost:${REGISTRY_PORT}/services  # List all registered services"
+if [ "${LAUNCH_REGISTRY}" = "true" ]; then
+    echo "  curl http://localhost:${REGISTRY_PORT}/health  # Registry"
+    echo "  curl http://localhost:${REGISTRY_PORT}/services  # List all registered services"
+fi
+if [ "${LAUNCH_ROUTER}" = "true" ]; then
+    echo "  curl http://localhost:${ROUTER_PORT}/health  # Router"
+    echo "  curl http://localhost:${ROUTER_PORT}/models  # Router - aggregated models"
+    echo "  curl http://localhost:${ROUTER_PORT}/services  # Router - list services"
+fi
 echo ""
 echo "To stop all services:"
 echo "  ./stop_all.sh"
