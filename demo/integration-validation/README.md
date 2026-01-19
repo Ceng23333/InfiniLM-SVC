@@ -51,7 +51,25 @@ cd /path/to/InfiniLM-SVC
 docker build -f docker/Dockerfile.rust -t infinilm-svc:latest .
 ```
 
-**Note:** The demo requires Python 3 and `aiohttp`. If your base image doesn't include them, use Option A.
+**Option C: Build via docker commit (from running container)**
+```bash
+# Start a container from base image
+docker run -d --name infinilm-svc-temp infinilm-svc:latest sleep infinity
+
+# Install Python and dependencies in the running container
+docker exec infinilm-svc-temp apt-get update
+docker exec infinilm-svc-temp apt-get install -y python3 python3-pip
+docker exec infinilm-svc-temp pip3 install --no-cache-dir aiohttp
+
+# Commit the changes to create demo image with correct entrypoint
+docker commit --change 'ENTRYPOINT ["/bin/bash", "/workspace/docker_entrypoint.sh"]' \
+    infinilm-svc-temp infinilm-svc:demo
+
+# Clean up temporary container
+docker rm -f infinilm-svc-temp
+```
+
+**Note:** The demo requires Python 3 and `aiohttp`. If your base image doesn't include them, use Option A or Option C.
 
 ### Step 2: Start Server 1 (Control Server)
 

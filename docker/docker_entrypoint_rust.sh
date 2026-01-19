@@ -28,12 +28,30 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Determine project root
+# If script is at /app/docker_entrypoint.sh, project root is /app
+# If script is at docker/docker_entrypoint_rust.sh, project root is parent
+if [ -d "${SCRIPT_DIR}/../script" ] && [ -f "${SCRIPT_DIR}/../script/launch_all_rust.sh" ]; then
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+elif [ -d "/app/script" ] && [ -f "/app/script/launch_all_rust.sh" ]; then
+    PROJECT_ROOT="/app"
+else
+    echo "Error: Cannot find project root. script/launch_all_rust.sh not found."
+    echo "SCRIPT_DIR: ${SCRIPT_DIR}"
+    echo "Looking for script in: ${SCRIPT_DIR}/../script/launch_all_rust.sh"
+    echo "Looking for script in: /app/script/launch_all_rust.sh"
+    exit 1
+fi
+
 cd "${PROJECT_ROOT}" || exit 1
 
 echo "========================================"
 echo "InfiniLM-SVC Docker Entrypoint (Rust)"
 echo "========================================"
+echo "PROJECT_ROOT: ${PROJECT_ROOT}"
+echo "SCRIPT_DIR: ${SCRIPT_DIR}"
+echo ""
 
 # Parse LAUNCH_COMPONENTS (default: "all")
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
@@ -166,10 +184,13 @@ export LAUNCH_ROUTER
 export LAUNCH_BABYSITTER
 
 # Launch services using the Rust launch script
-if [ -f "${SCRIPT_DIR}/../script/launch_all_rust.sh" ]; then
-    bash "${SCRIPT_DIR}/../script/launch_all_rust.sh"
+LAUNCH_SCRIPT="${PROJECT_ROOT}/script/launch_all_rust.sh"
+if [ -f "${LAUNCH_SCRIPT}" ]; then
+    bash "${LAUNCH_SCRIPT}"
 else
-    echo "Error: launch_all_rust.sh not found"
+    echo "Error: launch_all_rust.sh not found at ${LAUNCH_SCRIPT}"
+    echo "PROJECT_ROOT: ${PROJECT_ROOT}"
+    echo "Looking for: ${LAUNCH_SCRIPT}"
     exit 1
 fi
 
@@ -181,8 +202,8 @@ cleanup() {
     echo "[entrypoint] Received shutdown signal, stopping all services..."
 
     # Stop all services gracefully
-    if [ -f "${SCRIPT_DIR}/../script/stop_all.sh" ]; then
-        bash "${SCRIPT_DIR}/../script/stop_all.sh"
+    if [ -f "${PROJECT_ROOT}/script/stop_all.sh" ]; then
+        bash "${PROJECT_ROOT}/script/stop_all.sh"
     else
         # Fallback: kill processes by PID files
         LOG_DIR="${PROJECT_ROOT}/logs"
