@@ -677,14 +677,28 @@ install_infinicore_and_infinilm_optional() {
             echo -e "${YELLOW}⚠ INSTALL_INFINICORE=true but InfiniCore repo not found. Set --infinicore-src or place it at ../InfiniCore.${NC}"
         else
             git_checkout_ref_if_requested "${INFINICORE_SRC}" "${INFINICORE_BRANCH}"
+
+            # Use conda's Python if available (same as runtime)
+            local python_cmd="python3"
+            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                python_cmd="/opt/conda/bin/python"
+            fi
+
             if [ -n "${INFINICORE_BUILD_CMD:-}" ]; then
                 echo "Running InfiniCore pre-build command: ${INFINICORE_BUILD_CMD}"
                 # Pipe 'yes y' to handle xmake interactive prompts (e.g., package installation confirmations)
-                (cd "${INFINICORE_SRC}" && yes y | bash -lc "${INFINICORE_BUILD_CMD}") || \
-                    echo -e "${YELLOW}⚠ InfiniCore pre-build command failed; continuing to pip install anyway.${NC}"
+                # Use conda's Python environment for build
+                (
+                    if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                        # shellcheck disable=SC1091
+                        source /opt/conda/etc/profile.d/conda.sh
+                        conda activate base
+                    fi
+                    cd "${INFINICORE_SRC}" && yes y | bash -lc "${INFINICORE_BUILD_CMD}"
+                ) || echo -e "${YELLOW}⚠ InfiniCore pre-build command failed; continuing to pip install anyway.${NC}"
             fi
-            echo "Installing InfiniCore from ${INFINICORE_SRC} (editable)..."
-            python3 -m pip install --no-cache-dir -e "${INFINICORE_SRC}" || \
+            echo "Installing InfiniCore from ${INFINICORE_SRC} (editable) using ${python_cmd}..."
+            ${python_cmd} -m pip install --no-cache-dir -e "${INFINICORE_SRC}" || \
                 echo -e "${YELLOW}⚠ InfiniCore install failed (likely missing toolchain/libs).${NC}"
 
             # Create symlink for infinicore.lib module if needed
@@ -711,8 +725,15 @@ install_infinicore_and_infinilm_optional() {
             echo -e "${YELLOW}⚠ INSTALL_INFINILM=true but InfiniLM repo not found. Set --infinilm-src or place it at ../InfiniLM.${NC}"
         else
             git_checkout_ref_if_requested "${INFINILM_SRC}" "${INFINILM_BRANCH}"
-            echo "Installing InfiniLM from ${INFINILM_SRC} (editable)..."
-            python3 -m pip install --no-cache-dir -e "${INFINILM_SRC}" || \
+
+            # Use conda's Python if available (same as runtime)
+            local python_cmd="python3"
+            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                python_cmd="/opt/conda/bin/python"
+            fi
+
+            echo "Installing InfiniLM from ${INFINILM_SRC} (editable) using ${python_cmd}..."
+            ${python_cmd} -m pip install --no-cache-dir -e "${INFINILM_SRC}" || \
                 echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
         fi
     fi
