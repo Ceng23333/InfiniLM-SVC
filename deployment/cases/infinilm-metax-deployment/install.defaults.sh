@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
-# Install-time defaults for the integration-validation deployment case.
+# Install-time defaults for the infinilm-metax-deployment case.
 #
 # This file is sourced by scripts/install.sh when:
-#   --deployment-case integration-validation
+#   --deployment-case infinilm-metax-deployment
 #
 # Use it to pin optional installs, branches, and other toggles for reproducible images.
 
 # Make sure /app layout is staged (needed for docker_entrypoint_rust.sh)
 SETUP_APP_ROOT="${SETUP_APP_ROOT:-true}"
 
-# Demo/integration deployments commonly require python tooling in the image.
+# Metax deployments commonly require python tooling in the image.
 INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-true}"
 
 # Optional: enable these if you want the base image to include the python backends too.
 # (Leave as-is if you want a minimal SVC-only base image.)
-INSTALL_INFINICORE="true"
-INSTALL_INFINILM="true"
+INSTALL_INFINICORE="${INSTALL_INFINICORE:-true}"
+INSTALL_INFINILM="${INSTALL_INFINILM:-true}"
 
 # Default refs (override via CLI flags if needed)
-INFINICORE_BRANCH="issue/951"
-INFINILM_BRANCH="issue/193"
+# INFINICORE_BRANCH="${INFINICORE_BRANCH:-main}"
+# INFINILM_BRANCH="${INFINILM_BRANCH:-main}"
+
+# InfiniCore must be configured for metax + ccl before building.
+# This matches the deployment requirement:
+#   python scripts/install.py --metax-gpu=y --ccl=y
+INFINICORE_BUILD_CMD="${INFINICORE_BUILD_CMD:-python3 scripts/install.py --metax-gpu=y --ccl=y}"

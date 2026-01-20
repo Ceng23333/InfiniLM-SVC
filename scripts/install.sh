@@ -64,6 +64,7 @@ INFINILM_SRC="${INFINILM_SRC:-}"                # optional, defaults resolved la
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"      # optional git ref (branch/tag/commit)
 INFINILM_BRANCH="${INFINILM_BRANCH:-}"          # optional git ref (branch/tag/commit)
 DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-}"          # optional deployment preset name (deployment/cases/<name>)
+INFINICORE_BUILD_CMD="${INFINICORE_BUILD_CMD:-}" # optional command to run in InfiniCore repo before pip install (e.g. "python3 scripts/install.py --metax-gpu=y --ccl=y")
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -128,6 +129,10 @@ while [[ $# -gt 0 ]]; do
             DEPLOYMENT_CASE="$2"
             shift 2
             ;;
+        --infinicore-build-cmd)
+            INFINICORE_BUILD_CMD="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -148,6 +153,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo (env: INFINICORE_BRANCH)"
             echo "  --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo (env: INFINILM_BRANCH)"
             echo "  --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)"
+            echo "  --infinicore-build-cmd CMD  Command to run in InfiniCore repo before pip install (env: INFINICORE_BUILD_CMD)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -664,6 +670,11 @@ install_infinicore_and_infinilm_optional() {
             echo -e "${YELLOW}⚠ INSTALL_INFINICORE=true but InfiniCore repo not found. Set --infinicore-src or place it at ../InfiniCore.${NC}"
         else
             git_checkout_ref_if_requested "${INFINICORE_SRC}" "${INFINICORE_BRANCH}"
+            if [ -n "${INFINICORE_BUILD_CMD:-}" ]; then
+                echo "Running InfiniCore pre-build command: ${INFINICORE_BUILD_CMD}"
+                (cd "${INFINICORE_SRC}" && bash -lc "${INFINICORE_BUILD_CMD}") || \
+                    echo -e "${YELLOW}⚠ InfiniCore pre-build command failed; continuing to pip install anyway.${NC}"
+            fi
             echo "Installing InfiniCore from ${INFINICORE_SRC} (editable)..."
             python3 -m pip install --no-cache-dir -e "${INFINICORE_SRC}" || \
                 echo -e "${YELLOW}⚠ InfiniCore install failed (likely missing toolchain/libs).${NC}"
