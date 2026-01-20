@@ -28,6 +28,11 @@ EARLY_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "/app/env-set.sh" ]; then
     # shellcheck disable=SC1091
     source "/app/env-set.sh"
+elif [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${EARLY_SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ]; then
+    # If caller sets DEPLOYMENT_CASE in env, source the case env-set early so it affects
+    # subsequent installs (notably xmake, which may require XMAKE_ROOT=y when running as root).
+    # shellcheck disable=SC1091
+    source "${EARLY_SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/env-set.sh"
 elif [ -f "${EARLY_SCRIPT_DIR}/../env-set.sh" ]; then
     # shellcheck disable=SC1091
     source "${EARLY_SCRIPT_DIR}/../env-set.sh"
