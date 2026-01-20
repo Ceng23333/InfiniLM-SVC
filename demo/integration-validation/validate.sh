@@ -33,27 +33,36 @@ check_endpoint() {
     local expected_status=${3:-200}
 
     echo -n "  Checking ${description}... "
+    local response
     response=$(curl -s -w "\n%{http_code}" "${url}" 2>/dev/null || echo -e "\n000")
+    local status_code
     status_code=$(echo "$response" | tail -n1)
+    local body
     body=$(echo "$response" | sed '$d')
 
     if [ "$status_code" = "$expected_status" ]; then
         echo -e "${GREEN}✓${NC} (HTTP ${status_code})"
-        echo "$body"
+        # Only print body if it's not empty and not just whitespace
+        if [ -n "$body" ] && [ -n "${body// }" ]; then
+            echo "$body"
+        fi
         return 0
     else
         echo -e "${RED}✗${NC} (HTTP ${status_code}, expected ${expected_status})"
+        if [ -n "$body" ] && [ -n "${body// }" ]; then
+            echo "  Response: $body"
+        fi
         return 1
     fi
 }
 
 test_passed() {
-    ((PASSED++))
+    PASSED=$((PASSED + 1))
     echo -e "${GREEN}✓ PASSED${NC}"
 }
 
 test_failed() {
-    ((FAILED++))
+    FAILED=$((FAILED + 1))
     echo -e "${RED}✗ FAILED${NC}"
 }
 

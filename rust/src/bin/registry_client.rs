@@ -164,7 +164,9 @@ impl BabysitterRegistryClient {
 
     async fn fetch_models(&self, port: u16) -> Vec<serde_json::Value> {
         // Try /v1/models first (OpenAI API format), fallback to /models
-        let url = format!("http://{}:{}/v1/models", self.state.config.host, port);
+        // Always use localhost for fetching models since the service runs locally
+        // The config.host is for registration (external IP), not for local service access
+        let url = format!("http://127.0.0.1:{}/v1/models", port);
 
         // Retry logic with faster polling since port detection already verified HTTP is ready
         // But give it more attempts in case the service needs a moment to fully initialize
