@@ -100,7 +100,7 @@ class MockService:
                 ) as response:
                     if response.status != 200:
                         print(f"⚠️  Heartbeat failed for {self.name}: {response.status}")
-        except Exception as e:
+        except Exception:
             # Silently ignore heartbeat errors in tests
             pass
 
@@ -118,7 +118,6 @@ class MockService:
             data = await request.json()
             model = data.get('model', 'unknown')
             stream = data.get('stream', False)
-            messages = data.get('messages', [])
 
             # Check if this service supports the requested model
             if model not in self.models:
@@ -136,7 +135,7 @@ class MockService:
 
                 # Send streaming chunks
                 content = f"Hello from {self.name} (model: {model})"
-                for i, char in enumerate(content):
+                for char in content:
                     chunk_data = {
                         "id": f"chatcmpl-{self.request_count}",
                         "object": "chat.completion.chunk",
@@ -155,27 +154,27 @@ class MockService:
                 await response.write(b"data: [DONE]\n\n")
                 await response.write_eof()
                 return response
-            else:
-                # Non-streaming response
-                return web.json_response({
-                    "id": f"chatcmpl-{self.request_count}",
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": model,
-                    "choices": [{
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": f"Hello from {self.name} (model: {model})"
-                        },
-                        "finish_reason": "stop"
-                    }],
-                    "usage": {
-                        "prompt_tokens": 10,
-                        "completion_tokens": 5,
-                        "total_tokens": 15
-                    }
-                })
+
+            # Non-streaming response
+            return web.json_response({
+                "id": f"chatcmpl-{self.request_count}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": f"Hello from {self.name} (model: {model})"
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15
+                }
+            })
         except Exception as e:
             return web.json_response(
                 {"error": {"message": str(e)}},
@@ -205,20 +204,14 @@ class MockService:
         """Start the mock service"""
         logger.info(f"Starting {self.name}...")
         print(f"[{self.name}] Starting service...", flush=True)
-        sys.stdout.flush()
 
         # Register with registry
         if self.registry_url:
             logger.info(f"Registering with registry: {self.registry_url}")
             print(f"[{self.name}] Registering with registry: {self.registry_url}", flush=True)
             await self.register_with_registry()
-            # Start heartbeat loop
             asyncio.create_task(self.heartbeat_loop())
 
-        # Note: No babysitter endpoint needed - the Rust babysitter handles that
-        # The mock service only needs to expose the main service endpoint
-
-        # Start main service
         # Bind to 0.0.0.0 to allow connections from other servers (multi-server setup)
         logger.info(f"Starting main service on port {self.port}")
         print(f"[{self.name}] Starting main service on port {self.port}", flush=True)
@@ -226,26 +219,18 @@ class MockService:
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', self.port)
         await site.start()
-        logger.info(f"Main service started on port {self.port}")
-        print(f"[{self.name}] ✅ Main service started on port {self.port}", flush=True)
 
         self.running = True
         logger.info(f"✅ {self.name} fully started on port {self.port}")
         logger.info(f"   Models: {', '.join(self.models)}")
         print(f"✅ {self.name} started on port {self.port}", flush=True)
         print(f"   Models: {', '.join(self.models)}", flush=True)
-        sys.stdout.flush()
 
         # Keep running
         try:
             while self.running:
                 await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            logger.info("Received keyboard interrupt")
-            print(f"[{self.name}] Received keyboard interrupt", flush=True)
         finally:
-            logger.info("Cleaning up...")
-            print(f"[{self.name}] Cleaning up...", flush=True)
             await runner.cleanup()
 
 def main():
@@ -257,12 +242,7 @@ def main():
 
     args = parser.parse_args()
 
-    logger.info(f"Mock service starting with args: name={args.name}, port={args.port}, models={args.models}, registry_url={args.registry_url}")
-    print(f"[MOCK_SERVICE] Starting with args: name={args.name}, port={args.port}, models={args.models}", flush=True)
-    sys.stdout.flush()
-
     models = [m.strip() for m in args.models.split(',')]
-
     service = MockService(
         name=args.name,
         port=args.port,
@@ -270,7 +250,6 @@ def main():
         registry_url=args.registry_url
     )
 
-    # Handle shutdown
     def signal_handler(sig, frame):
         logger.info(f"Received signal {sig}, shutting down...")
         print(f"\n🛑 Shutting down {service.name}...", flush=True)
@@ -280,17 +259,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    try:
-        logger.info("Entering asyncio.run()")
-        print(f"[{service.name}] Entering event loop...", flush=True)
-        asyncio.run(service.start())
-    except KeyboardInterrupt:
-        logger.info("KeyboardInterrupt caught")
-        service.running = False
-    except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-        print(f"[{service.name}] ❌ Fatal error: {e}", flush=True)
-        raise
+    asyncio.run(service.start())
 
 if __name__ == '__main__':
     main()

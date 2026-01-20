@@ -16,9 +16,25 @@
 #   --infinilm-src PATH         Path to InfiniLM repo (default: ../InfiniLM; env: INFINILM_SRC)
 #   --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo before install (env: INFINICORE_BRANCH)
 #   --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo before install (env: INFINILM_BRANCH)
+#   --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)
 #   --help                 Show this help message
 
 set -e
+
+# Environment setup (optional, but should be identical across deployment cases).
+# Canonical location in images is `/app/env-set.sh` (staged from repo root `env-set.sh`).
+# Source early so it affects all subsequent steps (deps install, build, etc.).
+EARLY_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "/app/env-set.sh" ]; then
+    # shellcheck disable=SC1091
+    source "/app/env-set.sh"
+elif [ -f "${EARLY_SCRIPT_DIR}/../env-set.sh" ]; then
+    # shellcheck disable=SC1091
+    source "${EARLY_SCRIPT_DIR}/../env-set.sh"
+elif [ -f "/workspace/env-set.sh" ]; then
+    # shellcheck disable=SC1091
+    source "/workspace/env-set.sh"
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -42,6 +58,7 @@ INFINICORE_SRC="${INFINICORE_SRC:-}"            # optional, defaults resolved la
 INFINILM_SRC="${INFINILM_SRC:-}"                # optional, defaults resolved later
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"      # optional git ref (branch/tag/commit)
 INFINILM_BRANCH="${INFINILM_BRANCH:-}"          # optional git ref (branch/tag/commit)
+DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-}"          # optional deployment preset name (deployment/cases/<name>)
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -102,6 +119,10 @@ while [[ $# -gt 0 ]]; do
             INFINILM_BRANCH="$2"
             shift 2
             ;;
+        --deployment-case)
+            DEPLOYMENT_CASE="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -121,6 +142,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --infinilm-src PATH         Path to InfiniLM repo (default: ../InfiniLM; env: INFINILM_SRC)"
             echo "  --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo (env: INFINICORE_BRANCH)"
             echo "  --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo (env: INFINILM_BRANCH)"
+            echo "  --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -154,6 +176,39 @@ echo ""
 # Function to check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+load_deployment_case_preset() {
+    # Loads deployment/cases/<DEPLOYMENT_CASE>/install.defaults.sh if present.
+    # This is used to set install-time defaults and to pick a canonical env-set/config bundle.
+    if [ -z "${DEPLOYMENT_CASE:-}" ]; then
+        return 0
+    fi
+
+    local case_dir="${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}"
+    if [ ! -d "${case_dir}" ]; then
+        echo -e "${RED}Error: deployment case not found: ${DEPLOYMENT_CASE}${NC}"
+        echo "  Expected directory: ${case_dir}"
+        echo "  Available cases:"
+        ls -1 "${PROJECT_ROOT}/deployment/cases" 2>/dev/null | sed 's/^/    - /' || true
+        exit 1
+    fi
+
+    local defaults="${case_dir}/install.defaults.sh"
+    if [ -f "${defaults}" ]; then
+        echo -e "${BLUE}Loading deployment case preset: ${DEPLOYMENT_CASE}${NC}"
+        # shellcheck disable=SC1091
+        source "${defaults}"
+    else
+        echo -e "${BLUE}Using deployment case '${DEPLOYMENT_CASE}' (no install.defaults.sh)${NC}"
+    fi
+
+    # Optional: also source case env-set for install-time environment if provided.
+    if [ -f "${case_dir}/env-set.sh" ]; then
+        echo -e "${BLUE}Sourcing deployment case env-set.sh for install-time environment${NC}"
+        # shellcheck disable=SC1091
+        source "${case_dir}/env-set.sh"
+    fi
 }
 
 die() {
@@ -855,15 +910,22 @@ setup_scripts() {
                 echo -e "  ${GREEN}✓${NC} Staged configs: ${APP_ROOT}/config/"
             fi
 
-            # Copy env-set.sh if available (used by conda-based entrypoints / hardware env)
-            if [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+            # Stage deployment-case preset files (env + config) for runtime.
+            # Canonical runtime env location: /app/env-set.sh
+            if [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ]; then
+                cp "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" "${APP_ROOT}/env-set.sh"
+                chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
+                echo -e "  ${GREEN}✓${NC} Staged env-set.sh (case ${DEPLOYMENT_CASE}): ${APP_ROOT}/env-set.sh"
+            elif [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
                 cp "${PROJECT_ROOT}/env-set.sh" "${APP_ROOT}/env-set.sh"
                 chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
                 echo -e "  ${GREEN}✓${NC} Staged env-set.sh: ${APP_ROOT}/env-set.sh"
-            elif [ -f "${PROJECT_ROOT}/demo/integration-validation/env-set.sh" ]; then
-                cp "${PROJECT_ROOT}/demo/integration-validation/env-set.sh" "${APP_ROOT}/env-set.sh"
-                chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
-                echo -e "  ${GREEN}✓${NC} Staged env-set.sh (demo): ${APP_ROOT}/env-set.sh"
+            fi
+
+            if [ -n "${DEPLOYMENT_CASE:-}" ] && [ -d "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/config" ]; then
+                mkdir -p "${APP_ROOT}/config/cases/${DEPLOYMENT_CASE}"
+                cp -a "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/config/." "${APP_ROOT}/config/cases/${DEPLOYMENT_CASE}/"
+                echo -e "  ${GREEN}✓${NC} Staged deployment case configs: ${APP_ROOT}/config/cases/${DEPLOYMENT_CASE}/"
             fi
         fi
     fi
@@ -874,6 +936,8 @@ setup_scripts() {
 
 # Main installation flow
 main() {
+    # Load deployment-case defaults early so it can influence installation behavior.
+    load_deployment_case_preset
     install_system_deps
     install_rust
     build_binaries
