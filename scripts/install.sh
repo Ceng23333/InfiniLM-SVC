@@ -59,11 +59,14 @@ SETUP_APP_ROOT="${SETUP_APP_ROOT:-auto}" # auto|true|false
 INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-auto}" # auto|true|false (installs python3 + pip + aiohttp for mock service)
 INSTALL_INFINICORE="${INSTALL_INFINICORE:-auto}" # auto|true|false (installs InfiniCore python package + native build)
 INSTALL_INFINILM="${INSTALL_INFINILM:-auto}"     # auto|true|false (installs InfiniLM python package + native build)
+INSTALL_XTASK="${INSTALL_XTASK:-auto}"           # auto|true|false (installs xtask binary from InfiniLM-Rust)
 VERIFY_INSTALL="${VERIFY_INSTALL:-auto}"          # auto|true|false (verifies InfiniCore/InfiniLM imports after installation)
 INFINICORE_SRC="${INFINICORE_SRC:-}"            # optional, defaults resolved later
 INFINILM_SRC="${INFINILM_SRC:-}"                # optional, defaults resolved later
+INFINILM_RUST_SRC="${INFINILM_RUST_SRC:-}"      # optional, defaults resolved later
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"      # optional git ref (branch/tag/commit)
 INFINILM_BRANCH="${INFINILM_BRANCH:-}"          # optional git ref (branch/tag/commit)
+INFINILM_RUST_BRANCH="${INFINILM_RUST_BRANCH:-}" # optional git ref (branch/tag/commit, default: llama.maca_dep)
 DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-}"          # optional deployment preset name (deployment/cases/<name>)
 INFINICORE_BUILD_CMD="${INFINICORE_BUILD_CMD:-}" # optional command to run in InfiniCore repo before pip install (e.g. "python3 scripts/install.py --metax-gpu=y --ccl=y")
 INFINICORE_BUILD_CPP="${INFINICORE_BUILD_CPP:-auto}" # auto|true|false - build C++ targets (infiniop, infinirt, infiniccl, infinicore_cpp_api) - takes long time
@@ -128,6 +131,19 @@ while [[ $# -gt 0 ]]; do
             INFINILM_BRANCH="$2"
             shift 2
             ;;
+        --install-xtask)
+            # auto|true|false
+            INSTALL_XTASK="$2"
+            shift 2
+            ;;
+        --infinilm-rust-src)
+            INFINILM_RUST_SRC="$2"
+            shift 2
+            ;;
+        --infinilm-rust-branch)
+            INFINILM_RUST_BRANCH="$2"
+            shift 2
+            ;;
         --deployment-case)
             DEPLOYMENT_CASE="$2"
             shift 2
@@ -170,6 +186,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --infinilm-src PATH         Path to InfiniLM repo (default: ../InfiniLM; env: INFINILM_SRC)"
             echo "  --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo (env: INFINICORE_BRANCH)"
             echo "  --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo (env: INFINILM_BRANCH)"
+            echo "  --install-xtask MODE        auto|true|false (default: auto; env: INSTALL_XTASK)"
+            echo "  --infinilm-rust-src PATH    Path to InfiniLM-Rust repo (default: ../InfiniLM-Rust; env: INFINILM_RUST_SRC)"
+            echo "  --infinilm-rust-branch BRANCH Git branch/tag/commit to checkout in InfiniLM-Rust repo (default: llama.maca_dep; env: INFINILM_RUST_BRANCH)"
             echo "  --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)"
             echo "  --infinicore-build-cmd CMD  Command to run in InfiniCore repo before pip install (env: INFINICORE_BUILD_CMD)"
             echo "  --infinicore-build-cpp MODE auto|true|false (default: auto; env: INFINICORE_BUILD_CPP)"
@@ -669,6 +688,15 @@ resolve_optional_repo_paths() {
             INFINILM_SRC="${PROJECT_ROOT}/../InfiniLM"
         fi
     fi
+    if [ -z "${INFINILM_RUST_SRC}" ]; then
+        if [ -d "${PROJECT_ROOT}/../InfiniLM-Rust" ]; then
+            INFINILM_RUST_SRC="${PROJECT_ROOT}/../InfiniLM-Rust"
+        fi
+    fi
+    # Set default branch for InfiniLM-Rust if not specified
+    if [ -z "${INFINILM_RUST_BRANCH}" ]; then
+        INFINILM_RUST_BRANCH="llama.maca_dep"
+    fi
 }
 
 install_infinicore_and_infinilm_optional() {
@@ -905,6 +933,124 @@ install_infinicore_and_infinilm_optional() {
             ) || echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
         fi
     fi
+
+    echo ""
+}
+
+# Function to install xtask from InfiniLM-Rust
+install_xtask_optional() {
+    resolve_optional_repo_paths
+
+    # Decide whether to install (auto => install only if repo path exists and we're root/in-container)
+    local default_in_container="false"
+    if [ -f "/.dockerenv" ]; then
+        default_in_container="true"
+    fi
+
+    local do_xtask
+    do_xtask="$(should_do "${INSTALL_XTASK}" "${default_in_container}")"
+
+    if [ "${do_xtask}" != "true" ]; then
+        return 0
+    fi
+
+    # Resolve repo path if not set
+    if [ -z "${INFINILM_RUST_SRC}" ]; then
+        if [ -d "${PROJECT_ROOT}/../InfiniLM-Rust" ]; then
+            INFINILM_RUST_SRC="${PROJECT_ROOT}/../InfiniLM-Rust"
+        else
+            # Default to sibling directory
+            INFINILM_RUST_SRC="${PROJECT_ROOT}/../InfiniLM-Rust"
+        fi
+    fi
+
+    # Check if repo exists and is a git repo, clone if needed
+    if [ ! -d "${INFINILM_RUST_SRC}" ] || [ ! -d "${INFINILM_RUST_SRC}/.git" ]; then
+        if ! command_exists git; then
+            echo -e "${YELLOW}⚠ INSTALL_XTASK=true but InfiniLM-Rust repo not found and git is not available.${NC}"
+            echo -e "${YELLOW}  Please clone the repo manually or install git.${NC}"
+            return 0
+        fi
+
+        echo -e "${BLUE}Cloning InfiniLM-Rust repository...${NC}"
+        local repo_url="https://github.com/InfiniTensor/InfiniLM-Rust.git"
+        local parent_dir="$(dirname "${INFINILM_RUST_SRC}")"
+        local repo_name="$(basename "${INFINILM_RUST_SRC}")"
+
+        # Create parent directory if it doesn't exist
+        mkdir -p "${parent_dir}"
+
+        # Clone the repository
+        if git clone "${repo_url}" "${INFINILM_RUST_SRC}"; then
+            echo -e "${GREEN}✓ Cloned InfiniLM-Rust repository${NC}"
+        else
+            echo -e "${RED}✗ Failed to clone InfiniLM-Rust repository${NC}"
+            return 0
+        fi
+    fi
+
+    echo -e "${BLUE}Installing xtask from InfiniLM-Rust...${NC}"
+
+    # Check if Rust/Cargo is available
+    if ! command_exists cargo; then
+        echo -e "${YELLOW}⚠ Skipping xtask install (cargo unavailable).${NC}"
+        echo ""
+        return 0
+    fi
+
+    # Get INFINI_ROOT from env-set.sh if available
+    local infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+    if [ -f "/app/env-set.sh" ]; then
+        # shellcheck disable=SC1091
+        source /app/env-set.sh 2>/dev/null || true
+        infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+    elif [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+        # shellcheck disable=SC1091
+        source "${PROJECT_ROOT}/env-set.sh" 2>/dev/null || true
+        infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+    fi
+
+    # Ensure INFINI_ROOT directories exist
+    mkdir -p "${infini_root}/bin"
+    mkdir -p "${infini_root}/lib"
+
+    # Checkout the specified branch
+    git_checkout_ref_if_requested "${INFINILM_RUST_SRC}" "${INFINILM_RUST_BRANCH}"
+
+    echo "Building xtask from ${INFINILM_RUST_SRC} (branch: ${INFINILM_RUST_BRANCH})..."
+
+    # Build xtask binary
+    (
+        cd "${INFINILM_RUST_SRC}" || exit 1
+
+        # Source cargo environment if available
+        if [ -f "${HOME}/.cargo/env" ]; then
+            # shellcheck disable=SC1091
+            source "${HOME}/.cargo/env"
+        fi
+
+        # Build xtask binary
+        if cargo build --release --bin xtask; then
+            echo -e "${GREEN}✓ xtask build completed successfully${NC}"
+
+            # Install to INFINI_ROOT/bin
+            local xtask_binary="${INFINILM_RUST_SRC}/target/release/xtask"
+            if [ -f "${xtask_binary}" ]; then
+                cp "${xtask_binary}" "${infini_root}/bin/xtask"
+                chmod +x "${infini_root}/bin/xtask"
+                echo -e "${GREEN}✓ Installed xtask to ${infini_root}/bin/xtask${NC}"
+            else
+                echo -e "${RED}✗ xtask binary not found at ${xtask_binary}${NC}"
+                return 1
+            fi
+        else
+            echo -e "${RED}✗ xtask build failed${NC}"
+            return 1
+        fi
+    ) || {
+        echo -e "${YELLOW}⚠ xtask installation failed${NC}"
+        return 0  # Don't fail the entire installation
+    }
 
     echo ""
 }
@@ -1294,6 +1440,7 @@ main() {
     build_binaries
     install_binaries
     install_python_deps
+    install_xtask_optional  # Install xtask after Rust is available
     install_infinicore_and_infinilm_optional
     verify_infinicore_and_infinilm
     setup_scripts
