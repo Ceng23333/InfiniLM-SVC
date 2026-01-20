@@ -20,9 +20,8 @@ type = "command"
 command = "/opt/conda/bin/python"
 args = [
   "/mnt/InfiniLM/python/infinilm/server/inference_server.py",
-  "--cpu",
+  "--metax",
   "--model_path", "/models/9g_8b_thinking_llama",
-  "--max_tokens", "128",
   "--max_batch_size", "8",
   "--tp", "1",
   "--temperature", "1.0",

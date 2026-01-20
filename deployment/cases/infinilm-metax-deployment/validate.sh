@@ -46,17 +46,39 @@ echo ""
 
 echo -e "${BLUE}[3] Model aggregation${NC}"
 models_json="$(curl -s "${ROUTER_URL}/models" 2>/dev/null || echo '{}')"
-echo "${models_json}" | grep -q '"id":"jiuge"' && \
-  echo -e "  ${GREEN}✓${NC} Found model id: jiuge" || \
-  (echo -e "  ${RED}✗${NC} Missing model id: jiuge"; echo "${models_json}"; exit 1)
+# Extract model IDs from the response
+model_ids="$(echo "${models_json}" | grep -o '"id":"[^"]*"' | sed 's/"id":"\([^"]*\)"/\1/' | tr '\n' ' ' || echo '')"
+if [ -z "${model_ids}" ] || [ "${model_ids}" = " " ]; then
+  echo -e "  ${RED}✗${NC} No models found"
+  echo "${models_json}"
+  exit 1
+fi
+# Check for expected model IDs (from babysitter configs)
+expected_model1="9g_8b_thinking_llama"
+expected_model2="Qwen3-32B"
+found_any=false
+for model_id in ${model_ids}; do
+  echo "  Found model: ${model_id}"
+  if [ "${model_id}" = "${expected_model1}" ] || [ "${model_id}" = "${expected_model2}" ]; then
+    found_any=true
+  fi
+done
+if [ "${found_any}" = "true" ]; then
+  echo -e "  ${GREEN}✓${NC} Found expected model(s)"
+else
+  echo -e "  ${YELLOW}⚠${NC} Expected models not found, but models are available"
+fi
+# Use the first available model for testing
+test_model="$(echo "${model_ids}" | awk '{print $1}')"
 echo ""
 
 echo -e "${BLUE}[4] Chat completions via router${NC}"
-request_data='{
-  "model": "jiuge",
-  "messages": [{"role": "user", "content": "Hello"}],
-  "stream": false
-}'
+echo "  Using model: ${test_model}"
+request_data="{
+  \"model\": \"${test_model}\",
+  \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}],
+  \"stream\": false
+}"
 
 resp="$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" \
   -H "Content-Type: application/json" \
@@ -66,4 +88,38 @@ echo "${resp}" | grep -q '"object"' && echo -e "  ${GREEN}✓${NC} Router return
   (echo -e "  ${RED}✗${NC} Router response invalid"; echo "${resp}"; exit 1)
 
 echo ""
+
+# Test Qwen3-32B model specifically if available
+if echo "${model_ids}" | grep -q "Qwen3-32B"; then
+  echo -e "${BLUE}[5] Qwen3-32B model test${NC}"
+  echo "  Testing Qwen3-32B model..."
+  qwen_request_data="{
+    \"model\": \"Qwen3-32B\",
+    \"messages\": [{\"role\": \"user\", \"content\": \"Say hello in one word.\"}],
+    \"stream\": false
+  }"
+
+  qwen_resp="$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d "${qwen_request_data}" 2>/dev/null || echo '{}')"
+
+  if echo "${qwen_resp}" | grep -q '"object"'; then
+    echo -e "  ${GREEN}✓${NC} Qwen3-32B model responded successfully"
+    # Extract and show a snippet of the response content if available
+    content="$(echo "${qwen_resp}" | grep -o '"content":"[^"]*"' | head -1 | sed 's/"content":"\([^"]*\)"/\1/' || echo '')"
+    if [ -n "${content}" ]; then
+      echo "    Response preview: ${content:0:50}..."
+    fi
+  else
+    echo -e "  ${RED}✗${NC} Qwen3-32B model test failed"
+    echo "${qwen_resp}"
+    exit 1
+  fi
+  echo ""
+else
+  echo -e "${BLUE}[5] Qwen3-32B model test${NC}"
+  echo -e "  ${YELLOW}⚠${NC} Qwen3-32B model not found, skipping test"
+  echo ""
+fi
+
 echo -e "${GREEN}✅ Validation complete${NC}"

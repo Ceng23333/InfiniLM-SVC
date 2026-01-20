@@ -166,47 +166,61 @@ impl BabysitterRegistryClient {
         // Try /v1/models first (OpenAI API format), fallback to /models
         // Always use localhost for fetching models since the service runs locally
         // The config.host is for registration (external IP), not for local service access
-        let url = format!("http://127.0.0.1:{}/v1/models", port);
+        let urls = vec![
+            format!("http://127.0.0.1:{}/v1/models", port),
+            format!("http://127.0.0.1:{}/models", port),
+        ];
 
         // Retry logic with faster polling since port detection already verified HTTP is ready
         // But give it more attempts in case the service needs a moment to fully initialize
         for attempt in 0..50 {
-            match self.client.get(&url).send().await {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                            if let Some(models) = data.get("data").and_then(|v| v.as_array()) {
-                                let models: Vec<_> = models.clone();
+            // Try each URL in order
+            for url in &urls {
+                match self.client.get(url).send().await {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                // Handle both OpenAI API format {"data": [...]} and direct array format
+                                let models = if let Some(models) = data.get("data").and_then(|v| v.as_array()) {
+                                    models.clone()
+                                } else if data.is_array() {
+                                    // Direct array format
+                                    data.as_array().unwrap().clone()
+                                } else {
+                                    continue; // Try next URL
+                                };
+
                                 if !models.is_empty() {
-                                    info!("Fetched {} models from service", models.len());
+                                    info!("Fetched {} models from service via {}", models.len(), url);
                                     return models;
                                 } else {
-                                    debug!("Service returned empty models list, retrying...");
+                                    debug!("Service returned empty models list from {}, retrying...", url);
                                 }
                             } else {
-                                debug!("Service response missing 'data' field, retrying...");
+                                debug!("Failed to parse JSON response from {}, retrying...", url);
                             }
                         } else {
-                            debug!("Failed to parse JSON response, retrying...");
-                        }
-                    } else {
-                        // Non-200 status, log and retry
-                        if attempt % 5 == 0 {
-                            debug!(
-                                "Service returned status {} for /models, retrying... (attempt {})",
-                                response.status(),
-                                attempt
-                            );
+                            // Non-200 status, try next URL
+                            if attempt % 5 == 0 {
+                                debug!(
+                                    "Service returned status {} for {}, trying next endpoint... (attempt {})",
+                                    response.status(),
+                                    url,
+                                    attempt
+                                );
+                            }
+                            continue; // Try next URL
                         }
                     }
-                }
-                Err(e) => {
-                    // Connection error, retry
-                    if attempt % 5 == 0 {
-                        debug!(
-                            "Error fetching models: {}, retrying... (attempt {})",
-                            e, attempt
-                        );
+                    Err(e) => {
+                        // Connection error, try next URL
+                        if attempt % 5 == 0 {
+                            debug!(
+                                "Error fetching models from {}: {}, trying next endpoint... (attempt {})",
+                                url, e, attempt
+                            );
+                        }
+                        continue; // Try next URL
                     }
                 }
             }
@@ -214,10 +228,13 @@ impl BabysitterRegistryClient {
             if attempt < 19 {
                 // Fast retry since port detection already verified HTTP is ready
                 sleep(Duration::from_millis(300)).await;
+            } else {
+                // Slower retry after initial attempts
+                sleep(Duration::from_secs(1)).await;
             }
         }
 
-        warn!("Failed to fetch models from service after 20 attempts");
+        warn!("Failed to fetch models from service after 50 attempts");
         vec![]
     }
 
