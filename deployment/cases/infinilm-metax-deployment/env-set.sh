@@ -10,6 +10,11 @@ export INFINI_ROOT=/root/.infini
 export PATH=${PATH}:${INFINI_ROOT}/bin
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$INFINI_ROOT/lib
 
+# Conda Python library (needed for _infinicore.so)
+if [ -d "/opt/conda/lib" ]; then
+    export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
+fi
+
 # MACA
 export MACA_HOME=/opt/hpcc
 export MACA_PATH=${MACA_HOME}

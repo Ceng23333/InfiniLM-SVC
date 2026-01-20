@@ -879,11 +879,19 @@ verify_infinicore_and_infinilm() {
             export YELLOW="${YELLOW:-}"
             export NC="${NC:-}"
 
+            # Determine Python command - use conda's Python if available
+            local verify_python_cmd="python3"
+            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                verify_python_cmd="/opt/conda/bin/python"
+            fi
+
             # Source conda if available (same as docker entrypoint)
             if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
                 # shellcheck disable=SC1091
                 source /opt/conda/etc/profile.d/conda.sh
                 conda activate base
+                # Add conda's lib directory to LD_LIBRARY_PATH for Python library
+                export LD_LIBRARY_PATH="/opt/conda/lib:${LD_LIBRARY_PATH:-}"
             fi
 
             # Source env-set.sh if available (same as docker entrypoint)
@@ -901,8 +909,8 @@ verify_infinicore_and_infinilm() {
             # Set PYTHONPATH to include InfiniCore Python directory
             export PYTHONPATH="${INFINICORE_SRC}/python:${PYTHONPATH:-}"
 
-            # Use python3 (will be conda's python if conda was activated)
-            if python3 -c "from infinicore.lib import _infinicore; print('✓ infinicore.lib._infinicore imported successfully')" 2>&1; then
+            # Use the determined Python command (conda's Python if available)
+            if ${verify_python_cmd} -c "from infinicore.lib import _infinicore; print('✓ infinicore.lib._infinicore imported successfully')" 2>&1; then
                 echo -e "${GREEN}✓ InfiniCore installation verified${NC}"
             else
                 echo -e "${YELLOW}⚠ InfiniCore import verification failed${NC}"
@@ -921,11 +929,19 @@ verify_infinicore_and_infinilm() {
             export YELLOW="${YELLOW:-}"
             export NC="${NC:-}"
 
+            # Determine Python command - use conda's Python if available
+            local verify_python_cmd="python3"
+            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                verify_python_cmd="/opt/conda/bin/python"
+            fi
+
             # Source conda if available (same as docker entrypoint)
             if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
                 # shellcheck disable=SC1091
                 source /opt/conda/etc/profile.d/conda.sh
                 conda activate base
+                # Add conda's lib directory to LD_LIBRARY_PATH for Python library
+                export LD_LIBRARY_PATH="/opt/conda/lib:${LD_LIBRARY_PATH:-}"
             fi
 
             # Source env-set.sh if available (same as docker entrypoint)
@@ -943,8 +959,8 @@ verify_infinicore_and_infinilm() {
             # Set PYTHONPATH to include InfiniLM and InfiniCore Python directories
             export PYTHONPATH="${INFINILM_SRC}/python:${INFINICORE_SRC:-}/python:${PYTHONPATH:-}"
 
-            # Use python3 (will be conda's python if conda was activated)
-            if python3 -c "import infinilm; print('✓ infinilm imported successfully')" 2>&1; then
+            # Use the determined Python command (conda's Python if available)
+            if ${verify_python_cmd} -c "import infinilm; print('✓ infinilm imported successfully')" 2>&1; then
                 echo -e "${GREEN}✓ InfiniLM installation verified${NC}"
             else
                 echo -e "${YELLOW}⚠ InfiniLM import verification failed${NC}"
