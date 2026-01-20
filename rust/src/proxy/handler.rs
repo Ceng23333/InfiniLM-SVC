@@ -193,7 +193,7 @@ pub async fn proxy_handler(
                         "Bad gateway - error communicating with service",
                     )
                 };
-                last_error = Some((status, error_msg.clone()));
+                last_error = Some((status, error_msg.to_string()));
 
                 // If this is not the last attempt, continue to try another service
                 if attempt < max_retries - 1 {
@@ -214,92 +214,104 @@ pub async fn proxy_handler(
 
         // Extract headers before consuming the response
         let response_headers: Vec<(String, String)> = upstream_response
-        .headers()
-        .iter()
-        .filter_map(|(name, value)| {
-            let header_name_lower = name.as_str().to_lowercase();
-            if HOP_BY_HOP_HEADERS.contains(&header_name_lower.as_str()) {
-                return None;
-            }
-            value
-                .to_str()
-                .ok()
-                .map(|v| (name.as_str().to_string(), v.to_string()))
-        })
-        .collect();
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                let header_name_lower = name.as_str().to_lowercase();
+                if HOP_BY_HOP_HEADERS.contains(&header_name_lower.as_str()) {
+                    return None;
+                }
+                value
+                    .to_str()
+                    .ok()
+                    .map(|v| (name.as_str().to_string(), v.to_string()))
+            })
+            .collect();
 
         // Check if this is a streaming response
-    let content_type = upstream_response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let transfer_encoding = upstream_response
-        .headers()
-        .get("transfer-encoding")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        let content_type = upstream_response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        let transfer_encoding = upstream_response
+            .headers()
+            .get("transfer-encoding")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
 
-    let is_sse = content_type.contains("text/event-stream");
-    let is_chunked = transfer_encoding.to_lowercase() == "chunked";
+        let is_sse = content_type.contains("text/event-stream");
+        let is_chunked = transfer_encoding.to_lowercase() == "chunked";
 
-    if is_sse || is_chunked {
-        // Handle streaming response
-        return handle_streaming_response(
-            upstream_response,
-            status,
-            response_headers,
-            method.as_str(),
-            uri.path(),
-            &service.name,
-        )
-        .await;
-    }
-
-    // Read response body for non-streaming responses
-    let response_body = match upstream_response.bytes().await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            error!("Failed to read response body: {}", e);
-            return (
-                StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "Failed to read response from service"})),
+        if is_sse || is_chunked {
+            // Handle streaming response
+            return handle_streaming_response(
+                upstream_response,
+                status,
+                response_headers,
+                method.as_str(),
+                uri.path(),
+                &service.name,
             )
-                .into_response();
+            .await;
         }
-    };
 
-    // Build response
-    let mut response_builder = Response::builder().status(status);
+        // Read response body for non-streaming responses
+        let response_body = match upstream_response.bytes().await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!("Failed to read response body: {}", e);
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({"error": "Failed to read response from service"})),
+                )
+                    .into_response();
+            }
+        };
 
-    // Copy headers (excluding hop-by-hop headers)
-    for (name_str, value_str) in response_headers {
-        if let Ok(header_name) = axum::http::HeaderName::from_bytes(name_str.as_bytes()) {
-            if let Ok(header_value) = axum::http::HeaderValue::from_str(&value_str) {
-                response_builder = response_builder.header(header_name, header_value);
+        // Build response
+        let mut response_builder = Response::builder().status(status);
+
+        // Copy headers (excluding hop-by-hop headers)
+        for (name_str, value_str) in response_headers {
+            if let Ok(header_name) = axum::http::HeaderName::from_bytes(name_str.as_bytes()) {
+                if let Ok(header_value) = axum::http::HeaderValue::from_str(&value_str) {
+                    response_builder = response_builder.header(header_name, header_value);
+                }
             }
         }
+
+        let response = match response_builder.body(Body::from(response_body.to_vec())) {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Failed to build response: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Internal server error"})),
+                )
+                    .into_response();
+            }
+        };
+
+        info!(
+            "Proxied {} {} -> {} ({})",
+            method,
+            uri.path(),
+            service.name,
+            status
+        );
+
+        return response.into_response();
     }
 
-    let response = match response_builder.body(Body::from(response_body.to_vec())) {
-        Ok(r) => r,
-        Err(e) => {
-            error!("Failed to build response: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal server error"})),
-            )
-                .into_response();
-        }
-    };
-
-    info!(
-        "Proxied {} {} -> {} ({})",
-        method,
-        uri.path(),
-        service.name,
-        status
-    );
-
-    response
+    // If we get here, all retries failed
+    if let Some((status, error_msg)) = last_error {
+        (status, Json(json!({"error": error_msg}))).into_response()
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "No services available"})),
+        )
+            .into_response()
+    }
 }
