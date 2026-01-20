@@ -26,9 +26,10 @@ Server 2 (Worker):
 - Ports open:
   - Server 1: `18000`, `8000`, `8100`, `8101`
   - Server 2: `8100`, `8101`
-- A usable **InfiniLM** checkout on each server (or at least on the host where you run the container):
-  - This demo **mounts** InfiniLM repo into the container and runs the inference server from it.
-- Model directory available on each server (mounted into container as `/models/<model>`).
+- **InfiniCore** and **InfiniLM** checkouts on each server:
+  - These repos are **mounted** into the container at `/mnt/InfiniCore` and `/mnt/InfiniLM`
+  - They must be installed inside the container using `install.sh` (see Installation section below)
+- Model directory available on each server (mounted into container as `/models/<model>`)
 
 ## Build demo image (on both servers)
 
@@ -47,24 +48,57 @@ docker build -f Dockerfile.demo -t infinilm-svc:infinilm-demo .
 ## Start Server 1
 
 ```bash
-cd /path/to/InfiniLM-SVC/demo/infinilm-backend-2server
+cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
 
 # Required environment:
 export INFINILM_DIR=/path/to/InfiniLM
-export MODEL_DIR=/path/to/model_dir   # should be the model directory for --model_path
+export INFINICORE_DIR=/path/to/InfiniCore
+export MODEL1_DIR=/path/to/9g8b_model_dir
+export MODEL2_DIR=/path/to/qwen3_model_dir
 
 ./start-server1.sh <SERVER1_IP>
+```
+
+After starting the container, **install InfiniCore and InfiniLM inside it**:
+
+```bash
+docker exec -it infinilm-svc-infinilm-server1 bash -c '
+  cd /app &&
+  bash scripts/install.sh \
+    --deployment-case infinilm-metax-deployment \
+    --install-infinicore true \
+    --install-infinilm true \
+    --infinicore-src /mnt/InfiniCore \
+    --infinilm-src /mnt/InfiniLM \
+    --allow-xmake-root auto
+'
 ```
 
 ## Start Server 2
 
 ```bash
-cd /path/to/InfiniLM-SVC/demo/infinilm-backend-2server
+cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
 
 export INFINILM_DIR=/path/to/InfiniLM
+export INFINICORE_DIR=/path/to/InfiniCore
 export MODEL_DIR=/path/to/model_dir
 
 ./start-server2.sh <SERVER1_IP> <SERVER2_IP>
+```
+
+After starting the container, **install InfiniCore and InfiniLM inside it**:
+
+```bash
+docker exec -it infinilm-svc-infinilm-server2 bash -c '
+  cd /app &&
+  bash scripts/install.sh \
+    --deployment-case infinilm-metax-deployment \
+    --install-infinicore true \
+    --install-infinilm true \
+    --infinicore-src /mnt/InfiniCore \
+    --infinilm-src /mnt/InfiniLM \
+    --allow-xmake-root auto
+'
 ```
 
 ## Validate

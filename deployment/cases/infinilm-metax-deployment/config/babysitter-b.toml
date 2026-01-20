@@ -18,14 +18,15 @@ heartbeat_interval = 30
 
 [backend]
 type = "command"
-command = "python3"
+# Use conda's Python to ensure InfiniCore/InfiniLM are available
+command = "/opt/conda/bin/python"
 args = [
   "/mnt/InfiniLM/python/infinilm/server/inference_server.py",
   "--cpu",
-  "--model_path", "/models/model",
+  "--model_path", "/models/Qwen3-32B",
   "--max_tokens", "128",
   "--max_batch_size", "8",
-  "--tp", "1",
+  "--tp", "4",
   "--temperature", "1.0",
   "--top_p", "0.8",
   "--top_k", "1",
@@ -33,4 +34,16 @@ args = [
   "--port", "8100",
 ]
 work_dir = "/mnt/InfiniLM"
-env = { PYTHONPATH = "/mnt/InfiniLM/python" }
+# Set environment variables: ensure conda's Python path and InfiniCore/InfiniLM paths are available
+# These match what env-set.sh sets up (sourced before Python imports)
+[backend.env]
+PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
+INFINI_ROOT = "/root/.infini"
+LD_LIBRARY_PATH = "/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib:/opt/conda/lib"
+MACA_HOME = "/opt/hpcc"
+MACA_PATH = "/opt/hpcc"
+HPCC_PATH = "/opt/hpcc"
+C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
+XMAKE_ROOT = "y"
+HPCC_VISIBLE_DEVICES = "4,5,6,7"

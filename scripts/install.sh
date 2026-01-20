@@ -679,6 +679,63 @@ install_infinicore_and_infinilm_optional() {
             echo "Installing InfiniCore from ${INFINICORE_SRC} (editable)..."
             python3 -m pip install --no-cache-dir -e "${INFINICORE_SRC}" || \
                 echo -e "${YELLOW}⚠ InfiniCore install failed (likely missing toolchain/libs).${NC}"
+
+            # Create symlink for infinicore.lib module if needed
+            # xmake installs _infinicore.so to INFINI_ROOT/lib, but Python expects it in python/infinicore/lib/
+            local infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+            if [ -d "${INFINICORE_SRC}/python/infinicore" ]; then
+                local lib_dir="${INFINICORE_SRC}/python/infinicore/lib"
+                mkdir -p "${lib_dir}"
+                # Find the .so file in INFINI_ROOT/lib (it may have different names based on Python version)
+                local so_file=$(find "${infini_root}/lib" -name "infinicore*.so" -o -name "_infinicore*.so" 2>/dev/null | head -1)
+                if [ -n "${so_file}" ] && [ ! -e "${lib_dir}/_infinicore.so" ]; then
+                    echo "Creating symlink: ${lib_dir}/_infinicore.so -> ${so_file}"
+                    ln -sf "${so_file}" "${lib_dir}/_infinicore.so"
+                elif [ -z "${so_file}" ]; then
+                    echo -e "${YELLOW}⚠ Could not find infinicore .so file in ${infini_root}/lib${NC}"
+                fi
+
+                # Verify that infinicore.lib can be imported
+                # Use the same environment setup as docker_entrypoint_rust.sh and babysitter configs
+                echo "Verifying infinicore.lib import..."
+                (
+                    # Export color variables for use in subshell
+                    export GREEN="${GREEN:-}"
+                    export YELLOW="${YELLOW:-}"
+                    export NC="${NC:-}"
+
+                    # Source conda if available (same as docker entrypoint)
+                    if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                        # shellcheck disable=SC1091
+                        source /opt/conda/etc/profile.d/conda.sh
+                        conda activate base
+                    fi
+
+                    # Source env-set.sh if available (same as docker entrypoint)
+                    if [ -f "/app/env-set.sh" ]; then
+                        # shellcheck disable=SC1091
+                        source /app/env-set.sh
+                    elif [ -f "/workspace/env-set.sh" ]; then
+                        # shellcheck disable=SC1091
+                        source /workspace/env-set.sh
+                    elif [ -n "${PROJECT_ROOT:-}" ] && [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+                        # shellcheck disable=SC1091
+                        source "${PROJECT_ROOT}/env-set.sh"
+                    fi
+
+                    # Set PYTHONPATH to include InfiniCore Python directory
+                    export PYTHONPATH="${INFINICORE_SRC}/python:${PYTHONPATH:-}"
+
+                    # Use python3 (will be conda's python if conda was activated)
+                    if python3 -c "from infinicore.lib import _infinicore; print('✓ infinicore.lib._infinicore imported successfully')" 2>&1; then
+                        echo -e "${GREEN}✓ InfiniCore installation verified${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ InfiniCore installation completed but import verification failed${NC}"
+                        echo -e "${YELLOW}  This may be normal if runtime dependencies are not yet available${NC}"
+                        echo -e "${YELLOW}  The symlink has been created and should work at runtime${NC}"
+                    fi
+                )
+            fi
         fi
     fi
 

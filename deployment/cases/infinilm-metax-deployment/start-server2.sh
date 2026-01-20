@@ -16,11 +16,18 @@ SERVER1_IP="$1"
 SERVER2_IP="$2"
 
 INFINILM_DIR="${INFINILM_DIR:-}"
+INFINICORE_DIR="${INFINICORE_DIR:-}"
 MODEL_DIR="${MODEL_DIR:-}"
 
 if [ -z "${INFINILM_DIR}" ] || [ ! -d "${INFINILM_DIR}" ]; then
   echo "Error: INFINILM_DIR must point to an InfiniLM checkout on this host."
   echo "  Example: export INFINILM_DIR=/path/to/InfiniLM"
+  exit 1
+fi
+
+if [ -z "${INFINICORE_DIR}" ] || [ ! -d "${INFINICORE_DIR}" ]; then
+  echo "Error: INFINICORE_DIR must point to an InfiniCore checkout on this host."
+  echo "  Example: export INFINICORE_DIR=/path/to/InfiniCore"
   exit 1
 fi
 
@@ -39,6 +46,7 @@ echo "Image: ${IMAGE_NAME}"
 echo "Components: Babysitter B"
 echo "Docker network: $([ "${USE_HOST_NETWORK}" = "true" ] && echo "host" || echo "bridge (-p ports)")"
 echo "INFINILM_DIR: ${INFINILM_DIR}"
+echo "INFINICORE_DIR: ${INFINICORE_DIR}"
 echo "MODEL_DIR: ${MODEL_DIR}"
 echo ""
 
@@ -67,7 +75,10 @@ if [ "${USE_HOST_NETWORK}" = "true" ]; then
     -e BABYSITTER_HOST="${SERVER2_IP}" \
     -e BABYSITTER_CONFIGS="babysitter-b.toml" \
     -v "${SCRIPT_DIR}/config:/app/config:ro" \
+    -v "${SCRIPT_DIR}/../scripts:/app/scripts:ro" \
+    -v "${SCRIPT_DIR}/../deployment:/app/deployment:ro" \
     -v "${INFINILM_DIR}:/mnt/InfiniLM:ro" \
+    -v "${INFINICORE_DIR}:/mnt/InfiniCore:ro" \
     -v "${MODEL_DIR}:/models/model:ro" \
     "${IMAGE_NAME}"
 else
@@ -80,11 +91,27 @@ else
     -e BABYSITTER_CONFIGS="babysitter-b.toml" \
     -p 8100:8100 -p 8101:8101 \
     -v "${SCRIPT_DIR}/config:/app/config:ro" \
+    -v "${SCRIPT_DIR}/../scripts:/app/scripts:ro" \
+    -v "${SCRIPT_DIR}/../deployment:/app/deployment:ro" \
     -v "${INFINILM_DIR}:/mnt/InfiniLM:ro" \
+    -v "${INFINICORE_DIR}:/mnt/InfiniCore:ro" \
     -v "${MODEL_DIR}:/models/model:ro" \
     "${IMAGE_NAME}"
 fi
 
 echo ""
 echo "✅ Server 2 container started: infinilm-svc-infinilm-server2"
+echo ""
+echo "⚠️  IMPORTANT: Install InfiniCore and InfiniLM inside the container:"
+echo "   docker exec -it infinilm-svc-infinilm-server2 bash -c '"
+echo "     cd /app && "
+echo "     bash scripts/install.sh \\"
+echo "       --deployment-case infinilm-metax-deployment \\"
+echo "       --install-infinicore true \\"
+echo "       --install-infinilm true \\"
+echo "       --infinicore-src /mnt/InfiniCore \\"
+echo "       --infinilm-src /mnt/InfiniLM \\"
+echo "       --allow-xmake-root auto"
+echo "   '"
+echo ""
 echo "Logs: docker logs -f infinilm-svc-infinilm-server2"

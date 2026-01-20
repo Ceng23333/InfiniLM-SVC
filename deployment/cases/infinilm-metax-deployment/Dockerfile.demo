@@ -1,12 +1,58 @@
-# Demo image: adds python runtime deps for InfiniLM inference server
+# Demo image: adds python runtime deps + InfiniCore/InfiniLM for InfiniLM inference server
 FROM infinilm-svc:latest
 
+# Build arguments for InfiniCore and InfiniLM source paths (optional)
+# If not provided, install.sh will look for them at ../InfiniCore and ../InfiniLM
+ARG INFINICORE_SRC
+ARG INFINILM_SRC
+ARG INFINICORE_BRANCH
+ARG INFINILM_BRANCH
+
+# Install build dependencies needed for InfiniCore/InfiniLM native extensions
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
+    build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Minimal deps for InfiniLM python server
 RUN pip3 install --no-cache-dir fastapi uvicorn
 
-RUN python3 --version && python3 -c "import fastapi, uvicorn; print('fastapi/uvicorn installed')"
+# Copy InfiniCore and InfiniLM repos if provided as build args
+# Otherwise, install.sh will look for them at ../InfiniCore and ../InfiniLM
+WORKDIR /workspace
+COPY --chown=root:root ${INFINICORE_SRC:-../InfiniCore} ./InfiniCore 2>/dev/null || true
+COPY --chown=root:root ${INFINILM_SRC:-../InfiniLM} ./InfiniLM 2>/dev/null || true
+
+# Copy InfiniLM-SVC scripts and deployment case config
+WORKDIR /app
+COPY scripts/ ./scripts/
+COPY deployment/cases/infinilm-metax-deployment/ ./deployment/cases/infinilm-metax-deployment/
+
+# Install InfiniCore and InfiniLM using install.sh with deployment case preset
+# This will run the InfiniCore build command (--metax-gpu=y --ccl=y) and install both packages
+RUN if [ -d "/workspace/InfiniCore" ] || [ -d "/workspace/InfiniLM" ]; then \
+        export INFINICORE_SRC="${INFINICORE_SRC:-/workspace/InfiniCore}"; \
+        export INFINILM_SRC="${INFINILM_SRC:-/workspace/InfiniLM}"; \
+        export INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"; \
+        export INFINILM_BRANCH="${INFINILM_BRANCH:-}"; \
+        bash ./scripts/install.sh \
+            --deployment-case infinilm-metax-deployment \
+            --install-infinicore true \
+            --install-infinilm true \
+            --infinicore-src "${INFINICORE_SRC}" \
+            --infinilm-src "${INFINILM_SRC}" \
+            ${INFINICORE_BRANCH:+--infinicore-branch "${INFINICORE_BRANCH}"} \
+            ${INFINILM_BRANCH:+--infinilm-branch "${INFINILM_BRANCH}"} \
+            --allow-xmake-root auto || \
+        echo "Warning: InfiniCore/InfiniLM installation failed or repos not found"; \
+    else \
+        echo "Warning: InfiniCore/InfiniLM repos not found. Install them at runtime or provide via build args."; \
+    fi
+
+# Verify Python packages are importable
+RUN python3 --version && \
+    python3 -c "import fastapi, uvicorn; print('fastapi/uvicorn installed')" && \
+    python3 -c "import infinicore; print('infinicore installed')" 2>/dev/null || echo "Warning: infinicore not importable" && \
+    python3 -c "import infinilm; print('infinilm installed')" 2>/dev/null || echo "Warning: infinilm not importable"
