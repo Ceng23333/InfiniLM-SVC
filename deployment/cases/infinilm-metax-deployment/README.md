@@ -9,13 +9,15 @@ This demo updates the deployment model to:
 ## Architecture
 
 ```
-Server 1 (Control + one worker):
+Server 1 (Control + worker):
   - Registry  (18000)
   - Router    (8000)
-  - Babysitter A (8100 -> manages InfiniLM backend on 8100; babysitter health on 8101)
+  - Babysitter A (8100 -> manages InfiniLM Python backend for 9g_8b_thinking_llama)
+  - Babysitter B (8200 -> manages InfiniLM-Rust backend for Qwen3-32B)
 
 Server 2 (Worker):
-  - Babysitter B (8100 -> manages InfiniLM backend on 8100; babysitter health on 8101)
+  - Babysitter C (8100 -> manages InfiniLM Python backend for 9g_8b_thinking_llama)
+  - Babysitter D (8200 -> manages InfiniLM-Rust backend for Qwen3-32B)
   - Registers to Server 1 registry/router
 ```
 
@@ -24,8 +26,8 @@ Server 2 (Worker):
 - Docker installed on both servers
 - Network connectivity between servers
 - Ports open:
-  - Server 1: `18000`, `8000`, `8100`, `8101`
-  - Server 2: `8100`, `8101`
+  - Server 1: `18000`, `8000`, `8100`, `8101`, `8200`, `8201`
+  - Server 2: `8100`, `8101`, `8200`, `8201`
 - **InfiniCore** and **InfiniLM** checkouts on each server:
   - These repos are **mounted** into the container at `/mnt/InfiniCore` and `/mnt/InfiniLM`
   - They must be installed inside the container using `install.sh` (see Installation section below)
@@ -54,7 +56,7 @@ cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
 export INFINILM_DIR=/path/to/InfiniLM
 export INFINICORE_DIR=/path/to/InfiniCore
 export MODEL1_DIR=/path/to/9g8b_model_dir
-export MODEL2_DIR=/path/to/qwen3_model_dir
+export MODEL2_GGUF=/path/to/Qwen3-32B.gguf
 
 ./start-server1.sh <SERVER1_IP>
 ```
@@ -79,9 +81,11 @@ docker exec -it infinilm-svc-infinilm-server1 bash -c '
 ```bash
 cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
 
+# Required environment:
 export INFINILM_DIR=/path/to/InfiniLM
 export INFINICORE_DIR=/path/to/InfiniCore
-export MODEL_DIR=/path/to/model_dir
+export MODEL1_DIR=/path/to/9g8b_model_dir
+export MODEL2_GGUF=/path/to/Qwen3-32B.gguf
 
 ./start-server2.sh <SERVER1_IP> <SERVER2_IP>
 ```

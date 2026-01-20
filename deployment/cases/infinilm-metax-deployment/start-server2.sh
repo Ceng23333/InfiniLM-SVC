@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Start Server 2: Babysitter B (InfiniLM backend) registering to Server 1
+# Start Server 2: Babysitter C and D (InfiniLM backends) registering to Server 1
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:infinilm-demo}"
-USE_HOST_NETWORK="${USE_HOST_NETWORK:-true}"
 
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <SERVER1_IP> <SERVER2_IP>"
@@ -17,7 +16,8 @@ SERVER2_IP="$2"
 
 INFINILM_DIR="${INFINILM_DIR:-}"
 INFINICORE_DIR="${INFINICORE_DIR:-}"
-MODEL_DIR="${MODEL_DIR:-}"
+MODEL1_DIR="${MODEL1_DIR:-}"
+MODEL2_GGUF="${MODEL2_GGUF:-}"
 
 if [ -z "${INFINILM_DIR}" ] || [ ! -d "${INFINILM_DIR}" ]; then
   echo "Error: INFINILM_DIR must point to an InfiniLM checkout on this host."
@@ -31,11 +31,26 @@ if [ -z "${INFINICORE_DIR}" ] || [ ! -d "${INFINICORE_DIR}" ]; then
   exit 1
 fi
 
-if [ -z "${MODEL_DIR}" ] || [ ! -d "${MODEL_DIR}" ]; then
-  echo "Error: MODEL_DIR must point to the model directory on this host."
-  echo "  Example: export MODEL_DIR=/path/to/model_dir"
+if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
+  echo "Error: MODEL1_DIR must point to the 9g8b model directory on this host."
+  echo "  Example: export MODEL1_DIR=/path/to/9g8b_model_dir"
   exit 1
 fi
+
+if [ -z "${MODEL2_GGUF}" ]; then
+  echo "Error: MODEL2_GGUF must point to the Qwen3 gguf model file on this host."
+  echo "  Example: export MODEL2_GGUF=/path/to/Qwen3-32B.gguf"
+  exit 1
+fi
+
+if [ ! -f "${MODEL2_GGUF}" ]; then
+  echo "Error: MODEL2_GGUF must be a file: ${MODEL2_GGUF}"
+  exit 1
+fi
+
+# Mount the file directly to /models/Qwen3-32B.gguf
+MODEL2_MOUNT_DIR="${MODEL2_GGUF}"
+MODEL2_CONTAINER_PATH="/models/Qwen3-32B.gguf"
 
 echo "=========================================="
 echo "Starting InfiniLM-SVC Server 2 (InfiniLM backend)"
@@ -43,11 +58,11 @@ echo "=========================================="
 echo "Server 1 IP (Registry/Router): ${SERVER1_IP}"
 echo "Server 2 IP (This server):     ${SERVER2_IP}"
 echo "Image: ${IMAGE_NAME}"
-echo "Components: Babysitter B"
-echo "Docker network: $([ "${USE_HOST_NETWORK}" = "true" ] && echo "host" || echo "bridge (-p ports)")"
+echo "Components: Babysitter C, Babysitter D"
 echo "INFINILM_DIR: ${INFINILM_DIR}"
 echo "INFINICORE_DIR: ${INFINICORE_DIR}"
-echo "MODEL_DIR: ${MODEL_DIR}"
+echo "MODEL1_DIR: ${MODEL1_DIR}"
+echo "MODEL2_GGUF: ${MODEL2_GGUF} (mounted to ${MODEL2_CONTAINER_PATH})"
 echo ""
 
 # Quick reachability check
@@ -65,39 +80,32 @@ if docker ps -a --format '{{.Names}}' | grep -q "^infinilm-svc-infinilm-server2$
 fi
 
 echo "🚀 Starting Docker container..."
-if [ "${USE_HOST_NETWORK}" = "true" ]; then
-  docker run -d \
-    --network host \
-    --name infinilm-svc-infinilm-server2 \
-    -e LAUNCH_COMPONENTS=babysitter \
-    -e REGISTRY_URL="http://${SERVER1_IP}:18000" \
-    -e ROUTER_URL="http://${SERVER1_IP}:8000" \
-    -e BABYSITTER_HOST="${SERVER2_IP}" \
-    -e BABYSITTER_CONFIGS="babysitter-b.toml" \
-    -v "${SCRIPT_DIR}/config:/app/config:ro" \
-    -v "${SCRIPT_DIR}/../scripts:/app/scripts:ro" \
-    -v "${SCRIPT_DIR}/../deployment:/app/deployment:ro" \
-    -v "${INFINILM_DIR}:/mnt/InfiniLM:ro" \
-    -v "${INFINICORE_DIR}:/mnt/InfiniCore:ro" \
-    -v "${MODEL_DIR}:/models/model:ro" \
-    "${IMAGE_NAME}"
-else
-  docker run -d \
-    --name infinilm-svc-infinilm-server2 \
-    -e LAUNCH_COMPONENTS=babysitter \
-    -e REGISTRY_URL="http://${SERVER1_IP}:18000" \
-    -e ROUTER_URL="http://${SERVER1_IP}:8000" \
-    -e BABYSITTER_HOST="${SERVER2_IP}" \
-    -e BABYSITTER_CONFIGS="babysitter-b.toml" \
-    -p 8100:8100 -p 8101:8101 \
-    -v "${SCRIPT_DIR}/config:/app/config:ro" \
-    -v "${SCRIPT_DIR}/../scripts:/app/scripts:ro" \
-    -v "${SCRIPT_DIR}/../deployment:/app/deployment:ro" \
-    -v "${INFINILM_DIR}:/mnt/InfiniLM:ro" \
-    -v "${INFINICORE_DIR}:/mnt/InfiniCore:ro" \
-    -v "${MODEL_DIR}:/models/model:ro" \
-    "${IMAGE_NAME}"
-fi
+docker run -d \
+  --network host \
+  --uts host \
+  --ipc host \
+  --device /dev/dri \
+  --device /dev/htcd \
+  --device /dev/infiniband \
+  --group-add video \
+  --privileged=true \
+  --security-opt apparmor=unconfined \
+  --shm-size 100gb \
+  --ulimit memlock=-1 \
+  --name infinilm-svc-infinilm-server2 \
+  -e LAUNCH_COMPONENTS=babysitter \
+  -e REGISTRY_URL="http://${SERVER1_IP}:18000" \
+  -e ROUTER_URL="http://${SERVER1_IP}:8000" \
+  -e BABYSITTER_HOST="${SERVER2_IP}" \
+  -e BABYSITTER_CONFIGS="babysitter-c.toml babysitter-d.toml" \
+  -v "${SCRIPT_DIR}/config:/app/config:ro" \
+  -v "${SCRIPT_DIR}/../scripts:/app/scripts:ro" \
+  -v "${SCRIPT_DIR}/../deployment:/app/deployment:ro" \
+  -v "${INFINILM_DIR}:/mnt/InfiniLM:ro" \
+  -v "${INFINICORE_DIR}:/mnt/InfiniCore:ro" \
+  -v "${MODEL1_DIR}:/models/9g_8b_thinking_llama:ro" \
+  -v "${MODEL2_MOUNT_DIR}:${MODEL2_CONTAINER_PATH}:ro" \
+  "${IMAGE_NAME}"
 
 echo ""
 echo "✅ Server 2 container started: infinilm-svc-infinilm-server2"

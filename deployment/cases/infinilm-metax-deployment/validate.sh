@@ -99,7 +99,7 @@ if echo "${model_ids}" | grep -q "Qwen3-32B"; then
     \"stream\": false
   }"
 
-  qwen_resp="$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" \
+  qwen_resp="$(curl -s -X POST "${ROUTER_URL}/chat/completions" \
     -H "Content-Type: application/json" \
     -d "${qwen_request_data}" 2>/dev/null || echo '{}')"
 
