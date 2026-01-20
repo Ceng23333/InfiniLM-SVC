@@ -66,6 +66,8 @@ INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"      # optional git ref (branch/tag/c
 INFINILM_BRANCH="${INFINILM_BRANCH:-}"          # optional git ref (branch/tag/commit)
 DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-}"          # optional deployment preset name (deployment/cases/<name>)
 INFINICORE_BUILD_CMD="${INFINICORE_BUILD_CMD:-}" # optional command to run in InfiniCore repo before pip install (e.g. "python3 scripts/install.py --metax-gpu=y --ccl=y")
+INFINICORE_BUILD_CPP="${INFINICORE_BUILD_CPP:-auto}" # auto|true|false - build C++ targets (infiniop, infinirt, infiniccl, infinicore_cpp_api) - takes long time
+INFINICORE_BUILD_PYTHON="${INFINICORE_BUILD_PYTHON:-auto}" # auto|true|false - build Python extension (_infinicore) - quick rebuild
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -134,6 +136,16 @@ while [[ $# -gt 0 ]]; do
             INFINICORE_BUILD_CMD="$2"
             shift 2
             ;;
+        --infinicore-build-cpp)
+            # auto|true|false
+            INFINICORE_BUILD_CPP="$2"
+            shift 2
+            ;;
+        --infinicore-build-python)
+            # auto|true|false
+            INFINICORE_BUILD_PYTHON="$2"
+            shift 2
+            ;;
         --verify-install)
             # auto|true|false
             VERIFY_INSTALL="$2"
@@ -160,6 +172,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo (env: INFINILM_BRANCH)"
             echo "  --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)"
             echo "  --infinicore-build-cmd CMD  Command to run in InfiniCore repo before pip install (env: INFINICORE_BUILD_CMD)"
+            echo "  --infinicore-build-cpp MODE auto|true|false (default: auto; env: INFINICORE_BUILD_CPP)"
+            echo "                              Build C++ targets (infiniop, infinirt, infiniccl, infinicore_cpp_api)"
+            echo "  --infinicore-build-python MODE auto|true|false (default: auto; env: INFINICORE_BUILD_PYTHON)"
+            echo "                              Build Python extension (_infinicore) - quick rebuild"
             echo "  --verify-install MODE       auto|true|false (default: auto; env: VERIFY_INSTALL)"
             echo "  --help                 Show this help"
             exit 0
@@ -684,22 +700,106 @@ install_infinicore_and_infinilm_optional() {
                 python_cmd="/opt/conda/bin/python"
             fi
 
-            if [ -n "${INFINICORE_BUILD_CMD:-}" ]; then
-                echo "Running InfiniCore pre-build command: ${INFINICORE_BUILD_CMD}"
-                # Pipe 'yes y' to handle xmake interactive prompts (e.g., package installation confirmations)
-                # Use conda's Python environment for build
+            # Source env-set.sh to get INFINI_ROOT and other environment variables
+            local infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+            if [ -f "/app/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source /app/env-set.sh
+                infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+            elif [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source "${PROJECT_ROOT}/env-set.sh"
+                infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+            fi
+
+            local default_in_container="false"
+            if [ -f "/.dockerenv" ]; then
+                default_in_container="true"
+            fi
+
+            # Step 1: Build C++ targets (infiniop, infinirt, infiniccl, infinicore_cpp_api) - takes long time
+            local do_build_cpp
+            do_build_cpp="$(should_do "${INFINICORE_BUILD_CPP}" "${default_in_container}")"
+
+            if [ "${do_build_cpp}" = "true" ]; then
+                # Check if C++ libs already exist (skip if already built)
+                local cpp_libs_exist=false
+                if [ -f "${infini_root}/lib/libinfiniop.so" ] && \
+                   [ -f "${infini_root}/lib/libinfinirt.so" ] && \
+                   [ -f "${infini_root}/lib/libinfiniccl.so" ] && \
+                   [ -f "${infini_root}/lib/libinfinicore_cpp_api.so" ]; then
+                    cpp_libs_exist=true
+                fi
+
+                if [ "${cpp_libs_exist}" = "false" ]; then
+                    echo "Building InfiniCore C++ targets (infiniop, infinirt, infiniccl, infinicore_cpp_api)..."
+                    if [ -n "${INFINICORE_BUILD_CMD:-}" ]; then
+                        echo "Running InfiniCore C++ build command: ${INFINICORE_BUILD_CMD}"
+                        # Use conda's Python environment for build - replace python3/python with conda's Python if available
+                        local build_cmd="${INFINICORE_BUILD_CMD}"
+                        if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                            # Replace python3/python with conda's Python in the build command
+                            build_cmd=$(echo "${build_cmd}" | sed "s|\bpython3\b|${python_cmd}|g" | sed "s|\bpython\b|${python_cmd}|g")
+                        fi
+                        (
+                            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                                # shellcheck disable=SC1091
+                                source /opt/conda/etc/profile.d/conda.sh
+                                conda activate base
+                                export PATH="/opt/conda/bin:${PATH}"
+                            fi
+                            export PYTHON="${python_cmd}"
+                            cd "${INFINICORE_SRC}" && yes y | bash -lc "${build_cmd}"
+                        ) || echo -e "${YELLOW}⚠ InfiniCore C++ build failed; continuing anyway.${NC}"
+                    else
+                        # Fallback: build C++ targets directly if no build command specified
+                        echo "No INFINICORE_BUILD_CMD specified, building C++ targets directly..."
+                        (
+                            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                                # shellcheck disable=SC1091
+                                source /opt/conda/etc/profile.d/conda.sh
+                                conda activate base
+                                export PATH="/opt/conda/bin:${PATH}"
+                            fi
+                            export PYTHON="${python_cmd}"
+                            cd "${INFINICORE_SRC}" && \
+                                xmake f -cv && \
+                                yes y | xmake && \
+                                yes y | xmake install
+                        ) || echo -e "${YELLOW}⚠ InfiniCore C++ build failed; continuing anyway.${NC}"
+                    fi
+                else
+                    echo -e "${GREEN}✓ InfiniCore C++ libraries already built, skipping C++ build${NC}"
+                fi
+            else
+                echo "Skipping InfiniCore C++ build (INFINICORE_BUILD_CPP=${INFINICORE_BUILD_CPP})"
+            fi
+
+            # Step 2: Build Python extension (_infinicore) - quick rebuild, must match Python version
+            local do_build_python
+            do_build_python="$(should_do "${INFINICORE_BUILD_PYTHON}" "${default_in_container}")"
+
+            if [ "${do_build_python}" = "true" ]; then
+                echo "Installing InfiniCore Python extension (_infinicore) using ${python_cmd}..."
                 (
                     if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
                         # shellcheck disable=SC1091
                         source /opt/conda/etc/profile.d/conda.sh
                         conda activate base
+                        export PATH="/opt/conda/bin:${PATH}"
                     fi
-                    cd "${INFINICORE_SRC}" && yes y | bash -lc "${INFINICORE_BUILD_CMD}"
-                ) || echo -e "${YELLOW}⚠ InfiniCore pre-build command failed; continuing to pip install anyway.${NC}"
+                    export PYTHON="${python_cmd}"
+                    # Clean _infinicore target to force rebuild with correct Python version
+                    if [ -d "${INFINICORE_SRC}/.xmake" ]; then
+                        echo "Cleaning _infinicore target to force rebuild with ${python_cmd}..."
+                        (cd "${INFINICORE_SRC}" && xmake clean _infinicore 2>/dev/null || true)
+                    fi
+                    # pip install -e will trigger setup.py which builds _infinicore
+                    ${python_cmd} -m pip install --no-cache-dir -e "${INFINICORE_SRC}"
+                ) || echo -e "${YELLOW}⚠ InfiniCore Python extension install failed (likely missing toolchain/libs).${NC}"
+            else
+                echo "Skipping InfiniCore Python extension build (INFINICORE_BUILD_PYTHON=${INFINICORE_BUILD_PYTHON})"
             fi
-            echo "Installing InfiniCore from ${INFINICORE_SRC} (editable) using ${python_cmd}..."
-            ${python_cmd} -m pip install --no-cache-dir -e "${INFINICORE_SRC}" || \
-                echo -e "${YELLOW}⚠ InfiniCore install failed (likely missing toolchain/libs).${NC}"
 
             # Create symlink for infinicore.lib module if needed
             # xmake installs _infinicore.so to INFINI_ROOT/lib, but Python expects it in python/infinicore/lib/
@@ -733,8 +833,18 @@ install_infinicore_and_infinilm_optional() {
             fi
 
             echo "Installing InfiniLM from ${INFINILM_SRC} (editable) using ${python_cmd}..."
-            ${python_cmd} -m pip install --no-cache-dir -e "${INFINILM_SRC}" || \
-                echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
+            # Set PYTHON environment variable so xmake (called by setup.py) uses the same Python
+            (
+                if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                    # shellcheck disable=SC1091
+                    source /opt/conda/etc/profile.d/conda.sh
+                    conda activate base
+                    # Ensure conda's Python is first in PATH so xmake uses it
+                    export PATH="/opt/conda/bin:${PATH}"
+                fi
+                export PYTHON="${python_cmd}"
+                ${python_cmd} -m pip install --no-cache-dir -e "${INFINILM_SRC}"
+            ) || echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
         fi
     fi
 
