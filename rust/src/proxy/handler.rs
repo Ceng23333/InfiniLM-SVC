@@ -68,46 +68,11 @@ pub async fn proxy_handler(
         None
     };
 
-    // Get next healthy service, optionally filtered by model
-    let service = match load_balancer
-        .get_next_healthy_service_by_model(model_id.as_deref())
-        .await
-    {
-        Some(s) => s,
-        None => {
-            let error_msg = if let Some(model) = model_id {
-                format!("No healthy services available for model '{}'", model)
-            } else {
-                "No healthy services available".to_string()
-            };
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"error": error_msg})),
-            )
-                .into_response();
-        }
-    };
+    // Try multiple services if one fails (retry logic for multi-server scenarios)
+    let max_retries = 3;
+    let mut last_error: Option<(StatusCode, String)> = None;
 
-    // Build target URL
-    let target_url = format!(
-        "{}{}",
-        service.url,
-        uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("")
-    );
-
-    if let Some(model) = &model_id {
-        info!(
-            "Proxying {} {} (model: {}) -> {}",
-            method,
-            uri.path(),
-            model,
-            service.name
-        );
-    } else {
-        info!("Proxying {} {} -> {}", method, uri.path(), service.name);
-    }
-
-    // Convert axum Method to reqwest Method
+    // Convert axum Method to reqwest Method (only need to do this once)
     let reqwest_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
         Ok(m) => m,
         Err(e) => {
@@ -120,59 +85,135 @@ pub async fn proxy_handler(
         }
     };
 
-    // Build upstream request
-    let mut upstream_request = HTTP_CLIENT
-        .request(reqwest_method, &target_url)
-        .body(body_bytes);
-
-    // Copy headers (excluding hop-by-hop headers)
-    for (name, value) in headers.iter() {
-        let header_name_lower = name.as_str().to_lowercase();
-        if HOP_BY_HOP_HEADERS.contains(&header_name_lower.as_str()) {
-            continue;
-        }
-        // Convert axum HeaderValue to string for reqwest
-        if let Ok(header_value_str) = value.to_str() {
-            upstream_request = upstream_request.header(name.as_str(), header_value_str);
-        }
-    }
-
-    // Execute request
-    let upstream_response = match upstream_request.send().await {
-        Ok(response) => response,
-        Err(e) => {
-            error!("Error proxying to service {}: {}", service.name, e);
-
-            // Mark service as unhealthy on connection errors
-            service.increment_error_count().await;
-            service.set_healthy(false).await;
-
-            // Return appropriate error based on error type
-            let (status, error_msg) = if e.is_timeout() {
-                (StatusCode::GATEWAY_TIMEOUT, "Service timeout")
-            } else if e.is_connect() {
-                (
+    for attempt in 0..max_retries {
+        // Get next healthy service, optionally filtered by model
+        let service = match load_balancer
+            .get_next_healthy_service_by_model(model_id.as_deref())
+            .await
+        {
+            Some(s) => s,
+            None => {
+                // No more healthy services available
+                let error_msg = if let Some(model) = model_id {
+                    format!("No healthy services available for model '{}'", model)
+                } else {
+                    "No healthy services available".to_string()
+                };
+                return (
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "Service unavailable - connection refused",
+                    Json(json!({"error": error_msg})),
                 )
+                    .into_response();
+            }
+        };
+
+        // Build target URL
+        let target_url = format!(
+            "{}{}",
+            service.url,
+            uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("")
+        );
+
+        if let Some(model) = &model_id {
+            if attempt > 0 {
+                info!(
+                    "Retrying {} {} (model: {}) -> {} (attempt {}/{})",
+                    method,
+                    uri.path(),
+                    model,
+                    service.name,
+                    attempt + 1,
+                    max_retries
+                );
             } else {
-                (
-                    StatusCode::BAD_GATEWAY,
-                    "Bad gateway - error communicating with service",
-                )
-            };
-            return (status, Json(json!({"error": error_msg}))).into_response();
+                info!(
+                    "Proxying {} {} (model: {}) -> {}",
+                    method,
+                    uri.path(),
+                    model,
+                    service.name
+                );
+            }
+        } else {
+            if attempt > 0 {
+                info!(
+                    "Retrying {} {} -> {} (attempt {}/{})",
+                    method,
+                    uri.path(),
+                    service.name,
+                    attempt + 1,
+                    max_retries
+                );
+            } else {
+                info!("Proxying {} {} -> {}", method, uri.path(), service.name);
+            }
         }
-    };
 
-    // Increment request count on success
-    service.increment_request_count().await;
+        // Build upstream request
+        let mut upstream_request = HTTP_CLIENT
+            .request(reqwest_method.clone(), &target_url)
+            .body(body_bytes.clone());
 
-    let status = StatusCode::from_u16(upstream_response.status().as_u16())
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        // Copy headers (excluding hop-by-hop headers)
+        for (name, value) in headers.iter() {
+            let header_name_lower = name.as_str().to_lowercase();
+            if HOP_BY_HOP_HEADERS.contains(&header_name_lower.as_str()) {
+                continue;
+            }
+            // Convert axum HeaderValue to string for reqwest
+            if let Ok(header_value_str) = value.to_str() {
+                upstream_request = upstream_request.header(name.as_str(), header_value_str);
+            }
+        }
 
-    // Extract headers before consuming the response
-    let response_headers: Vec<(String, String)> = upstream_response
+        // Execute request
+        let upstream_response = match upstream_request.send().await {
+            Ok(response) => response,
+            Err(e) => {
+                error!(
+                    "Error proxying to service {} (URL: {}): {}",
+                    service.name, target_url, e
+                );
+
+                // Mark service as unhealthy on connection errors
+                service.increment_error_count().await;
+                service.set_healthy(false).await;
+
+                // Store error for potential retry
+                let (status, error_msg) = if e.is_timeout() {
+                    (StatusCode::GATEWAY_TIMEOUT, "Service timeout")
+                } else if e.is_connect() {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "Service unavailable - connection refused",
+                    )
+                } else {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        "Bad gateway - error communicating with service",
+                    )
+                };
+                last_error = Some((status, error_msg.clone()));
+
+                // If this is not the last attempt, continue to try another service
+                if attempt < max_retries - 1 {
+                    continue;
+                }
+
+                // Last attempt failed, return error
+                return (status, Json(json!({"error": error_msg}))).into_response();
+            }
+        };
+
+        // Success! Break out of retry loop
+        // Increment request count on success
+        service.increment_request_count().await;
+
+        let status = StatusCode::from_u16(upstream_response.status().as_u16())
+            .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+        // Extract headers before consuming the response
+        let response_headers: Vec<(String, String)> = upstream_response
         .headers()
         .iter()
         .filter_map(|(name, value)| {
@@ -187,7 +228,7 @@ pub async fn proxy_handler(
         })
         .collect();
 
-    // Check if this is a streaming response
+        // Check if this is a streaming response
     let content_type = upstream_response
         .headers()
         .get("content-type")

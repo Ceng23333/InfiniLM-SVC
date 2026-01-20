@@ -125,6 +125,16 @@ echo ""
 # Test 5: Chat Completions - Model 1
 echo -e "${BLUE}[Test 5] Chat Completions - Model 1${NC}"
 echo "  Sending request for model-1..."
+
+# First, check which services are registered for model-1
+echo "  Checking registered services for model-1..."
+services_json=$(curl -s "${REGISTRY_URL}/services" 2>/dev/null || echo "{}")
+model1_services=$(echo "$services_json" | grep -o '"name":"[^"]*"' | grep -E '(babysitter-a-server|babysitter-c-server)' | sed 's/"name":"\(.*\)"/    - \1/' || echo "")
+if [ -n "$model1_services" ]; then
+    echo "  Services for model-1:"
+    echo "$model1_services"
+fi
+
 request_data='{
   "model": "model-1",
   "messages": [{"role": "user", "content": "Hello"}],
@@ -144,6 +154,7 @@ if echo "$response" | grep -q "model-1" && echo "$response" | grep -q "mock-serv
 else
     echo "  ✗ Request failed or incorrect response"
     echo "  Response: $response"
+    echo "  Tip: Check router logs with: docker logs infinilm-svc-server1 | grep -i 'babysitter-c-server\|model-1\|connection'"
     test_failed
 fi
 echo ""
