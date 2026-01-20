@@ -59,6 +59,7 @@ SETUP_APP_ROOT="${SETUP_APP_ROOT:-auto}" # auto|true|false
 INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-auto}" # auto|true|false (installs python3 + pip + aiohttp for mock service)
 INSTALL_INFINICORE="${INSTALL_INFINICORE:-auto}" # auto|true|false (installs InfiniCore python package + native build)
 INSTALL_INFINILM="${INSTALL_INFINILM:-auto}"     # auto|true|false (installs InfiniLM python package + native build)
+VERIFY_INSTALL="${VERIFY_INSTALL:-auto}"          # auto|true|false (verifies InfiniCore/InfiniLM imports after installation)
 INFINICORE_SRC="${INFINICORE_SRC:-}"            # optional, defaults resolved later
 INFINILM_SRC="${INFINILM_SRC:-}"                # optional, defaults resolved later
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"      # optional git ref (branch/tag/commit)
@@ -133,6 +134,11 @@ while [[ $# -gt 0 ]]; do
             INFINICORE_BUILD_CMD="$2"
             shift 2
             ;;
+        --verify-install)
+            # auto|true|false
+            VERIFY_INSTALL="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -154,6 +160,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo (env: INFINILM_BRANCH)"
             echo "  --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)"
             echo "  --infinicore-build-cmd CMD  Command to run in InfiniCore repo before pip install (env: INFINICORE_BUILD_CMD)"
+            echo "  --verify-install MODE       auto|true|false (default: auto; env: VERIFY_INSTALL)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -455,7 +462,7 @@ install_system_deps() {
                 fi
             fi
             ;;
-        centos|rhel|fedora)
+        centos|rhel|fedora|kylin)
             if command_exists yum; then
                 echo "Installing dependencies via yum..."
                 if yum install -y \
@@ -694,47 +701,6 @@ install_infinicore_and_infinilm_optional() {
                 elif [ -z "${so_file}" ]; then
                     echo -e "${YELLOW}⚠ Could not find infinicore .so file in ${infini_root}/lib${NC}"
                 fi
-
-                # Verify that infinicore.lib can be imported
-                # Use the same environment setup as docker_entrypoint_rust.sh and babysitter configs
-                echo "Verifying infinicore.lib import..."
-                (
-                    # Export color variables for use in subshell
-                    export GREEN="${GREEN:-}"
-                    export YELLOW="${YELLOW:-}"
-                    export NC="${NC:-}"
-
-                    # Source conda if available (same as docker entrypoint)
-                    if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
-                        # shellcheck disable=SC1091
-                        source /opt/conda/etc/profile.d/conda.sh
-                        conda activate base
-                    fi
-
-                    # Source env-set.sh if available (same as docker entrypoint)
-                    if [ -f "/app/env-set.sh" ]; then
-                        # shellcheck disable=SC1091
-                        source /app/env-set.sh
-                    elif [ -f "/workspace/env-set.sh" ]; then
-                        # shellcheck disable=SC1091
-                        source /workspace/env-set.sh
-                    elif [ -n "${PROJECT_ROOT:-}" ] && [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
-                        # shellcheck disable=SC1091
-                        source "${PROJECT_ROOT}/env-set.sh"
-                    fi
-
-                    # Set PYTHONPATH to include InfiniCore Python directory
-                    export PYTHONPATH="${INFINICORE_SRC}/python:${PYTHONPATH:-}"
-
-                    # Use python3 (will be conda's python if conda was activated)
-                    if python3 -c "from infinicore.lib import _infinicore; print('✓ infinicore.lib._infinicore imported successfully')" 2>&1; then
-                        echo -e "${GREEN}✓ InfiniCore installation verified${NC}"
-                    else
-                        echo -e "${YELLOW}⚠ InfiniCore installation completed but import verification failed${NC}"
-                        echo -e "${YELLOW}  This may be normal if runtime dependencies are not yet available${NC}"
-                        echo -e "${YELLOW}  The symlink has been created and should work at runtime${NC}"
-                    fi
-                )
             fi
         fi
     fi
@@ -749,6 +715,112 @@ install_infinicore_and_infinilm_optional() {
             python3 -m pip install --no-cache-dir -e "${INFINILM_SRC}" || \
                 echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
         fi
+    fi
+
+    echo ""
+}
+
+# Function to verify InfiniCore/InfiniLM installations
+verify_infinicore_and_infinilm() {
+    resolve_optional_repo_paths
+
+    # Decide whether to verify (auto => verify only if repos exist and we're in container)
+    local default_in_container="false"
+    if [ -f "/.dockerenv" ]; then
+        default_in_container="true"
+    fi
+
+    local do_verify
+    do_verify="$(should_do "${VERIFY_INSTALL}" "${default_in_container}")"
+
+    if [ "${do_verify}" != "true" ]; then
+        return 0
+    fi
+
+    echo -e "${BLUE}Verifying InfiniCore/InfiniLM installations...${NC}"
+
+    # Verify InfiniCore if repo exists
+    if [ -n "${INFINICORE_SRC:-}" ] && [ -d "${INFINICORE_SRC}" ] && [ -d "${INFINICORE_SRC}/python/infinicore" ]; then
+        echo "Verifying infinicore.lib import..."
+        (
+            # Export color variables for use in subshell
+            export GREEN="${GREEN:-}"
+            export YELLOW="${YELLOW:-}"
+            export NC="${NC:-}"
+
+            # Source conda if available (same as docker entrypoint)
+            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                # shellcheck disable=SC1091
+                source /opt/conda/etc/profile.d/conda.sh
+                conda activate base
+            fi
+
+            # Source env-set.sh if available (same as docker entrypoint)
+            if [ -f "/app/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source /app/env-set.sh
+            elif [ -f "/workspace/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source /workspace/env-set.sh
+            elif [ -n "${PROJECT_ROOT:-}" ] && [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source "${PROJECT_ROOT}/env-set.sh"
+            fi
+
+            # Set PYTHONPATH to include InfiniCore Python directory
+            export PYTHONPATH="${INFINICORE_SRC}/python:${PYTHONPATH:-}"
+
+            # Use python3 (will be conda's python if conda was activated)
+            if python3 -c "from infinicore.lib import _infinicore; print('✓ infinicore.lib._infinicore imported successfully')" 2>&1; then
+                echo -e "${GREEN}✓ InfiniCore installation verified${NC}"
+            else
+                echo -e "${YELLOW}⚠ InfiniCore import verification failed${NC}"
+                echo -e "${YELLOW}  This may be normal if runtime dependencies are not yet available${NC}"
+                echo -e "${YELLOW}  The installation should work at runtime${NC}"
+            fi
+        )
+    fi
+
+    # Verify InfiniLM if repo exists
+    if [ -n "${INFINILM_SRC:-}" ] && [ -d "${INFINILM_SRC}" ] && [ -d "${INFINILM_SRC}/python/infinilm" ]; then
+        echo "Verifying infinilm import..."
+        (
+            # Export color variables for use in subshell
+            export GREEN="${GREEN:-}"
+            export YELLOW="${YELLOW:-}"
+            export NC="${NC:-}"
+
+            # Source conda if available (same as docker entrypoint)
+            if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                # shellcheck disable=SC1091
+                source /opt/conda/etc/profile.d/conda.sh
+                conda activate base
+            fi
+
+            # Source env-set.sh if available (same as docker entrypoint)
+            if [ -f "/app/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source /app/env-set.sh
+            elif [ -f "/workspace/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source /workspace/env-set.sh
+            elif [ -n "${PROJECT_ROOT:-}" ] && [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
+                # shellcheck disable=SC1091
+                source "${PROJECT_ROOT}/env-set.sh"
+            fi
+
+            # Set PYTHONPATH to include InfiniLM and InfiniCore Python directories
+            export PYTHONPATH="${INFINILM_SRC}/python:${INFINICORE_SRC:-}/python:${PYTHONPATH:-}"
+
+            # Use python3 (will be conda's python if conda was activated)
+            if python3 -c "import infinilm; print('✓ infinilm imported successfully')" 2>&1; then
+                echo -e "${GREEN}✓ InfiniLM installation verified${NC}"
+            else
+                echo -e "${YELLOW}⚠ InfiniLM import verification failed${NC}"
+                echo -e "${YELLOW}  This may be normal if runtime dependencies are not yet available${NC}"
+                echo -e "${YELLOW}  The installation should work at runtime${NC}"
+            fi
+        )
     fi
 
     echo ""
@@ -1018,6 +1090,7 @@ main() {
     install_binaries
     install_python_deps
     install_infinicore_and_infinilm_optional
+    verify_infinicore_and_infinilm
     setup_scripts
 
     echo -e "${GREEN}========================================${NC}"
