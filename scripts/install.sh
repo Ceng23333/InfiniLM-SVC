@@ -672,7 +672,8 @@ install_infinicore_and_infinilm_optional() {
             git_checkout_ref_if_requested "${INFINICORE_SRC}" "${INFINICORE_BRANCH}"
             if [ -n "${INFINICORE_BUILD_CMD:-}" ]; then
                 echo "Running InfiniCore pre-build command: ${INFINICORE_BUILD_CMD}"
-                (cd "${INFINICORE_SRC}" && bash -lc "${INFINICORE_BUILD_CMD}") || \
+                # Pipe 'yes y' to handle xmake interactive prompts (e.g., package installation confirmations)
+                (cd "${INFINICORE_SRC}" && yes y | bash -lc "${INFINICORE_BUILD_CMD}") || \
                     echo -e "${YELLOW}⚠ InfiniCore pre-build command failed; continuing to pip install anyway.${NC}"
             fi
             echo "Installing InfiniCore from ${INFINICORE_SRC} (editable)..."
