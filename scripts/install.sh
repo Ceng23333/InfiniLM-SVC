@@ -504,29 +504,48 @@ install_system_deps() {
         centos|rhel|fedora|kylin)
             # Try yum first (common in many base images), then fallback to dnf.
             # Note: Even if yum --version fails due to libdnf issues, yum install might still work.
+            # We need to handle stderr noise from libdnf carefully.
             if command_exists yum; then
                 echo "Installing dependencies via yum..."
-                # Try yum install directly - don't skip even if version check fails
-                # Some systems have libdnf issues but yum install still works
-                if yum install -y \
+                # Try yum install - some systems have libdnf issues but yum install still works
+                # We'll check package installation status regardless of yum exit code
+                yum install -y \
                     gcc \
-                    pkgconfig \
+                    pkgconf \
                     openssl-devel \
                     clang \
                     clang-devel \
                     ca-certificates \
                     curl \
-                    bash 2>&1; then
+                    bash >/dev/null 2>&1 || true
+                
+                # Check if packages are actually installed (regardless of yum exit code)
+                # This handles cases where yum crashes due to libdnf but packages are still installed
+                local missing_packages=0
+                for pkg in gcc pkgconf openssl-devel clang clang-devel; do
+                    if ! rpm -q "${pkg}" >/dev/null 2>&1; then
+                        missing_packages=$((missing_packages + 1))
+                    fi
+                done
+                
+                if [ ${missing_packages} -eq 0 ]; then
                     INSTALLED=true
-                    echo -e "${GREEN}✓ yum installation succeeded${NC}"
+                    echo -e "${GREEN}✓ All required packages are installed${NC}"
                 else
-                    echo -e "${YELLOW}⚠ yum installation failed, checking if packages are already installed...${NC}"
-                    # Check if critical packages are already installed (might have been installed manually)
-                    if rpm -q gcc pkgconfig openssl-devel clang clang-devel >/dev/null 2>&1; then
-                        echo -e "${GREEN}✓ Required packages appear to be installed${NC}"
+                    echo -e "${YELLOW}⚠ ${missing_packages} package(s) missing after yum install${NC}"
+                    # Try one more time with visible output to see actual errors
+                    echo "Retrying yum install with output visible..."
+                    yum install -y gcc pkgconf openssl-devel clang clang-devel ca-certificates curl bash 2>&1 | tail -10 || true
+                    # Check again after retry
+                    missing_packages=0
+                    for pkg in gcc pkgconf openssl-devel clang clang-devel; do
+                        if ! rpm -q "${pkg}" >/dev/null 2>&1; then
+                            missing_packages=$((missing_packages + 1))
+                        fi
+                    done
+                    if [ ${missing_packages} -eq 0 ]; then
                         INSTALLED=true
-                    else
-                        echo -e "${YELLOW}⚠ yum installation failed and packages not found${NC}"
+                        echo -e "${GREEN}✓ Packages installed after retry${NC}"
                     fi
                 fi
             fi
@@ -536,23 +555,29 @@ install_system_deps() {
                 echo "Installing dependencies via dnf..."
                 if dnf install -y \
                     gcc \
-                    pkgconfig \
+                    pkgconf \
                     openssl-devel \
                     clang \
                     clang-devel \
                     ca-certificates \
                     curl \
-                    bash 2>&1; then
+                    bash >/dev/null 2>&1; then
                     INSTALLED=true
                     echo -e "${GREEN}✓ dnf installation succeeded${NC}"
                 else
                     echo -e "${YELLOW}⚠ dnf installation failed, checking if packages are already installed...${NC}"
                     # Check if packages are already installed
-                    if rpm -q gcc pkgconfig openssl-devel clang clang-devel >/dev/null 2>&1; then
+                    local missing_packages=0
+                    for pkg in gcc pkgconf openssl-devel clang clang-devel; do
+                        if ! rpm -q "${pkg}" >/dev/null 2>&1; then
+                            missing_packages=$((missing_packages + 1))
+                        fi
+                    done
+                    if [ ${missing_packages} -eq 0 ]; then
                         echo -e "${GREEN}✓ Required packages appear to be installed${NC}"
                         INSTALLED=true
                     else
-                        echo -e "${YELLOW}⚠ dnf installation failed and packages not found${NC}"
+                        echo -e "${YELLOW}⚠ dnf installation failed and ${missing_packages} package(s) missing${NC}"
                     fi
                 fi
             fi
@@ -560,7 +585,7 @@ install_system_deps() {
             if [ "$INSTALLED" != "true" ]; then
                 echo -e "${YELLOW}⚠ Could not install system dependencies via yum/dnf.${NC}"
                 echo -e "${YELLOW}  Please install manually:${NC}"
-                echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, clang, clang-devel, ca-certificates, curl, bash${NC}"
+                echo -e "${YELLOW}    gcc, pkgconf, openssl-devel, clang, clang-devel, ca-certificates, curl, bash${NC}"
             fi
             ;;
         *)
@@ -573,18 +598,18 @@ install_system_deps() {
                 INSTALLED=true
             elif command_exists dnf; then
                 echo "Detected dnf, attempting installation..."
-                dnf install -y gcc pkgconfig openssl-devel clang clang-devel ca-certificates curl bash 2>&1 && \
+                dnf install -y gcc pkgconf openssl-devel clang clang-devel ca-certificates curl bash 2>&1 && \
                 INSTALLED=true
             elif command_exists yum; then
                 echo "Detected yum, checking if it's working..."
                 if yum --version >/dev/null 2>&1; then
                     echo "Installing dependencies via yum..."
-                    yum install -y gcc pkgconfig openssl-devel clang clang-devel ca-certificates curl bash 2>&1 && \
+                    yum install -y gcc pkgconf openssl-devel clang clang-devel ca-certificates curl bash 2>&1 && \
                     INSTALLED=true
                 else
                     echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping system package installation${NC}"
                     echo -e "${YELLOW}  Please fix yum/dnf or install dependencies manually:${NC}"
-                    echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, clang, clang-devel, ca-certificates, curl, bash${NC}"
+                    echo -e "${YELLOW}    gcc, pkgconf, openssl-devel, clang, clang-devel, ca-certificates, curl, bash${NC}"
                 fi
             elif command_exists apk; then
                 echo "Detected apk, attempting installation..."
