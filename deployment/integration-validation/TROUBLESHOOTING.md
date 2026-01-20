@@ -112,6 +112,43 @@ docker rm -f infinilm-svc-server2
 
 ## Chat Completions Fail
 
+### Issue: Connection Refused for Remote Services
+
+**Symptoms:**
+- Test 5 (Model 1) fails with "Service unavailable - connection refused"
+- Router can't connect to services on Server 2
+- Only local services (Server 1) respond successfully
+
+**Solution:**
+1. Verify Server 2 services are accessible from Server 1:
+   ```bash
+   # From Server 1, test connectivity to Server 2
+   curl -v http://<SERVER2_IP>:8100/v1/models  # Should return models
+   curl -v http://<SERVER2_IP>:8200/v1/models  # Should return models
+   ```
+
+2. Check that mock services bind to `0.0.0.0` (not `127.0.0.1`):
+   - Mock services should listen on all interfaces to accept remote connections
+   - Verify in `mock_service.py`: `site = web.TCPSite(runner, '0.0.0.0', self.port)`
+
+3. Verify firewall allows connections:
+   ```bash
+   # On Server 2
+   sudo ufw allow 8100/tcp
+   sudo ufw allow 8200/tcp
+   ```
+
+4. Check router logs for connection errors:
+   ```bash
+   docker logs infinilm-svc-server1 | grep -i "connection\|babysitter-c-server\|babysitter-d-server"
+   ```
+
+5. Verify service URLs in registry:
+   ```bash
+   curl http://<SERVER1_IP>:18000/services | jq '.services[] | select(.name | contains("server")) | {name, url, host, port}'
+   ```
+   - URLs should use Server 2's IP, not `localhost` or `127.0.0.1`
+
 ### Issue: 404 or Service Not Found
 
 **Symptoms:**
@@ -207,6 +244,7 @@ curl http://<SERVER1_IP>:8201/health  # Babysitter B
 **Symptoms:**
 - Babysitter starts but mock service doesn't
 - Logs show "command not found" or Python errors
+- `ModuleNotFoundError: No module named 'aiohttp'`
 
 **Solution:**
 1. Verify Python 3 is available in container:
@@ -219,9 +257,26 @@ curl http://<SERVER1_IP>:8201/health  # Babysitter B
    docker exec infinilm-svc-server1 ls -la /app/mock_service.py
    ```
 
-3. Verify aiohttp is installed (if needed):
+3. Verify aiohttp is installed:
    ```bash
+   # Check if installed
+   docker exec infinilm-svc-server1 python3 -c "import aiohttp; print('OK')"
+
+   # Install if missing (system Python)
    docker exec infinilm-svc-server1 python3 -m pip install aiohttp
+
+   # If using Conda, install in Conda environment
+   docker exec infinilm-svc-server1 /opt/conda/bin/pip install aiohttp
+   ```
+
+4. Verify Conda is activated (if using Conda base image):
+   - Entrypoint should source `/opt/conda/etc/profile.d/conda.sh` and `conda activate base`
+   - Check entrypoint script includes conda activation
+
+5. Rebuild image with Python dependencies:
+   ```bash
+   # Ensure install.sh runs with --install-python-deps flag
+   # Or manually install in running container
    ```
 
 ### Issue: Config Files Not Found
@@ -229,6 +284,7 @@ curl http://<SERVER1_IP>:8201/health  # Babysitter B
 **Symptoms:**
 - Babysitter fails to start
 - "Config file not found" errors
+- Error: `/app/config/config/babysitter-a.toml` (double `config/` path)
 
 **Solution:**
 1. Verify config files are mounted:
@@ -240,6 +296,21 @@ curl http://<SERVER1_IP>:8201/health  # Babysitter B
    ```bash
    # Should include:
    -v $(pwd)/config:/app/config:ro
+   ```
+
+3. **Important**: In `start-server1.sh` and `start-server2.sh`, `BABYSITTER_CONFIGS` should contain only filenames, not paths:
+   ```bash
+   # Correct:
+   BABYSITTER_CONFIGS="babysitter-a.toml babysitter-b.toml"
+
+   # Wrong (causes double config/ path):
+   BABYSITTER_CONFIGS="config/babysitter-a.toml config/babysitter-b.toml"
+   ```
+
+4. Verify config file names match exactly:
+   ```bash
+   ls -la config/
+   # Should see: babysitter-a.toml, babysitter-b.toml, etc.
    ```
 
 ## Network Issues

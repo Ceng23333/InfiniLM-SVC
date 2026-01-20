@@ -10,6 +10,12 @@
 #   --skip-build           Skip building binaries (assumes binaries already exist)
 #   --install-path PATH    Installation path for binaries (default: /usr/local/bin)
 #   --build-only           Only build, don't install binaries
+#   --install-infinicore MODE   auto|true|false (default: auto; env: INSTALL_INFINICORE)
+#   --install-infinilm MODE     auto|true|false (default: auto; env: INSTALL_INFINILM)
+#   --infinicore-src PATH       Path to InfiniCore repo (default: ../InfiniCore; env: INFINICORE_SRC)
+#   --infinilm-src PATH         Path to InfiniLM repo (default: ../InfiniLM; env: INFINILM_SRC)
+#   --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo before install (env: INFINICORE_BRANCH)
+#   --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo before install (env: INFINILM_BRANCH)
 #   --help                 Show this help message
 
 set -e
@@ -30,6 +36,12 @@ PROJECT_ROOT=""
 APP_ROOT="${APP_ROOT:-/app}"
 SETUP_APP_ROOT="${SETUP_APP_ROOT:-auto}" # auto|true|false
 INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-auto}" # auto|true|false (installs python3 + pip + aiohttp for mock service)
+INSTALL_INFINICORE="${INSTALL_INFINICORE:-auto}" # auto|true|false (installs InfiniCore python package + native build)
+INSTALL_INFINILM="${INSTALL_INFINILM:-auto}"     # auto|true|false (installs InfiniLM python package + native build)
+INFINICORE_SRC="${INFINICORE_SRC:-}"            # optional, defaults resolved later
+INFINILM_SRC="${INFINILM_SRC:-}"                # optional, defaults resolved later
+INFINICORE_BRANCH="${INFINICORE_BRANCH:-}"      # optional git ref (branch/tag/commit)
+INFINILM_BRANCH="${INFINILM_BRANCH:-}"          # optional git ref (branch/tag/commit)
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -64,6 +76,32 @@ while [[ $# -gt 0 ]]; do
             INSTALL_PYTHON_DEPS="$2"
             shift 2
             ;;
+        --install-infinicore)
+            # auto|true|false
+            INSTALL_INFINICORE="$2"
+            shift 2
+            ;;
+        --install-infinilm)
+            # auto|true|false
+            INSTALL_INFINILM="$2"
+            shift 2
+            ;;
+        --infinicore-src)
+            INFINICORE_SRC="$2"
+            shift 2
+            ;;
+        --infinilm-src)
+            INFINILM_SRC="$2"
+            shift 2
+            ;;
+        --infinicore-branch)
+            INFINICORE_BRANCH="$2"
+            shift 2
+            ;;
+        --infinilm-branch)
+            INFINILM_BRANCH="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -77,6 +115,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --app-root PATH        App root to stage runtime files (default: /app; env: APP_ROOT)"
             echo "  --setup-app-root MODE  auto|true|false (default: auto; env: SETUP_APP_ROOT)"
             echo "  --install-python-deps MODE  auto|true|false (default: auto; env: INSTALL_PYTHON_DEPS)"
+            echo "  --install-infinicore MODE   auto|true|false (default: auto; env: INSTALL_INFINICORE)"
+            echo "  --install-infinilm MODE     auto|true|false (default: auto; env: INSTALL_INFINILM)"
+            echo "  --infinicore-src PATH       Path to InfiniCore repo (default: ../InfiniCore; env: INFINICORE_SRC)"
+            echo "  --infinilm-src PATH         Path to InfiniLM repo (default: ../InfiniLM; env: INFINILM_SRC)"
+            echo "  --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo (env: INFINICORE_BRANCH)"
+            echo "  --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo (env: INFINILM_BRANCH)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -110,6 +154,33 @@ echo ""
 # Function to check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+die() {
+    echo -e "${RED}Error: $*${NC}"
+    exit 1
+}
+
+is_true() {
+    [ "${1:-}" = "true" ]
+}
+
+is_false() {
+    [ "${1:-}" = "false" ]
+}
+
+should_do() {
+    # Interpret auto|true|false into a boolean decision.
+    # Usage: should_do "$MODE" "$DEFAULT_BOOL"
+    local mode="${1:-auto}"
+    local default_bool="${2:-false}"
+    if is_true "${mode}"; then
+        echo "true"
+    elif is_false "${mode}"; then
+        echo "false"
+    else
+        echo "${default_bool}"
+    fi
 }
 
 # Function to detect OS
@@ -146,6 +217,116 @@ detect_os() {
             echo -e "${BLUE}Detected Alpine Linux via package manager${NC}"
         fi
     fi
+}
+
+# Ensure python3 + pip3 exist (installs if running as root and package manager available)
+ensure_python3_pip() {
+    if command_exists python3 && command_exists pip3; then
+        return 0
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${YELLOW}⚠ Python3/pip3 missing and cannot install without root. Install python3 + pip3 manually.${NC}"
+        return 1
+    fi
+
+    detect_os
+    case $OS in
+        ubuntu|debian)
+            apt-get update
+            apt-get install -y python3 python3-pip
+            ;;
+        alpine)
+            apk add --no-cache python3 py3-pip
+            ;;
+        centos|rhel|fedora)
+            if command_exists yum; then
+                yum install -y python3 python3-pip
+            elif command_exists dnf; then
+                dnf install -y python3 python3-pip
+            else
+                return 1
+            fi
+            ;;
+        *)
+            if command_exists apt-get; then
+                apt-get update && apt-get install -y python3 python3-pip
+            elif command_exists apk; then
+                apk add --no-cache python3 py3-pip
+            elif command_exists yum; then
+                yum install -y python3 python3-pip
+            elif command_exists dnf; then
+                dnf install -y python3 python3-pip
+            else
+                return 1
+            fi
+            ;;
+    esac
+
+    command_exists python3 && command_exists pip3
+}
+
+pip_install() {
+    # Usage: pip_install pkg1 pkg2 ...
+    ensure_python3_pip >/dev/null 2>&1 || return 1
+    python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+    python3 -m pip install --no-cache-dir "$@"
+}
+
+git_checkout_ref_if_requested() {
+    # Usage: git_checkout_ref_if_requested /path/to/repo "ref"
+    local repo="${1:-}"
+    local ref="${2:-}"
+    if [ -z "${ref}" ]; then
+        return 0
+    fi
+    if [ -z "${repo}" ] || [ ! -d "${repo}" ]; then
+        echo -e "${YELLOW}⚠ Requested git ref '${ref}' but repo path not found: ${repo}${NC}"
+        return 0
+    fi
+    if [ ! -d "${repo}/.git" ]; then
+        echo -e "${YELLOW}⚠ Requested git ref '${ref}' but ${repo} is not a git repo (no .git). Skipping checkout.${NC}"
+        return 0
+    fi
+    if ! command_exists git; then
+        echo -e "${YELLOW}⚠ Requested git ref '${ref}' but git is not installed. Skipping checkout.${NC}"
+        return 0
+    fi
+
+    echo "Checking out ${repo} to '${ref}'..."
+    (
+        cd "${repo}" || exit 1
+        # Warn if dirty; still proceed (useful in dev images)
+        if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+            echo -e "${YELLOW}⚠ Repo has uncommitted changes; checkout may fail or leave mixed state.${NC}"
+        fi
+        git fetch --all --tags >/dev/null 2>&1 || true
+        git checkout -f "${ref}"
+    ) || echo -e "${YELLOW}⚠ Failed to checkout '${ref}' in ${repo}. Continuing with current state.${NC}"
+    return 0
+}
+
+# Install xmake (needed to build InfiniCore / InfiniLM native modules)
+install_xmake() {
+    if command_exists xmake; then
+        return 0
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${YELLOW}⚠ xmake not found and cannot install without root. Please install xmake manually.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Installing xmake...${NC}"
+    # Official installer: https://xmake.io/#/guide/installation
+    # Non-interactive install to /usr/local (default for root)
+    curl -fsSL https://xmake.io/shget.text | bash
+
+    if ! command_exists xmake; then
+        echo -e "${YELLOW}⚠ xmake install script ran but xmake is still not in PATH. You may need to restart the shell or adjust PATH.${NC}"
+        return 1
+    fi
+    return 0
 }
 
 # Function to check if OpenSSL is available
@@ -318,40 +499,7 @@ install_python_deps() {
     echo -e "${BLUE}Installing Python deps for mock service (python3 + pip + requirements.txt)...${NC}"
     detect_os
 
-    # Ensure python3 + pip
-    if ! command_exists python3 || ! command_exists pip3; then
-        case $OS in
-            ubuntu|debian)
-                apt-get update
-                apt-get install -y python3 python3-pip
-                ;;
-            alpine)
-                apk add --no-cache python3 py3-pip
-                ;;
-            centos|rhel|fedora)
-                if command_exists yum; then
-                    yum install -y python3 python3-pip
-                elif command_exists dnf; then
-                    dnf install -y python3 python3-pip
-                fi
-                ;;
-            *)
-                # Package-manager fallback
-                if command_exists apt-get; then
-                    apt-get update && apt-get install -y python3 python3-pip
-                elif command_exists apk; then
-                    apk add --no-cache python3 py3-pip
-                elif command_exists yum; then
-                    yum install -y python3 python3-pip
-                elif command_exists dnf; then
-                    dnf install -y python3 python3-pip
-                else
-                    echo -e "${YELLOW}⚠ Could not install python3/pip automatically. Please install python3 + pip manually.${NC}"
-                    return 0
-                fi
-                ;;
-        esac
-    fi
+    ensure_python3_pip || return 0
 
     # Install Python dependencies from requirements.txt
     # Look for requirements files in common locations (priority order)
@@ -392,6 +540,88 @@ install_python_deps() {
     if ! command_exists python3 && [ ! -f "/opt/conda/etc/profile.d/conda.sh" ]; then
         echo -e "${YELLOW}⚠ python3 not found; cannot install Python dependencies${NC}"
     fi
+    echo ""
+}
+
+resolve_optional_repo_paths() {
+    # Resolve defaults for sibling repos if not provided.
+    if [ -z "${INFINICORE_SRC}" ]; then
+        if [ -d "${PROJECT_ROOT}/../InfiniCore" ]; then
+            INFINICORE_SRC="${PROJECT_ROOT}/../InfiniCore"
+        fi
+    fi
+    if [ -z "${INFINILM_SRC}" ]; then
+        if [ -d "${PROJECT_ROOT}/../InfiniLM" ]; then
+            INFINILM_SRC="${PROJECT_ROOT}/../InfiniLM"
+        fi
+    fi
+}
+
+install_infinicore_and_infinilm_optional() {
+    resolve_optional_repo_paths
+
+    # Decide whether to install (auto => install only if repo path exists and we're root/in-container)
+    local default_in_container="false"
+    if [ -f "/.dockerenv" ]; then
+        default_in_container="true"
+    fi
+
+    local do_infinicore
+    local do_infinilm
+    do_infinicore="$(should_do "${INSTALL_INFINICORE}" "${default_in_container}")"
+    do_infinilm="$(should_do "${INSTALL_INFINILM}" "${default_in_container}")"
+
+    if [ "${do_infinicore}" != "true" ] && [ "${do_infinilm}" != "true" ]; then
+        return 0
+    fi
+
+    # These installs require python + pip, and typically require xmake for native modules.
+    echo -e "${BLUE}Installing optional Python backends (InfiniCore/InfiniLM)...${NC}"
+
+    if ! ensure_python3_pip; then
+        echo -e "${YELLOW}⚠ Skipping InfiniCore/InfiniLM install (python3/pip3 unavailable).${NC}"
+        echo ""
+        return 0
+    fi
+
+    # Runtime deps for InfiniLM server (FastAPI + uvicorn).
+    # Keep this lightweight; users can layer heavier deps (torch, etc.) in their own images.
+    if [ "${do_infinilm}" = "true" ]; then
+        echo "Installing minimal Python runtime deps for InfiniLM server (fastapi, uvicorn)..."
+        pip_install fastapi uvicorn || true
+    fi
+
+    # xmake is required for both InfiniCore and InfiniLM setup.py hooks.
+    if ! install_xmake; then
+        echo -e "${YELLOW}⚠ Skipping InfiniCore/InfiniLM install (xmake unavailable).${NC}"
+        echo ""
+        return 0
+    fi
+
+    # Install InfiniCore (editable) if requested and repo exists.
+    if [ "${do_infinicore}" = "true" ]; then
+        if [ -z "${INFINICORE_SRC}" ] || [ ! -d "${INFINICORE_SRC}" ]; then
+            echo -e "${YELLOW}⚠ INSTALL_INFINICORE=true but InfiniCore repo not found. Set --infinicore-src or place it at ../InfiniCore.${NC}"
+        else
+            git_checkout_ref_if_requested "${INFINICORE_SRC}" "${INFINICORE_BRANCH}"
+            echo "Installing InfiniCore from ${INFINICORE_SRC} (editable)..."
+            python3 -m pip install --no-cache-dir -e "${INFINICORE_SRC}" || \
+                echo -e "${YELLOW}⚠ InfiniCore install failed (likely missing toolchain/libs).${NC}"
+        fi
+    fi
+
+    # Install InfiniLM (editable) if requested and repo exists.
+    if [ "${do_infinilm}" = "true" ]; then
+        if [ -z "${INFINILM_SRC}" ] || [ ! -d "${INFINILM_SRC}" ]; then
+            echo -e "${YELLOW}⚠ INSTALL_INFINILM=true but InfiniLM repo not found. Set --infinilm-src or place it at ../InfiniLM.${NC}"
+        else
+            git_checkout_ref_if_requested "${INFINILM_SRC}" "${INFINILM_BRANCH}"
+            echo "Installing InfiniLM from ${INFINILM_SRC} (editable)..."
+            python3 -m pip install --no-cache-dir -e "${INFINILM_SRC}" || \
+                echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
+        fi
+    fi
+
     echo ""
 }
 
@@ -649,6 +879,7 @@ main() {
     build_binaries
     install_binaries
     install_python_deps
+    install_infinicore_and_infinilm_optional
     setup_scripts
 
     echo -e "${GREEN}========================================${NC}"

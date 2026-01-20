@@ -50,7 +50,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # If script is at /workspace/docker_entrypoint.sh, project root is /workspace
 # If script is at docker/docker_entrypoint_rust.sh, project root is parent
 if [ -d "${SCRIPT_DIR}/../script" ] && [ -f "${SCRIPT_DIR}/../script/launch_all_rust.sh" ]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 elif [ -d "/app/script" ] && [ -f "/app/script/launch_all_rust.sh" ]; then
     PROJECT_ROOT="/app"
 elif [ -d "/workspace/script" ] && [ -f "/workspace/script/launch_all_rust.sh" ]; then

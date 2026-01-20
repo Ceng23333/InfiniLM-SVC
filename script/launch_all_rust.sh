@@ -306,26 +306,26 @@ LAUNCH_BABYSITTER="${LAUNCH_BABYSITTER:-true}"
 
 # Verify binaries exist only for components that will be launched
 if [ "${LAUNCH_REGISTRY}" = "true" ]; then
-    if [ ! -f "${REGISTRY_BIN}" ]; then
-        echo -e "${RED}Error: Registry binary not found: ${REGISTRY_BIN}${NC}"
-        echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-registry"
-        exit 1
+if [ ! -f "${REGISTRY_BIN}" ]; then
+    echo -e "${RED}Error: Registry binary not found: ${REGISTRY_BIN}${NC}"
+    echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-registry"
+    exit 1
     fi
 fi
 
 if [ "${LAUNCH_ROUTER}" = "true" ]; then
-    if [ ! -f "${ROUTER_BIN}" ]; then
-        echo -e "${RED}Error: Router binary not found: ${ROUTER_BIN}${NC}"
-        echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-router"
-        exit 1
+if [ ! -f "${ROUTER_BIN}" ]; then
+    echo -e "${RED}Error: Router binary not found: ${ROUTER_BIN}${NC}"
+    echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-router"
+    exit 1
     fi
 fi
 
 if [ "${LAUNCH_BABYSITTER}" = "true" ]; then
-    if [ ! -f "${BABYSITTER_BIN}" ]; then
-        echo -e "${RED}Error: Babysitter binary not found: ${BABYSITTER_BIN}${NC}"
-        echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-babysitter"
-        exit 1
+if [ ! -f "${BABYSITTER_BIN}" ]; then
+    echo -e "${RED}Error: Babysitter binary not found: ${BABYSITTER_BIN}${NC}"
+    echo "  Build with: cd ${RUST_DIR} && cargo build --release --bin infini-babysitter"
+    exit 1
     fi
 fi
 
@@ -346,26 +346,26 @@ service_idx=1
 # 1. Launch Service Registry (if enabled)
 if [ "${LAUNCH_REGISTRY}" = "true" ]; then
     echo -e "${BLUE}[${service_idx}/${total_services}] Launching Service Registry (port ${REGISTRY_PORT})...${NC}"
-    if launch_registry; then
-        success_count=$((success_count + 1))
-    else
-        failed_services+=("Service Registry")
-        echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
-        exit 1
-    fi
-    echo ""
+if launch_registry; then
+    success_count=$((success_count + 1))
+else
+    failed_services+=("Service Registry")
+    echo -e "  ${YELLOW}⚠ Cannot proceed without Registry - aborting${NC}"
+    exit 1
+fi
+echo ""
     service_idx=$((service_idx + 1))
 fi
 
 # 2. Launch Distributed Router (if enabled)
 if [ "${LAUNCH_ROUTER}" = "true" ]; then
     echo -e "${BLUE}[${service_idx}/${total_services}] Launching Distributed Router (port ${ROUTER_PORT})...${NC}"
-    if launch_router; then
-        success_count=$((success_count + 1))
-    else
-        failed_services+=("Distributed Router")
-    fi
-    echo ""
+if launch_router; then
+    success_count=$((success_count + 1))
+else
+    failed_services+=("Distributed Router")
+fi
+echo ""
     service_idx=$((service_idx + 1))
 fi
 
@@ -373,26 +373,26 @@ fi
 if [ "${LAUNCH_BABYSITTER}" = "true" ]; then
     if [ ${#BABYSITTER_CONFIGS_LIST[@]} -gt 0 ]; then
         for config_file in "${BABYSITTER_CONFIGS_LIST[@]}"; do
-            # Resolve relative paths
-            if [[ ! "${config_file}" = /* ]]; then
-                config_file="${CONFIG_DIR}/${config_file}"
-            fi
+        # Resolve relative paths
+        if [[ ! "${config_file}" = /* ]]; then
+            config_file="${CONFIG_DIR}/${config_file}"
+        fi
 
             echo -e "${BLUE}[${service_idx}/${total_services}] Launching Babysitter (${config_file})...${NC}"
-            if launch_babysitter "${config_file}"; then
-                success_count=$((success_count + 1))
-            else
-                failed_services+=("Babysitter ($(basename ${config_file}))")
-            fi
-            echo ""
+        if launch_babysitter "${config_file}"; then
+            success_count=$((success_count + 1))
+        else
+            failed_services+=("Babysitter ($(basename ${config_file}))")
+        fi
+        echo ""
             service_idx=$((service_idx + 1))
-        done
-    else
-        echo -e "${YELLOW}⚠ No babysitter configs specified (BABYSITTER_CONFIGS is empty)${NC}"
+    done
+else
+    echo -e "${YELLOW}⚠ No babysitter configs specified (BABYSITTER_CONFIGS is empty)${NC}"
         echo "  Set BABYSITTER_CONFIGS environment variable"
         echo "  Example (docker): -e BABYSITTER_CONFIGS=\"config/babysitter1.toml config/babysitter2.toml\""
         echo "  Example (shell): export BABYSITTER_CONFIGS=(\"config/babysitter1.toml\" \"config/babysitter2.toml\")"
-        echo ""
+    echo ""
     fi
 fi
 
@@ -415,13 +415,13 @@ echo "All services launched successfully!"
 echo ""
 echo "Quick status checks:"
 if [ "${LAUNCH_REGISTRY}" = "true" ]; then
-    echo "  curl http://localhost:${REGISTRY_PORT}/health  # Registry"
+echo "  curl http://localhost:${REGISTRY_PORT}/health  # Registry"
     echo "  curl http://localhost:${REGISTRY_PORT}/services  # List all registered services"
 fi
 if [ "${LAUNCH_ROUTER}" = "true" ]; then
-    echo "  curl http://localhost:${ROUTER_PORT}/health  # Router"
-    echo "  curl http://localhost:${ROUTER_PORT}/models  # Router - aggregated models"
-    echo "  curl http://localhost:${ROUTER_PORT}/services  # Router - list services"
+echo "  curl http://localhost:${ROUTER_PORT}/health  # Router"
+echo "  curl http://localhost:${ROUTER_PORT}/models  # Router - aggregated models"
+echo "  curl http://localhost:${ROUTER_PORT}/services  # Router - list services"
 fi
 echo ""
 echo "To stop all services:"
