@@ -299,7 +299,7 @@ detect_os() {
         OS_VERSION=$VERSION_ID
 
         # Handle Kylin Linux and other Debian/Ubuntu-based distributions
-        if [ "$OS" = "kylin" ] || [ "$ID_LIKE" = "debian" ] || [ "$ID_LIKE" = "ubuntu" ]; then
+        if  [ "$ID_LIKE" = "debian" ] || [ "$ID_LIKE" = "ubuntu" ]; then
             # Check if apt-get is available (Debian/Ubuntu-based)
             if command_exists apt-get; then
                 OS="debian"
@@ -347,7 +347,7 @@ ensure_python3_pip() {
         alpine)
             apk add --no-cache python3 py3-pip
             ;;
-        centos|rhel|fedora)
+        centos|rhel|fedora|kylin)
             if command_exists yum; then
                 yum install -y python3 python3-pip
             elif command_exists dnf; then
@@ -518,7 +518,7 @@ install_system_deps() {
                     ca-certificates \
                     curl \
                     bash >/dev/null 2>&1 || true
-                
+
                 # Check if packages are actually installed (regardless of yum exit code)
                 # This handles cases where yum crashes due to libdnf but packages are still installed
                 local missing_packages=0
@@ -527,7 +527,7 @@ install_system_deps() {
                         missing_packages=$((missing_packages + 1))
                     fi
                 done
-                
+
                 if [ ${missing_packages} -eq 0 ]; then
                     INSTALLED=true
                     echo -e "${GREEN}✓ All required packages are installed${NC}"
