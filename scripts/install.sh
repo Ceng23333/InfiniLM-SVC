@@ -503,25 +503,31 @@ install_system_deps() {
             ;;
         centos|rhel|fedora|kylin)
             # Try yum first (common in many base images), then fallback to dnf.
+            # Note: Even if yum --version fails due to libdnf issues, yum install might still work.
             if command_exists yum; then
                 echo "Installing dependencies via yum..."
-                # Check if yum is actually working (not corrupted)
-                if yum --version >/dev/null 2>&1; then
-                    if yum install -y \
-                        gcc \
-                        pkgconfig \
-                        openssl-devel \
-                        clang \
-                        clang-devel \
-                        ca-certificates \
-                        curl \
-                        bash 2>&1; then
+                # Try yum install directly - don't skip even if version check fails
+                # Some systems have libdnf issues but yum install still works
+                if yum install -y \
+                    gcc \
+                    pkgconfig \
+                    openssl-devel \
+                    clang \
+                    clang-devel \
+                    ca-certificates \
+                    curl \
+                    bash 2>&1; then
+                    INSTALLED=true
+                    echo -e "${GREEN}✓ yum installation succeeded${NC}"
+                else
+                    echo -e "${YELLOW}⚠ yum installation failed, checking if packages are already installed...${NC}"
+                    # Check if critical packages are already installed (might have been installed manually)
+                    if rpm -q gcc pkgconfig openssl-devel clang clang-devel >/dev/null 2>&1; then
+                        echo -e "${GREEN}✓ Required packages appear to be installed${NC}"
                         INSTALLED=true
                     else
-                        echo -e "${YELLOW}⚠ yum installation failed${NC}"
+                        echo -e "${YELLOW}⚠ yum installation failed and packages not found${NC}"
                     fi
-                else
-                    echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping yum.${NC}"
                 fi
             fi
 
@@ -538,8 +544,16 @@ install_system_deps() {
                     curl \
                     bash 2>&1; then
                     INSTALLED=true
+                    echo -e "${GREEN}✓ dnf installation succeeded${NC}"
                 else
-                    echo -e "${YELLOW}⚠ dnf installation failed${NC}"
+                    echo -e "${YELLOW}⚠ dnf installation failed, checking if packages are already installed...${NC}"
+                    # Check if packages are already installed
+                    if rpm -q gcc pkgconfig openssl-devel clang clang-devel >/dev/null 2>&1; then
+                        echo -e "${GREEN}✓ Required packages appear to be installed${NC}"
+                        INSTALLED=true
+                    else
+                        echo -e "${YELLOW}⚠ dnf installation failed and packages not found${NC}"
+                    fi
                 fi
             fi
 
