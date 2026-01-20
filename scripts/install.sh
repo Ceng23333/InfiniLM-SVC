@@ -479,18 +479,8 @@ install_system_deps() {
             fi
             ;;
         centos|rhel|fedora|kylin)
-            if command_exists yum; then
-                echo "Installing dependencies via yum..."
-                if yum install -y \
-                    gcc \
-                    pkgconfig \
-                    openssl-devel \
-                    ca-certificates \
-                    curl \
-                    bash; then
-                    INSTALLED=true
-                fi
-            elif command_exists dnf; then
+            # Try dnf first (modern RHEL/CentOS), then fallback to yum
+            if command_exists dnf; then
                 echo "Installing dependencies via dnf..."
                 if dnf install -y \
                     gcc \
@@ -498,8 +488,32 @@ install_system_deps() {
                     openssl-devel \
                     ca-certificates \
                     curl \
-                    bash; then
+                    bash 2>&1; then
                     INSTALLED=true
+                else
+                    echo -e "${YELLOW}⚠ dnf installation failed, trying yum as fallback...${NC}"
+                fi
+            fi
+            # Try yum if dnf failed or doesn't exist
+            if [ "$INSTALLED" != "true" ] && command_exists yum; then
+                echo "Installing dependencies via yum..."
+                # Check if yum is actually working (not corrupted)
+                if yum --version >/dev/null 2>&1; then
+                    if yum install -y \
+                        gcc \
+                        pkgconfig \
+                        openssl-devel \
+                        ca-certificates \
+                        curl \
+                        bash 2>&1; then
+                        INSTALLED=true
+                    else
+                        echo -e "${YELLOW}⚠ yum installation failed${NC}"
+                    fi
+                else
+                    echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping system package installation${NC}"
+                    echo -e "${YELLOW}  Please fix yum/dnf or install dependencies manually:${NC}"
+                    echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, ca-certificates, curl, bash${NC}"
                 fi
             fi
             ;;
@@ -511,10 +525,21 @@ install_system_deps() {
                 apt-get update && \
                 apt-get install -y build-essential pkg-config libssl-dev ca-certificates curl bash && \
                 INSTALLED=true
-            elif command_exists yum; then
-                echo "Detected yum, attempting installation..."
-                yum install -y gcc pkgconfig openssl-devel ca-certificates curl bash && \
+            elif command_exists dnf; then
+                echo "Detected dnf, attempting installation..."
+                dnf install -y gcc pkgconfig openssl-devel ca-certificates curl bash 2>&1 && \
                 INSTALLED=true
+            elif command_exists yum; then
+                echo "Detected yum, checking if it's working..."
+                if yum --version >/dev/null 2>&1; then
+                    echo "Installing dependencies via yum..."
+                    yum install -y gcc pkgconfig openssl-devel ca-certificates curl bash 2>&1 && \
+                    INSTALLED=true
+                else
+                    echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping system package installation${NC}"
+                    echo -e "${YELLOW}  Please fix yum/dnf or install dependencies manually:${NC}"
+                    echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, ca-certificates, curl, bash${NC}"
+                fi
             elif command_exists apk; then
                 echo "Detected apk, attempting installation..."
                 apk add --no-cache build-base pkgconfig openssl-dev ca-certificates curl bash && \
@@ -673,11 +698,41 @@ install_infinicore_and_infinilm_optional() {
         return 0
     fi
 
-    # Runtime deps for InfiniLM server (FastAPI + uvicorn).
-    # Keep this lightweight; users can layer heavier deps (torch, etc.) in their own images.
-    if [ "${do_infinilm}" = "true" ]; then
-        echo "Installing minimal Python runtime deps for InfiniLM server (fastapi, uvicorn)..."
-        pip_install fastapi uvicorn || true
+    # Install all Python dependencies for InfiniCore and InfiniLM in one place
+    # This consolidates all pip install commands to avoid duplicates and ensure consistency
+    if [ "${do_infinicore}" = "true" ] || [ "${do_infinilm}" = "true" ]; then
+        echo "Installing Python dependencies for InfiniCore/InfiniLM..."
+        # Use conda's Python if available (same as runtime)
+        local python_cmd="python3"
+        if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+            python_cmd="/opt/conda/bin/python"
+            # shellcheck disable=SC1091
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate base
+            export PATH="/opt/conda/bin:${PATH}"
+        fi
+
+        # Collect all required packages
+        local packages=()
+
+        # Common dependencies (required by both InfiniCore and InfiniLM)
+        packages+=("ml_dtypes")  # Required by InfiniCore.utils
+
+        # InfiniLM-specific dependencies
+        if [ "${do_infinilm}" = "true" ]; then
+            packages+=("fastapi")      # FastAPI web framework
+            packages+=("uvicorn")      # ASGI server
+            packages+=("transformers") # Hugging Face transformers
+            packages+=("tokenizers")   # Fast tokenizers
+            packages+=("torch")        # PyTorch
+        fi
+
+        # Install all packages at once
+        if [ ${#packages[@]} -gt 0 ]; then
+            echo "Installing packages: ${packages[*]}"
+            ${python_cmd} -m pip install --no-cache-dir "${packages[@]}" || \
+                echo -e "${YELLOW}⚠ Some Python dependencies may have failed to install${NC}"
+        fi
     fi
 
     # xmake is required for both InfiniCore and InfiniLM setup.py hooks.
@@ -789,6 +844,7 @@ install_infinicore_and_infinilm_optional() {
                         export PATH="/opt/conda/bin:${PATH}"
                     fi
                     export PYTHON="${python_cmd}"
+                    # Dependencies are already installed above, just clean and build
                     # Clean _infinicore target to force rebuild with correct Python version
                     if [ -d "${INFINICORE_SRC}/.xmake" ]; then
                         echo "Cleaning _infinicore target to force rebuild with ${python_cmd}..."
@@ -843,6 +899,8 @@ install_infinicore_and_infinilm_optional() {
                     export PATH="/opt/conda/bin:${PATH}"
                 fi
                 export PYTHON="${python_cmd}"
+                # Dependencies are already installed above, just install the package
+                # Install InfiniLM package (editable mode)
                 ${python_cmd} -m pip install --no-cache-dir -e "${INFINILM_SRC}"
             ) || echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
         fi
