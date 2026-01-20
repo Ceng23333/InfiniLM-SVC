@@ -472,6 +472,8 @@ install_system_deps() {
                     build-essential \
                     pkg-config \
                     libssl-dev \
+                    clang \
+                    libclang-dev \
                     ca-certificates \
                     curl \
                     bash; then
@@ -490,6 +492,8 @@ install_system_deps() {
                     build-base \
                     pkgconfig \
                     openssl-dev \
+                    clang \
+                    clang-dev \
                     ca-certificates \
                     curl \
                     bash; then
@@ -498,23 +502,8 @@ install_system_deps() {
             fi
             ;;
         centos|rhel|fedora|kylin)
-            # Try dnf first (modern RHEL/CentOS), then fallback to yum
-            if command_exists dnf; then
-                echo "Installing dependencies via dnf..."
-                if dnf install -y \
-                    gcc \
-                    pkgconfig \
-                    openssl-devel \
-                    ca-certificates \
-                    curl \
-                    bash 2>&1; then
-                    INSTALLED=true
-                else
-                    echo -e "${YELLOW}⚠ dnf installation failed, trying yum as fallback...${NC}"
-                fi
-            fi
-            # Try yum if dnf failed or doesn't exist
-            if [ "$INSTALLED" != "true" ] && command_exists yum; then
+            # Try yum first (common in many base images), then fallback to dnf.
+            if command_exists yum; then
                 echo "Installing dependencies via yum..."
                 # Check if yum is actually working (not corrupted)
                 if yum --version >/dev/null 2>&1; then
@@ -522,6 +511,8 @@ install_system_deps() {
                         gcc \
                         pkgconfig \
                         openssl-devel \
+                        clang \
+                        clang-devel \
                         ca-certificates \
                         curl \
                         bash 2>&1; then
@@ -530,10 +521,32 @@ install_system_deps() {
                         echo -e "${YELLOW}⚠ yum installation failed${NC}"
                     fi
                 else
-                    echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping system package installation${NC}"
-                    echo -e "${YELLOW}  Please fix yum/dnf or install dependencies manually:${NC}"
-                    echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, ca-certificates, curl, bash${NC}"
+                    echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping yum.${NC}"
                 fi
+            fi
+
+            # Try dnf if yum failed or doesn't exist (modern RHEL/CentOS/Fedora)
+            if [ "$INSTALLED" != "true" ] && command_exists dnf; then
+                echo "Installing dependencies via dnf..."
+                if dnf install -y \
+                    gcc \
+                    pkgconfig \
+                    openssl-devel \
+                    clang \
+                    clang-devel \
+                    ca-certificates \
+                    curl \
+                    bash 2>&1; then
+                    INSTALLED=true
+                else
+                    echo -e "${YELLOW}⚠ dnf installation failed${NC}"
+                fi
+            fi
+
+            if [ "$INSTALLED" != "true" ]; then
+                echo -e "${YELLOW}⚠ Could not install system dependencies via yum/dnf.${NC}"
+                echo -e "${YELLOW}  Please install manually:${NC}"
+                echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, clang, clang-devel, ca-certificates, curl, bash${NC}"
             fi
             ;;
         *)
@@ -542,26 +555,26 @@ install_system_deps() {
             if command_exists apt-get; then
                 echo "Detected apt-get, attempting installation..."
                 apt-get update && \
-                apt-get install -y build-essential pkg-config libssl-dev ca-certificates curl bash && \
+                apt-get install -y build-essential pkg-config libssl-dev clang libclang-dev ca-certificates curl bash && \
                 INSTALLED=true
             elif command_exists dnf; then
                 echo "Detected dnf, attempting installation..."
-                dnf install -y gcc pkgconfig openssl-devel ca-certificates curl bash 2>&1 && \
+                dnf install -y gcc pkgconfig openssl-devel clang clang-devel ca-certificates curl bash 2>&1 && \
                 INSTALLED=true
             elif command_exists yum; then
                 echo "Detected yum, checking if it's working..."
                 if yum --version >/dev/null 2>&1; then
                     echo "Installing dependencies via yum..."
-                    yum install -y gcc pkgconfig openssl-devel ca-certificates curl bash 2>&1 && \
+                    yum install -y gcc pkgconfig openssl-devel clang clang-devel ca-certificates curl bash 2>&1 && \
                     INSTALLED=true
                 else
                     echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping system package installation${NC}"
                     echo -e "${YELLOW}  Please fix yum/dnf or install dependencies manually:${NC}"
-                    echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, ca-certificates, curl, bash${NC}"
+                    echo -e "${YELLOW}    gcc, pkgconfig, openssl-devel, clang, clang-devel, ca-certificates, curl, bash${NC}"
                 fi
             elif command_exists apk; then
                 echo "Detected apk, attempting installation..."
-                apk add --no-cache build-base pkgconfig openssl-dev ca-certificates curl bash && \
+                apk add --no-cache build-base pkgconfig openssl-dev clang clang-dev ca-certificates curl bash && \
                 INSTALLED=true
             fi
             ;;
@@ -597,7 +610,7 @@ install_system_deps() {
         echo -e "${GREEN}✓ System dependencies installed${NC}"
     else
         echo -e "${YELLOW}⚠ Could not install system dependencies automatically${NC}"
-        echo "Please install manually: build-essential/gcc, pkg-config, libssl-dev/openssl-devel, curl, bash"
+        echo "Please install manually: build-essential/gcc, pkg-config, libssl-dev/openssl-devel, clang, libclang-dev/clang-devel, curl, bash"
     fi
     echo ""
 }
@@ -1033,7 +1046,7 @@ install_xtask_optional() {
         if cargo build --release --bin xtask; then
             echo -e "${GREEN}✓ xtask build completed successfully${NC}"
 
-            # Install to INFINI_ROOT/bin
+            # Install xtask binary to INFINI_ROOT/bin
             local xtask_binary="${INFINILM_RUST_SRC}/target/release/xtask"
             if [ -f "${xtask_binary}" ]; then
                 cp "${xtask_binary}" "${infini_root}/bin/xtask"
@@ -1042,6 +1055,27 @@ install_xtask_optional() {
             else
                 echo -e "${RED}✗ xtask binary not found at ${xtask_binary}${NC}"
                 return 1
+            fi
+
+            # Install shared libraries (.so files) from build output to INFINI_ROOT/lib
+            # These are built as part of the llama-cu dependency (e.g., librandom_sample.so)
+            local build_out_dirs="${INFINILM_RUST_SRC}/target/release/build/llama-cu-*/out"
+            local so_files_found=0
+            for build_dir in ${build_out_dirs}; do
+                if [ -d "${build_dir}" ]; then
+                    # Find all .so files in the build output directory
+                    while IFS= read -r -d '' so_file; do
+                        local so_name="$(basename "${so_file}")"
+                        cp "${so_file}" "${infini_root}/lib/${so_name}"
+                        chmod 755 "${infini_root}/lib/${so_name}"
+                        echo -e "${GREEN}✓ Installed ${so_name} to ${infini_root}/lib/${so_name}${NC}"
+                        so_files_found=$((so_files_found + 1))
+                    done < <(find "${build_dir}" -maxdepth 1 -name "*.so" -type f -print0 2>/dev/null)
+                fi
+            done
+
+            if [ ${so_files_found} -eq 0 ]; then
+                echo -e "${YELLOW}⚠ No .so files found in build output (this may be normal if libraries are statically linked)${NC}"
             fi
         else
             echo -e "${RED}✗ xtask build failed${NC}"
