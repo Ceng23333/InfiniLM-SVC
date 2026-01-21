@@ -1,6 +1,6 @@
-# Server 1 - 9g_8b_thinking_llama model
+# Server 1 - 9g_8b_thinking model
 
-name = "server1-9g_8b_thinking_llama"
+name = "server1-9g_8b_thinking"
 host = "0.0.0.0"
 port = 8100
 
@@ -21,7 +21,7 @@ command = "/opt/conda/bin/python"
 args = [
   "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
   "--metax",
-  "--model_path", "/models/9g_8b_thinking_llama",
+  "--model_path", "/models/9g_8b_thinking",
   "--max_batch_size", "8",
   "--tp", "1",
   "--temperature", "1.0",

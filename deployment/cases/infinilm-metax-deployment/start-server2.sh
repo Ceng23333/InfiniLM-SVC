@@ -137,7 +137,7 @@ fi
 
 # Mount models
 DOCKER_ARGS+=(
-  -v "${MODEL1_DIR}:/models/9g_8b_thinking_llama:ro"
+  -v "${MODEL1_DIR}:/models/9g_8b_thinking:ro"
   -v "${MODEL2_MOUNT_DIR}:${MODEL2_CONTAINER_PATH}:ro"
   "${IMAGE_NAME}"
 )
