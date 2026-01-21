@@ -19,7 +19,7 @@ type = "command"
 command = "/root/.infini/bin/xtask"
 args = [
   "service",
-  "/app/config/service1-service_qwen.toml",
+  "/app/config/server1-service_qwen.toml",
   "-p", "8200"
 ]
 work_dir = "/app"
