@@ -23,11 +23,12 @@ type = "command"
 command = "/root/.infini/bin/xtask"
 args = [
   "service",
-  "/app/config/service_qwen.toml",
+  "/app/config/service2-service_qwen.toml",
   "-p", "8200"
 ]
 work_dir = "/app"
 # Set environment variables for Metax GPU
+# Note: GPU selection is controlled by the 'gpus' field in service2-service_qwen.toml, not by HPCC_VISIBLE_DEVICES
 [backend.env]
 PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 INFINI_ROOT = "/root/.infini"

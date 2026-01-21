@@ -98,7 +98,7 @@ DOCKER_ARGS=(
   -e LAUNCH_COMPONENTS=all
   -e REGISTRY_PORT="${REGISTRY_PORT}"
   -e ROUTER_PORT="${ROUTER_PORT}"
-  -e BABYSITTER_CONFIGS="server1-9g_8b_thinking_llama.toml server1-Qwen3-32B.toml"
+  -e BABYSITTER_CONFIGS="server1-9g_8b_thinking.toml server1-Qwen3-32B.toml"
 )
 
 # Mount config directory

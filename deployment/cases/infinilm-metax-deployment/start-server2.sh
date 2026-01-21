@@ -113,7 +113,7 @@ DOCKER_ARGS=(
   -e REGISTRY_URL="http://${SERVER1_IP}:${REGISTRY_PORT}"
   -e ROUTER_URL="http://${SERVER1_IP}:${ROUTER_PORT}"
   -e BABYSITTER_HOST="${SERVER2_IP}"
-  -e BABYSITTER_CONFIGS="server2-9g_8b_thinking_llama.toml server2-Qwen3-32B.toml"
+  -e BABYSITTER_CONFIGS="server2-9g_8b_thinking.toml server2-Qwen3-32B.toml"
 )
 
 # Mount config directory
