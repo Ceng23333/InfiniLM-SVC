@@ -1,10 +1,10 @@
-# Babysitter D (Server 2)
+# Server 2 - Qwen3-32B model
 #
 # Note: registry_url/router_url/host are overridden at runtime by docker entrypoint env:
 #   - BABYSITTER_HOST (for registration)
 #   - REGISTRY_URL / ROUTER_URL (remote URLs)
 
-name = "babysitter-d"
+name = "server2-Qwen3-32B"
 host = "0.0.0.0"
 port = 8200
 

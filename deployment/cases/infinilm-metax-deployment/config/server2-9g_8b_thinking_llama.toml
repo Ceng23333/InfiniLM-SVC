@@ -1,10 +1,10 @@
-# Babysitter C (Server 2)
+# Server 2 - 9g_8b_thinking_llama model
 #
 # Note: registry_url/router_url/host are overridden at runtime by docker entrypoint env:
 #   - BABYSITTER_HOST (for registration)
 #   - REGISTRY_URL / ROUTER_URL (remote URLs)
 
-name = "babysitter-c"
+name = "server2-9g_8b_thinking_llama"
 host = "0.0.0.0"
 port = 8100
 
@@ -17,13 +17,13 @@ restart_delay = 5
 heartbeat_interval = 30
 
 # Backend: InfiniLM Python inference server launched via the README command shape.
-# InfiniLM repo is mounted at /mnt/InfiniLM (see start-server scripts).
+# InfiniLM repo is at /workspace/InfiniLM (default) or /mnt/InfiniLM (if mounted).
 [backend]
 type = "command"
 # Use conda's Python to ensure InfiniCore/InfiniLM are available
 command = "/opt/conda/bin/python"
 args = [
-  "/mnt/InfiniLM/python/infinilm/server/inference_server.py",
+  "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
   "--metax",
   "--model_path", "/models/9g_8b_thinking_llama",
   "--max_batch_size", "8",
@@ -34,7 +34,7 @@ args = [
   "--host", "0.0.0.0",
   "--port", "8100",
 ]
-work_dir = "/mnt/InfiniLM"
+work_dir = "/workspace/InfiniLM"
 # Set environment variables: ensure conda's Python path and InfiniCore/InfiniLM paths are available
 # These match what env-set.sh sets up (sourced before Python imports)
 [backend.env]
