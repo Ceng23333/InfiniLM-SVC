@@ -1,12 +1,12 @@
-# Server 2 - Qwen3-32B model
+# Slave (Server 2) - 9g_8b_thinking model
 #
 # Note: registry_url/router_url/host are overridden at runtime by docker entrypoint env:
 #   - BABYSITTER_HOST (for registration)
 #   - REGISTRY_URL / ROUTER_URL (remote URLs)
 
-name = "server2-Qwen3-32B"
+name = "slave-9g_8b_thinking"
 host = "0.0.0.0"
-port = 8200
+port = 8100
 
 registry_url = "http://localhost:18000"
 router_url = "http://localhost:8000"
@@ -16,21 +16,26 @@ max_restarts = 10000
 restart_delay = 5
 heartbeat_interval = 30
 
-# Use InfiniLM-Rust backend (supports qwen3 model type)
-# Using command-based backend to run xtask from /root/.infini/bin
 [backend]
 type = "command"
-command = "/root/.infini/bin/xtask"
+command = "/opt/conda/bin/python"
 args = [
-  "service",
-  "/app/config/server2-service_qwen.toml",
-  "-p", "8200"
+  "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
+  "--metax",
+  "--model_path", "/models/9g_8b_thinking",
+  "--max_batch_size", "8",
+  "--tp", "1",
+  "--temperature", "1.0",
+  "--top_p", "0.8",
+  "--top_k", "1",
+  "--host", "0.0.0.0",
+  "--port", "8100",
 ]
-work_dir = "/app"
-# Set environment variables for Metax GPU
-# Note: GPU selection is controlled by the 'gpus' field in server2-service_qwen.toml, not by HPCC_VISIBLE_DEVICES
+work_dir = "/workspace/InfiniLM"
+
 [backend.env]
 PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
 INFINI_ROOT = "/root/.infini"
 LD_LIBRARY_PATH = "/opt/conda/lib:/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib"
 MACA_HOME = "/opt/hpcc"
@@ -38,4 +43,3 @@ MACA_PATH = "/opt/hpcc"
 HPCC_PATH = "/opt/hpcc"
 C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
 XMAKE_ROOT = "y"
-HPCC_VISIBLE_DEVICES = "4,5,6,7"

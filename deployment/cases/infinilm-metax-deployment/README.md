@@ -8,16 +8,16 @@ This demo updates the deployment model to:
 ## Architecture
 
 ```
-Server 1 (Control + worker):
+Master (Server 1 / Control + worker):
   - Registry  (default: 18000, configurable via REGISTRY_PORT)
   - Router    (default: 8000, configurable via ROUTER_PORT)
-  - server1-9g_8b_thinking_llama (8100 -> InfiniLM Python backend)
-  - server1-Qwen3-32B (8200 -> InfiniLM-Rust backend)
+  - master-9g_8b_thinking (8100 -> InfiniLM Python backend)
+  - master-Qwen3-32B (8200 -> InfiniLM-Rust backend)
 
-Server 2 (Worker):
-  - server2-9g_8b_thinking_llama (8100 -> InfiniLM Python backend)
-  - server2-Qwen3-32B (8200 -> InfiniLM-Rust backend)
-  - Registers to Server 1 registry/router
+Slave (Server 2 / Worker):
+  - slave-9g_8b_thinking (8100 -> InfiniLM Python backend)
+  - slave-Qwen3-32B (8200 -> InfiniLM-Rust backend)
+  - Registers to Master registry/router
 ```
 
 ## Prerequisites
@@ -87,13 +87,13 @@ export INFINILM_DIR=/path/to/InfiniLM      # Optional: mount InfiniLM
 export INFINICORE_DIR=/path/to/InfiniCore  # Optional: mount InfiniCore
 export CONFIG_DIR=/path/to/config          # Optional: custom config dir
 
-./start-server1.sh <SERVER1_IP>
+./start-master.sh <MASTER_IP>
 ```
 
 After starting the container, **install InfiniCore and InfiniLM inside it** (if not pre-installed or mounted):
 
 ```bash
-docker exec -it infinilm-svc-infinilm-server1 bash -c '
+docker exec -it infinilm-svc-master bash -c '
   cd /app &&
   bash scripts/install.sh \
     --deployment-case infinilm-metax-deployment \
@@ -121,13 +121,13 @@ export INFINILM_DIR=/path/to/InfiniLM      # Optional: mount InfiniLM
 export INFINICORE_DIR=/path/to/InfiniCore  # Optional: mount InfiniCore
 export CONFIG_DIR=/path/to/config          # Optional: custom config dir
 
-./start-server2.sh <SERVER1_IP> <SERVER2_IP> [REGISTRY_PORT] [ROUTER_PORT]
+./start-slave.sh <MASTER_IP> <SLAVE_IP> [SLAVE_ID]
 ```
 
 After starting the container, **install InfiniCore and InfiniLM inside it** (if not pre-installed or mounted):
 
 ```bash
-docker exec -it infinilm-svc-infinilm-server2 bash -c '
+docker exec -it infinilm-svc-slave bash -c '
   cd /app &&
   bash scripts/install.sh \
     --deployment-case infinilm-metax-deployment \
@@ -153,12 +153,12 @@ Note: If `INFINILM_DIR` and `INFINICORE_DIR` are mounted, they override `/worksp
 
 ## Babysitter Configuration Files
 
-Babysitter configs follow the pattern `<server>-<model>.toml`:
+Babysitter configs follow the pattern `<role>-<model>.toml`:
 
-- `server1-9g_8b_thinking_llama.toml`: Server 1, 9g_8b_thinking_llama model (InfiniLM Python)
-- `server1-Qwen3-32B.toml`: Server 1, Qwen3-32B model (InfiniLM-Rust)
-- `server2-9g_8b_thinking_llama.toml`: Server 2, 9g_8b_thinking_llama model (InfiniLM Python)
-- `server2-Qwen3-32B.toml`: Server 2, Qwen3-32B model (InfiniLM-Rust)
+- `master-9g_8b_thinking.toml`: Master (Server 1), 9g_8b_thinking model (InfiniLM Python)
+- `master-Qwen3-32B.toml`: Master (Server 1), Qwen3-32B model (InfiniLM-Rust)
+- `slave-9g_8b_thinking.toml`: Slave (Server 2), 9g_8b_thinking model (InfiniLM Python)
+- `slave-Qwen3-32B.toml`: Slave (Server 2), Qwen3-32B model (InfiniLM-Rust)
 
 ## Notes / Customization
 

@@ -1,6 +1,6 @@
-# Server 1 - 9g_8b_thinking model
+# Master (Server 1) - 9g_8b_thinking model
 
-name = "server1-9g_8b_thinking"
+name = "master-9g_8b_thinking"
 host = "0.0.0.0"
 port = 8100
 
@@ -13,10 +13,8 @@ restart_delay = 5
 heartbeat_interval = 30
 
 # Backend: InfiniLM Python inference server launched via the README command shape.
-# InfiniLM repo is at /workspace/InfiniLM (default) or /mnt/InfiniLM (if mounted).
 [backend]
 type = "command"
-# Use conda's Python to ensure InfiniCore/InfiniLM are available
 command = "/opt/conda/bin/python"
 args = [
   "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
@@ -31,8 +29,7 @@ args = [
   "--port", "8100",
 ]
 work_dir = "/workspace/InfiniLM"
-# Set environment variables: ensure conda's Python path and InfiniCore/InfiniLM paths are available
-# These match what env-set.sh sets up (sourced before Python imports)
+
 [backend.env]
 PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"

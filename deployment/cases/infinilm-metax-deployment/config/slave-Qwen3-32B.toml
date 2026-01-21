@@ -1,0 +1,39 @@
+# Slave (Server 2) - Qwen3-32B model
+#
+# Note: registry_url/router_url/host are overridden at runtime by docker entrypoint env:
+#   - BABYSITTER_HOST (for registration)
+#   - REGISTRY_URL / ROUTER_URL (remote URLs)
+
+name = "slave-Qwen3-32B"
+host = "0.0.0.0"
+port = 8200
+
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+[backend]
+type = "command"
+command = "/root/.infini/bin/xtask"
+args = [
+  "service",
+  "/app/config/slave-service_qwen.toml",
+  "-p", "8200"
+]
+work_dir = "/app"
+
+[backend.env]
+PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+INFINI_ROOT = "/root/.infini"
+LD_LIBRARY_PATH = "/opt/conda/lib:/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib"
+MACA_HOME = "/opt/hpcc"
+MACA_PATH = "/opt/hpcc"
+HPCC_PATH = "/opt/hpcc"
+C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
+XMAKE_ROOT = "y"
+# Note: GPU selection is controlled by the 'gpus' field in slave-service_qwen.toml, not by HPCC_VISIBLE_DEVICES
+HPCC_VISIBLE_DEVICES = "4,5,6,7"

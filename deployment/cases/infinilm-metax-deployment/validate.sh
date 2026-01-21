@@ -3,12 +3,58 @@
 
 set -e
 
-SERVER1_IP="${1:-localhost}"
-SERVER2_IP="${2:-}"
-REGISTRY_PORT="${3:-18000}"
-ROUTER_PORT="${4:-8000}"
-REGISTRY_URL="http://${SERVER1_IP}:${REGISTRY_PORT}"
-ROUTER_URL="http://${SERVER1_IP}:${ROUTER_PORT}"
+usage() {
+  echo "Usage:"
+  echo "  $0 <REGISTRY_IP> [WORKER ...]"
+  echo ""
+  echo "Notes:"
+  echo "  - REGISTRY_PORT and ROUTER_PORT are taken from env (defaults: 18000 / 8000)"
+  echo "  - Any number of worker servers can be provided; each is expected to run babysitters"
+  echo "  - Worker can be either:"
+  echo "      - <IP>        (defaults to slave id 1 => prefix 'slave-*')"
+  echo "      - <IP>:<ID>   (e.g. 172.22.162.19:2 => prefix 'slave2-*')"
+  echo ""
+  echo "Examples:"
+  echo "  $0 172.22.162.17"
+  echo "  $0 172.22.162.17 172.22.162.18"
+  echo "  $0 172.22.162.17 172.22.162.18 172.22.162.19:2"
+}
+
+if [ $# -lt 1 ]; then
+  usage
+  exit 1
+fi
+
+REGISTRY_IP="${1:-localhost}"
+shift || true
+
+# Remaining args are worker specs (IP or IP:ID) (can be empty)
+WORKER_SPECS=("$@")
+WORKER_IPS=()
+WORKER_IDS=()
+
+for spec in "${WORKER_SPECS[@]}"; do
+  ip="${spec%%:*}"
+  id="1"
+  if [[ "${spec}" == *:* ]]; then
+    id="${spec#*:}"
+  fi
+  if [ -z "${ip}" ]; then
+    echo "Error: invalid worker spec '${spec}' (empty IP)"
+    exit 1
+  fi
+  if ! [[ "${id}" =~ ^[0-9]+$ ]] || [ "${id}" -lt 1 ]; then
+    echo "Error: invalid worker spec '${spec}' (invalid id: ${id})"
+    exit 1
+  fi
+  WORKER_IPS+=("${ip}")
+  WORKER_IDS+=("${id}")
+done
+
+REGISTRY_PORT="${REGISTRY_PORT:-18000}"
+ROUTER_PORT="${ROUTER_PORT:-8000}"
+REGISTRY_URL="http://${REGISTRY_IP}:${REGISTRY_PORT}"
+ROUTER_URL="http://${REGISTRY_IP}:${ROUTER_PORT}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -22,8 +68,12 @@ FAILED=0
 echo "=========================================="
 echo "InfiniLM-SVC (Rust) + InfiniLM Backend Validation"
 echo "=========================================="
-echo "Server 1: ${SERVER1_IP}"
-echo "Server 2: ${SERVER2_IP:-not specified}"
+echo "Registry IP: ${REGISTRY_IP}"
+if [ ${#WORKER_SPECS[@]} -gt 0 ]; then
+  echo "Workers:    ${WORKER_SPECS[*]}"
+else
+  echo "Workers:    (none)"
+fi
 echo "Registry: ${REGISTRY_URL} (port ${REGISTRY_PORT})"
 echo "Router:   ${ROUTER_URL} (port ${ROUTER_PORT})"
 echo ""
@@ -65,9 +115,20 @@ service_count="$(echo "${services_json}" | grep -o '"name"' | wc -l || echo "0")
 echo "  Found ${service_count} services"
 
 # Check for expected services
-expected_services=("server1-9g_8b_thinking_llama-server" "server1-Qwen3-32B-server")
-if [ -n "${SERVER2_IP}" ]; then
-  expected_services+=("server2-9g_8b_thinking_llama-server" "server2-Qwen3-32B-server")
+# Naming convention:
+# - master-* lives on registry/router server
+expected_services=("master-9g_8b_thinking-server" "master-Qwen3-32B-server")
+if [ ${#WORKER_IPS[@]} -gt 0 ]; then
+  idx=0
+  for _ip in "${WORKER_IPS[@]}"; do
+    id="${WORKER_IDS[$idx]}"
+    slave_name="slave"
+    if [ "${id}" -gt 1 ]; then
+      slave_name="slave${id}"
+    fi
+    expected_services+=("${slave_name}-9g_8b_thinking-server" "${slave_name}-Qwen3-32B-server")
+    idx=$((idx + 1))
+  done
 fi
 
 echo "  Expected services: ${#expected_services[@]} (${expected_services[*]})"
@@ -75,9 +136,9 @@ found_services=()
 for svc in "${expected_services[@]}"; do
   if echo "${services_json}" | grep -q "\"name\":\"${svc}\""; then
     found_services+=("${svc}")
-    echo "    ${GREEN}✓${NC} ${svc}"
+    echo -e "    ${GREEN}✓${NC} ${svc}"
   else
-    echo "    ${RED}✗${NC} ${svc} (not found)"
+    echo -e "    ${RED}✗${NC} ${svc} (not found)"
   fi
 done
 
@@ -103,7 +164,7 @@ if [ -z "${model_ids}" ] || [ "${model_ids}" = " " ]; then
   exit 1
 fi
 # Check for expected model IDs (from babysitter configs)
-expected_model1="9g_8b_thinking_llama"
+expected_model1="9g_8b_thinking"
 expected_model2="Qwen3-32B"
 found_any=false
 for model_id in ${model_ids}; do
@@ -178,52 +239,58 @@ else
 fi
 
 # Test load balancing if Server 2 is specified
-if [ -n "${SERVER2_IP}" ] && echo "${model_ids}" | grep -q "9g_8b_thinking_llama"; then
+if [ ${#WORKER_IPS[@]} -gt 0 ] && echo "${model_ids}" | grep -q "9g_8b_thinking"; then
   echo -e "${BLUE}[6] Load balancing test${NC}"
-  echo "  Sending 4 requests for 9g_8b_thinking_llama (should balance between Server 1 and Server 2)..."
+  echo "  Sending 6 requests for 9g_8b_thinking (should balance across all servers)..."
   services_hit=()
-  for i in {1..4}; do
+  for i in {1..6}; do
     resp="$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" \
       -H "Content-Type: application/json" \
-      -d '{"model": "9g_8b_thinking_llama", "messages": [{"role": "user", "content": "Test"}], "stream": false}' 2>/dev/null || echo '{}')"
+      -d '{"model": "9g_8b_thinking", "messages": [{"role": "user", "content": "Test"}], "stream": false}' 2>/dev/null || echo '{}')"
     if echo "${resp}" | grep -q '"object"'; then
       services_hit+=("request-$i")
     fi
     sleep 0.5
   done
 
-  if [ ${#services_hit[@]} -ge 3 ]; then
-    echo "  ${GREEN}✓${NC} Load balancing working (${#services_hit[@]}/4 requests succeeded)"
+  if [ ${#services_hit[@]} -ge 4 ]; then
+    echo -e "  ${GREEN}✓${NC} Load balancing looks healthy (${#services_hit[@]}/6 requests succeeded)"
     test_passed
   else
-    echo "  ${YELLOW}⚠${NC} Only ${#services_hit[@]}/4 requests succeeded (may be normal if services just started)"
+    echo -e "  ${YELLOW}⚠${NC} Only ${#services_hit[@]}/6 requests succeeded (may be normal if services just started)"
     test_passed  # Not a failure
   fi
   echo ""
 fi
 
-# Test Server 2 health if specified
-if [ -n "${SERVER2_IP}" ]; then
-  echo -e "${BLUE}[7] Server 2 health check${NC}"
-  echo "  Checking Server 2 babysitter health endpoints..."
+# Test worker health endpoints (babysitter HTTP ports)
+if [ ${#WORKER_IPS[@]} -gt 0 ]; then
+  echo -e "${BLUE}[7] Worker babysitter health checks${NC}"
+  idx=0
+  for ip in "${WORKER_IPS[@]}"; do
+    id="${WORKER_IDS[$idx]}"
+    slave_name="slave"
+    if [ "${id}" -gt 1 ]; then
+      slave_name="slave${id}"
+    fi
+    echo "  Worker ${slave_name}: ${ip}"
+    if curl -s -f --connect-timeout 3 "http://${ip}:8101/health" > /dev/null 2>&1; then
+      echo -e "    ${GREEN}✓${NC} ${slave_name}-9g_8b_thinking babysitter (8101) healthy"
+      test_passed
+    else
+      echo -e "    ${RED}✗${NC} ${slave_name}-9g_8b_thinking babysitter (8101) not responding"
+      test_failed
+    fi
 
-  # Check babysitter-c health
-  if curl -s -f --connect-timeout 3 "http://${SERVER2_IP}:8101/health" > /dev/null 2>&1; then
-    echo "    ${GREEN}✓${NC} Babysitter C (8101) healthy"
-    test_passed
-  else
-    echo "    ${RED}✗${NC} Babysitter C (8101) not responding"
-    test_failed
-  fi
-
-  # Check babysitter-d health
-  if curl -s -f --connect-timeout 3 "http://${SERVER2_IP}:8201/health" > /dev/null 2>&1; then
-    echo "    ${GREEN}✓${NC} Babysitter D (8201) healthy"
-    test_passed
-  else
-    echo "    ${RED}✗${NC} Babysitter D (8201) not responding"
-    test_failed
-  fi
+    if curl -s -f --connect-timeout 3 "http://${ip}:8201/health" > /dev/null 2>&1; then
+      echo -e "    ${GREEN}✓${NC} ${slave_name}-Qwen3-32B babysitter (8201) healthy"
+      test_passed
+    else
+      echo -e "    ${RED}✗${NC} ${slave_name}-Qwen3-32B babysitter (8201) not responding"
+      test_failed
+    fi
+    idx=$((idx + 1))
+  done
   echo ""
 fi
 

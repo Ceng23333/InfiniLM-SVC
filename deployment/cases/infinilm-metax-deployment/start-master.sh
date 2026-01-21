@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Start Server 1: Registry, Router, and two babysitters (InfiniLM backends)
+# Start Master: Registry, Router, and two babysitters (InfiniLM backends)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVER1_IP="${1:-localhost}"
+REGISTRY_IP="${1:-localhost}"
+LOCALHOST_IP="${REGISTRY_IP}"
 
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:infinilm-demo}"
+CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
 
 # Configurable ports (defaults)
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
@@ -43,13 +45,14 @@ MODEL2_MOUNT_DIR="${MODEL2_GGUF}"
 MODEL2_CONTAINER_PATH="/models/Qwen3-32B.gguf"
 
 echo "=========================================="
-echo "Starting InfiniLM-SVC Server 1"
+echo "Starting InfiniLM-SVC Master"
 echo "=========================================="
-echo "Server IP: ${SERVER1_IP}"
+echo "Registry IP: ${REGISTRY_IP}"
 echo "Image: ${IMAGE_NAME}"
 echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
-echo "Components: Registry, Router, server1-9g_8b_thinking_llama, server1-Qwen3-32B"
+echo "Components: Registry, Router, master-9g_8b_thinking, master-Qwen3-32B"
+echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"
 echo "  MODEL1_DIR: ${MODEL1_DIR}"
@@ -73,9 +76,9 @@ fi
 echo ""
 
 # Remove existing container if present
-if docker ps -a --format '{{.Names}}' | grep -q "^infinilm-svc-infinilm-server1$"; then
-  echo "Removing existing container infinilm-svc-infinilm-server1 ..."
-  docker rm -f infinilm-svc-infinilm-server1 >/dev/null
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+  echo "Removing existing container ${CONTAINER_NAME} ..."
+  docker rm -f "${CONTAINER_NAME}" >/dev/null
 fi
 
 echo "🚀 Starting Docker container..."
@@ -94,11 +97,11 @@ DOCKER_ARGS=(
   --security-opt apparmor=unconfined
   --shm-size 100gb
   --ulimit memlock=-1
-  --name infinilm-svc-infinilm-server1
+  --name "${CONTAINER_NAME}"
   -e LAUNCH_COMPONENTS=all
   -e REGISTRY_PORT="${REGISTRY_PORT}"
   -e ROUTER_PORT="${ROUTER_PORT}"
-  -e BABYSITTER_CONFIGS="server1-9g_8b_thinking.toml server1-Qwen3-32B.toml"
+  -e BABYSITTER_CONFIGS="master-9g_8b_thinking.toml master-Qwen3-32B.toml"
 )
 
 # Mount config directory
@@ -124,8 +127,8 @@ DOCKER_ARGS+=(
 docker run "${DOCKER_ARGS[@]}"
 
 echo ""
-echo "✅ Server 1 container started: infinilm-svc-infinilm-server1"
-echo "Registry: http://${SERVER1_IP}:${REGISTRY_PORT}"
-echo "Router:   http://${SERVER1_IP}:${ROUTER_PORT}"
+echo "✅ Master container started: ${CONTAINER_NAME}"
+echo "Registry: http://${REGISTRY_IP}:${REGISTRY_PORT}"
+echo "Router:   http://${REGISTRY_IP}:${ROUTER_PORT}"
 echo ""
-echo "Logs: docker logs -f infinilm-svc-infinilm-server1"
+echo "Logs: docker logs -f ${CONTAINER_NAME}"

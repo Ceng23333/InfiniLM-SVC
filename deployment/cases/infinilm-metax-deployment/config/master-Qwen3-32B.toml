@@ -1,6 +1,6 @@
-# Server 1 - Qwen3-32B model
+# Master (Server 1) - Qwen3-32B model
 
-name = "server1-Qwen3-32B"
+name = "master-Qwen3-32B"
 host = "0.0.0.0"
 port = 8200
 
@@ -12,19 +12,16 @@ max_restarts = 10000
 restart_delay = 5
 heartbeat_interval = 30
 
-# Use InfiniLM-Rust backend (supports qwen3 model type)
-# Using command-based backend to run xtask from /root/.infini/bin
 [backend]
 type = "command"
 command = "/root/.infini/bin/xtask"
 args = [
   "service",
-  "/app/config/server1-service_qwen.toml",
+  "/app/config/master-service_qwen.toml",
   "-p", "8200"
 ]
 work_dir = "/app"
-# Set environment variables for Metax GPU
-# Note: GPU selection is controlled by the 'gpus' field in server1-service_qwen.toml, not by HPCC_VISIBLE_DEVICES
+
 [backend.env]
 PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 INFINI_ROOT = "/root/.infini"
@@ -34,4 +31,5 @@ MACA_PATH = "/opt/hpcc"
 HPCC_PATH = "/opt/hpcc"
 C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
 XMAKE_ROOT = "y"
+# Note: GPU selection is controlled by the 'gpus' field in master-service_qwen.toml, not by HPCC_VISIBLE_DEVICES
 HPCC_VISIBLE_DEVICES = "4,5,6,7"
