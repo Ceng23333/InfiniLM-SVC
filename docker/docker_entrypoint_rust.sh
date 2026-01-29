@@ -86,7 +86,11 @@ LAUNCH_REGISTRY=false
 LAUNCH_ROUTER=false
 LAUNCH_BABYSITTER=false
 
-if [ "${LAUNCH_COMPONENTS}" = "all" ]; then
+if [ "${LAUNCH_COMPONENTS}" = "none" ] || [ -z "${LAUNCH_COMPONENTS}" ]; then
+    # Launch nothing - useful for daily development where services are started manually
+    echo "LAUNCH_COMPONENTS is 'none' or empty - no services will be launched automatically"
+    echo "This is useful for daily development where you start services manually"
+elif [ "${LAUNCH_COMPONENTS}" = "all" ]; then
     LAUNCH_REGISTRY=true
     LAUNCH_ROUTER=true
     LAUNCH_BABYSITTER=true
@@ -106,6 +110,10 @@ else
                 ;;
             babysitter)
                 LAUNCH_BABYSITTER=true
+                ;;
+            none)
+                # Explicitly set to none (already handled above, but allow in comma list)
+                echo "Note: 'none' found in component list - no services will be launched"
                 ;;
             *)
                 echo "Warning: Unknown component '${component}' in LAUNCH_COMPONENTS"
@@ -202,15 +210,22 @@ export LAUNCH_REGISTRY
 export LAUNCH_ROUTER
 export LAUNCH_BABYSITTER
 
-# Launch services using the Rust launch script
-LAUNCH_SCRIPT="${PROJECT_ROOT}/script/launch_all_rust.sh"
-if [ -f "${LAUNCH_SCRIPT}" ]; then
-    bash "${LAUNCH_SCRIPT}"
+# Launch services using the Rust launch script (only if at least one component should be launched)
+if [ "${LAUNCH_REGISTRY}" = "true" ] || [ "${LAUNCH_ROUTER}" = "true" ] || [ "${LAUNCH_BABYSITTER}" = "true" ]; then
+    LAUNCH_SCRIPT="${PROJECT_ROOT}/script/launch_all_rust.sh"
+    if [ -f "${LAUNCH_SCRIPT}" ]; then
+        bash "${LAUNCH_SCRIPT}"
+    else
+        echo "Error: launch_all_rust.sh not found at ${LAUNCH_SCRIPT}"
+        echo "PROJECT_ROOT: ${PROJECT_ROOT}"
+        echo "Looking for: ${LAUNCH_SCRIPT}"
+        exit 1
+    fi
 else
-    echo "Error: launch_all_rust.sh not found at ${LAUNCH_SCRIPT}"
-    echo "PROJECT_ROOT: ${PROJECT_ROOT}"
-    echo "Looking for: ${LAUNCH_SCRIPT}"
-    exit 1
+    echo ""
+    echo "No services configured to launch (LAUNCH_COMPONENTS=${LAUNCH_COMPONENTS})"
+    echo "Container will keep running - you can start services manually if needed"
+    echo ""
 fi
 
 # Set up signal handlers for graceful shutdown
@@ -250,10 +265,20 @@ trap cleanup SIGTERM SIGINT
 
 echo ""
 echo "========================================"
-echo "All services are running"
+if [ "${LAUNCH_REGISTRY}" = "true" ] || [ "${LAUNCH_ROUTER}" = "true" ] || [ "${LAUNCH_BABYSITTER}" = "true" ]; then
+    echo "All services are running"
+else
+    echo "Container ready (no services auto-launched)"
+fi
 echo "========================================"
 echo "Container will keep running until stopped (SIGTERM/SIGINT)"
 echo "To stop: docker stop <container_id>"
+if [ "${LAUNCH_REGISTRY}" != "true" ] && [ "${LAUNCH_ROUTER}" != "true" ] && [ "${LAUNCH_BABYSITTER}" != "true" ]; then
+    echo ""
+    echo "To start services manually, use:"
+    echo "  docker exec -it <container_id> bash"
+    echo "  # Then run services manually or use script/launch_all_rust.sh"
+fi
 echo ""
 
 # Keep container running

@@ -6,7 +6,7 @@ set -e
 echo "Stopping InfiniLM-SVC demo containers..."
 
 if docker ps -a --format '{{.Names}}' | grep -q "^infinilm-svc-master$"; then
-    echo "Stopping infinilm-svc-master..."
+    echo "Stopping infinilm-svc-master (includes embedding server)..."
     docker stop infinilm-svc-master >/dev/null 2>&1 || true
     echo "Removing infinilm-svc-master..."
     docker rm -f infinilm-svc-master >/dev/null 2>&1 || true

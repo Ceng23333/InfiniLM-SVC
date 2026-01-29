@@ -688,16 +688,26 @@ install_python_deps() {
 
     # Install Python dependencies from requirements.txt
     # Look for requirements files in common locations (priority order)
-    local requirements_file=""
-    if [ -f "${PROJECT_ROOT}/requirements.txt" ]; then
-        # Root-level requirements (for demo/integration testing)
-        requirements_file="${PROJECT_ROOT}/requirements.txt"
-    elif [ -f "${PROJECT_ROOT}/python/requirements.txt" ]; then
-        # Full Python implementation requirements
-        requirements_file="${PROJECT_ROOT}/python/requirements.txt"
+    local requirements_files=()
+
+    # Check for deployment-case-specific requirements files first
+    if [ -n "${DEPLOYMENT_CASE:-}" ]; then
+        local case_requirements="${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt"
+        if [ -f "${case_requirements}" ]; then
+            requirements_files+=("${case_requirements}")
+        fi
     fi
 
-    if [ -z "${requirements_file}" ] || [ ! -f "${requirements_file}" ]; then
+    # Then check common locations
+    if [ -f "${PROJECT_ROOT}/requirements.txt" ]; then
+        # Root-level requirements (for demo/integration testing)
+        requirements_files+=("${PROJECT_ROOT}/requirements.txt")
+    elif [ -f "${PROJECT_ROOT}/python/requirements.txt" ]; then
+        # Full Python implementation requirements
+        requirements_files+=("${PROJECT_ROOT}/python/requirements.txt")
+    fi
+
+    if [ ${#requirements_files[@]} -eq 0 ]; then
         echo -e "${YELLOW}⚠ No requirements file found; skipping python deps install${NC}"
         echo ""
         return 0
@@ -705,21 +715,25 @@ install_python_deps() {
 
     # Install deps into system python3 (if present)
     if command_exists python3; then
-        echo "Installing Python dependencies into system python3 from ${requirements_file}..."
-        python3 -m pip install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
-            python3 -m pip install --no-cache-dir -r "${requirements_file}"
-        echo -e "${GREEN}✓ Python deps installed into system python3${NC}"
+        for requirements_file in "${requirements_files[@]}"; do
+            echo "Installing Python dependencies into system python3 from ${requirements_file}..."
+            python3 -m pip install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
+                python3 -m pip install --no-cache-dir -r "${requirements_file}"
+            echo -e "${GREEN}✓ Python deps installed into system python3 from ${requirements_file}${NC}"
+        done
     fi
 
     # Also install into conda base if present (some images have python3 pointing to conda)
     if [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
-        echo "Installing Python dependencies into conda base from ${requirements_file}..."
-        # shellcheck disable=SC1091
-        source /opt/conda/etc/profile.d/conda.sh
-        conda activate base
-        python -m pip install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
-            python -m pip install --no-cache-dir -r "${requirements_file}"
-        echo -e "${GREEN}✓ Python deps installed into conda base${NC}"
+        for requirements_file in "${requirements_files[@]}"; do
+            echo "Installing Python dependencies into conda base from ${requirements_file}..."
+            # shellcheck disable=SC1091
+            source /opt/conda/etc/profile.d/conda.sh
+            conda activate base
+            python -m pip install --no-cache-dir -r "${requirements_file}" >/dev/null 2>&1 || \
+                python -m pip install --no-cache-dir -r "${requirements_file}"
+            echo -e "${GREEN}✓ Python deps installed into conda base from ${requirements_file}${NC}"
+        done
     fi
 
     if ! command_exists python3 && [ ! -f "/opt/conda/etc/profile.d/conda.sh" ]; then

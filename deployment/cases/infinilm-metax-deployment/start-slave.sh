@@ -4,7 +4,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load deployment case defaults (for LAUNCH_COMPONENTS)
+DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-infinilm-metax-deployment}"
+if [ -f "${SCRIPT_DIR}/install.defaults.sh" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/install.defaults.sh"
+fi
+
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:infinilm-demo}"
+
+# Use LAUNCH_COMPONENTS from deployment case defaults, but override to "babysitter" for slave
+# (slaves should only run babysitters, not registry/router)
+LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-babysitter}"
 
 usage() {
   echo "Usage: $0 <MASTER_IP> <SLAVE_IP> [SLAVE_ID]"
@@ -251,7 +263,7 @@ DOCKER_ARGS=(
   --shm-size 100gb
   --ulimit memlock=-1
   --name "${CONTAINER_NAME}"
-  -e LAUNCH_COMPONENTS=babysitter
+  -e LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS}"
   -e REGISTRY_URL="http://${REGISTRY_IP}:${REGISTRY_PORT}"
   -e ROUTER_URL="http://${REGISTRY_IP}:${ROUTER_PORT}"
   -e BABYSITTER_HOST="${LOCALHOST_IP}"

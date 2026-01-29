@@ -53,8 +53,10 @@ done
 
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
+EMBEDDING_PORT="${EMBEDDING_PORT:-20002}"
 REGISTRY_URL="http://${REGISTRY_IP}:${REGISTRY_PORT}"
 ROUTER_URL="http://${REGISTRY_IP}:${ROUTER_PORT}"
+EMBEDDING_URL="http://${REGISTRY_IP}:${EMBEDDING_PORT}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -76,6 +78,7 @@ else
 fi
 echo "Registry: ${REGISTRY_URL} (port ${REGISTRY_PORT})"
 echo "Router:   ${ROUTER_URL} (port ${ROUTER_PORT})"
+echo "Embedding Server: ${EMBEDDING_URL} (port ${EMBEDDING_PORT})"
 echo ""
 
 check() {
@@ -293,6 +296,86 @@ if [ ${#WORKER_IPS[@]} -gt 0 ]; then
   done
   echo ""
 fi
+
+# Test embedding server endpoints
+echo -e "${BLUE}[8] Embedding server validation${NC}"
+echo "  Testing embedding server at ${EMBEDDING_URL}..."
+
+# Check if embedding server is reachable
+if curl -s -f --connect-timeout 3 "${EMBEDDING_URL}/v1/embeddings" -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"model":"test","input":"test"}' > /dev/null 2>&1; then
+  echo -e "  ${GREEN}✓${NC} Embedding server is reachable"
+
+  # Test OpenAI-compatible /v1/embeddings endpoint
+  echo "  Testing OpenAI-compatible /v1/embeddings endpoint..."
+  embedding_request='{
+    "model": "text-embedding-ada-002",
+    "input": "Hello, world!"
+  }'
+
+  embedding_resp="$(curl -s -X POST "${EMBEDDING_URL}/v1/embeddings" \
+    -H "Content-Type: application/json" \
+    -d "${embedding_request}" 2>/dev/null || echo '{}')"
+
+  if echo "${embedding_resp}" | grep -q '"object":"list"' && \
+     echo "${embedding_resp}" | grep -q '"embedding"'; then
+    echo -e "    ${GREEN}✓${NC} /v1/embeddings endpoint working"
+    # Extract embedding dimension if available
+    embedding_size="$(echo "${embedding_resp}" | grep -o '"embedding":\[[^]]*\]' | head -1 | grep -o ',' | wc -l || echo 'unknown')"
+    if [ "${embedding_size}" != "unknown" ]; then
+      echo "      Embedding dimension: $((embedding_size + 1))"
+    fi
+    test_passed
+  else
+    echo -e "    ${RED}✗${NC} /v1/embeddings endpoint returned invalid response"
+    echo "    Response: ${embedding_resp:0:200}..."
+    test_failed
+  fi
+
+  # Test with multiple inputs
+  echo "  Testing /v1/embeddings with multiple inputs..."
+  multi_embedding_request='{
+    "model": "text-embedding-ada-002",
+    "input": ["First text", "Second text"]
+  }'
+
+  multi_embedding_resp="$(curl -s -X POST "${EMBEDDING_URL}/v1/embeddings" \
+    -H "Content-Type: application/json" \
+    -d "${multi_embedding_request}" 2>/dev/null || echo '{}')"
+
+  index_count="$(echo "${multi_embedding_resp}" | grep -o '"index"' | wc -l || echo "0")"
+  if echo "${multi_embedding_resp}" | grep -q '"object":"list"' && [ "${index_count}" -ge 2 ]; then
+    echo -e "    ${GREEN}✓${NC} Multiple inputs handled correctly (${index_count} embeddings)"
+    test_passed
+  else
+    echo -e "    ${YELLOW}⚠${NC} Multiple inputs test inconclusive (found ${index_count} embeddings)"
+  fi
+
+  # Test legacy /embedding endpoint (optional)
+  echo "  Testing legacy /embedding endpoint..."
+  legacy_request='{
+    "embedding_type": "doc",
+    "texts": ["Test document"]
+  }'
+
+  legacy_resp="$(curl -s -X POST "${EMBEDDING_URL}/embedding" \
+    -H "Content-Type: application/json" \
+    -d "${legacy_request}" 2>/dev/null || echo '{}')"
+
+  if echo "${legacy_resp}" | grep -q '"dense_embeddings"'; then
+    echo -e "    ${GREEN}✓${NC} Legacy /embedding endpoint working"
+    test_passed
+  else
+    echo -e "    ${YELLOW}⚠${NC} Legacy /embedding endpoint not responding (may be optional)"
+  fi
+
+else
+  echo -e "  ${YELLOW}⚠${NC} Embedding server not reachable (may not be started)"
+  echo "    To start embedding server, set: export EMBEDDING_MODEL_DIR=/path/to/MiniCPM-Embedding-Light"
+  echo "    Then restart the master container"
+fi
+echo ""
 
 # Summary
 echo "=========================================="

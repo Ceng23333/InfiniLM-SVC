@@ -9,6 +9,13 @@
 # Make sure /app layout is staged (needed for docker_entrypoint_rust.sh)
 SETUP_APP_ROOT="${SETUP_APP_ROOT:-true}"
 
+# Launch components configuration for this deployment case
+# Options: "all", "none", "registry", "router", "babysitter", or comma-separated list
+#   - "all": Launch registry, router, and babysitter (default for production)
+#   - "none": Launch nothing (useful for daily development where services are started manually)
+#   - Comma-separated: e.g., "registry,router" or "babysitter"
+LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
+
 # Metax deployments commonly require python tooling in the image.
 INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-true}"
 
