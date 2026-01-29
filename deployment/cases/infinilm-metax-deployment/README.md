@@ -59,7 +59,34 @@ When directories are mounted:
 - `INFINICORE_DIR` → `/workspace/InfiniCore` (overrides runtime usage directly)
 - If not mounted, uses `/workspace/InfiniLM` and `/workspace/InfiniCore` from container image
 
-## Build demo image (on both servers)
+## Build deployment image
+
+### Option 1: Using GPU Factory Base Image (Recommended for Metax deployments)
+
+This builds the deployment image on top of a GPU factory provided base image (e.g., Metax GPU factory image with HPCC, PyTorch, Python, etc.):
+
+```bash
+cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
+
+# Build with default GPU factory base image
+./build-image.sh
+
+# Build with custom base image
+./build-image.sh --base-image cr.metax-tech.com/public-ai-release-wb/x201/vllm:your-tag
+
+# Build and push to registry
+./build-image.sh --push --registry your-registry.com --tag your-registry/infinilm-svc:latest
+
+# Build without cache
+./build-image.sh --no-cache
+```
+
+The build script uses `Dockerfile.gpu-factory` which:
+- Uses a multi-stage build (Rust builder + GPU factory runtime)
+- Includes InfiniLM-SVC binaries, scripts, and deployment case files
+- Preserves GPU factory image capabilities (HPCC, PyTorch, Python, etc.)
+
+### Option 2: Using Standard Base Images
 
 ```bash
 cd /path/to/InfiniLM-SVC

@@ -25,8 +25,8 @@ INSTALL_INFINICORE="${INSTALL_INFINICORE:-true}"
 INSTALL_INFINILM="${INSTALL_INFINILM:-true}"
 
 # Default refs (override via CLI flags if needed)
-# INFINICORE_BRANCH="${INFINICORE_BRANCH:-main}"
-# INFINILM_BRANCH="${INFINILM_BRANCH:-main}"
+INFINICORE_BRANCH="${INFINICORE_BRANCH:-issue/951}"
+INFINILM_BRANCH="${INFINILM_BRANCH:-issue/193}"
 
 # InfiniCore must be configured for metax + ccl before building.
 # This matches the deployment requirement:

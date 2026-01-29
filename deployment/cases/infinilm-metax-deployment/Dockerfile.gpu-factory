@@ -1,0 +1,87 @@
+# Dockerfile for InfiniLM-SVC deployment based on GPU factory image
+# Builds InfiniLM-SVC on top of Metax GPU factory base image
+#
+# Base image: GPU factory image with HPCC, PyTorch, Python 3.10, Kylin Linux (ARM64)
+# Example: cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64
+#
+# This Dockerfile uses install.sh script to build and install InfiniLM-SVC
+# (simplified single-stage build using the installation script)
+
+# Base image: GPU factory image with HPCC, PyTorch, Python, etc.
+# Default can be overridden via --build-arg BASE_IMAGE
+ARG BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+# Copy all project files (needed for install.sh to work)
+# install.sh will handle OS detection and install all required dependencies
+COPY . .
+
+# Set deployment case environment variable for install.sh
+ENV DEPLOYMENT_CASE=infinilm-metax-deployment
+
+# Run install script to build and install binaries
+# This will:
+# - Install Rust if not present
+# - Build release binaries
+# - Install binaries to /usr/local/bin
+# - Install Python dependencies (if INSTALL_PYTHON_DEPS=true)
+RUN ./scripts/install.sh \
+    --install-path /usr/local/bin \
+    --deployment-case infinilm-metax-deployment
+
+# Verify installation
+RUN which infini-registry && \
+    which infini-router && \
+    which infini-babysitter && \
+    infini-registry --help > /dev/null 2>&1 || true
+
+# Copy deployment case specific files to /app
+COPY deployment/cases/infinilm-metax-deployment/embeddings_server.py ./embeddings_server.py
+COPY deployment/cases/infinilm-metax-deployment/env-set.sh ./env-set.sh 2>/dev/null || true
+COPY deployment/cases/infinilm-metax-deployment/requirements-embeddings.txt ./requirements-embeddings.txt 2>/dev/null || true
+
+# Copy docker entrypoint script
+COPY docker/docker_entrypoint_rust.sh ./docker_entrypoint.sh
+
+# Make scripts executable
+RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p logs config /workspace/models
+
+# Set working directory
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+# Expose default ports
+# REGISTRY_PORT (default: 18000)
+# ROUTER_PORT (default: 8000)
+# EMBEDDING_PORT (default: 20002)
+EXPOSE 18000 8000 20002
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Built on GPU factory base image for infinilm-metax-deployment"
+LABEL deployment-case="infinilm-metax-deployment"
+LABEL base-image="${BASE_IMAGE}"
+
+# Usage:
+#   Build with default base image:
+#     docker build -f deployment/cases/infinilm-metax-deployment/Dockerfile.gpu-factory \
+#                  -t infinilm-svc:infinilm-demo .
+#
+#   Build with custom base image:
+#     docker build -f deployment/cases/infinilm-metax-deployment/Dockerfile.gpu-factory \
+#                  --build-arg BASE_IMAGE=your-registry/image:tag \
+#                  -t infinilm-svc:infinilm-demo .
+#
+#   Run:
+#     docker run -d --name infinilm-svc-master \
+#                -e LAUNCH_COMPONENTS=all \
+#                -e REGISTRY_PORT=18000 \
+#                -e ROUTER_PORT=8000 \
+#                infinilm-svc:infinilm-demo

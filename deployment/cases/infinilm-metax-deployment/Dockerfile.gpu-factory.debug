@@ -1,0 +1,77 @@
+# Debug version of Dockerfile.gpu-factory
+# This version provides verbose output for monitoring install progress
+#
+# Usage:
+#   docker build --progress=plain -f Dockerfile.gpu-factory.debug -t infinilm-svc:debug .
+
+ARG BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+# Copy all project files
+COPY . .
+
+# Set deployment case environment variable
+ENV DEPLOYMENT_CASE=infinilm-metax-deployment
+
+# Enable verbose output
+ENV DEBUG=1
+ENV VERBOSE=1
+
+# Run install script with explicit output (no redirection)
+# Split into steps for better visibility
+RUN echo "==========================================" && \
+    echo "Starting InfiniLM-SVC Installation" && \
+    echo "==========================================" && \
+    echo "Deployment case: ${DEPLOYMENT_CASE}" && \
+    echo "Install path: /usr/local/bin" && \
+    echo ""
+
+RUN echo "[Step 1/6] Running install.sh..." && \
+    ./scripts/install.sh \
+        --install-path /usr/local/bin \
+        --deployment-case infinilm-metax-deployment && \
+    echo "[Step 1/6] ✓ Install script completed"
+
+RUN echo "[Step 2/6] Verifying binaries..." && \
+    which infini-registry && \
+    which infini-router && \
+    which infini-babysitter && \
+    echo "[Step 2/6] ✓ All binaries found"
+
+RUN echo "[Step 3/6] Testing binaries..." && \
+    infini-registry --help > /dev/null 2>&1 && \
+    infini-router --help > /dev/null 2>&1 && \
+    infini-babysitter --help > /dev/null 2>&1 && \
+    echo "[Step 3/6] ✓ All binaries working"
+
+RUN echo "[Step 4/6] Copying deployment case files..." && \
+    cp deployment/cases/infinilm-metax-deployment/embeddings_server.py ./embeddings_server.py && \
+    cp deployment/cases/infinilm-metax-deployment/env-set.sh ./env-set.sh 2>/dev/null || true && \
+    cp deployment/cases/infinilm-metax-deployment/requirements-embeddings.txt ./requirements-embeddings.txt 2>/dev/null || true && \
+    echo "[Step 4/6] ✓ Deployment files copied"
+
+RUN echo "[Step 5/6] Setting up scripts..." && \
+    cp docker/docker_entrypoint_rust.sh ./docker_entrypoint.sh && \
+    chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true && \
+    echo "[Step 5/6] ✓ Scripts set up"
+
+RUN echo "[Step 6/6] Creating directories..." && \
+    mkdir -p logs config /workspace/models && \
+    echo "[Step 6/6] ✓ Directories created" && \
+    echo "" && \
+    echo "==========================================" && \
+    echo "Build completed successfully!" && \
+    echo "=========================================="
+
+WORKDIR /app
+
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+EXPOSE 18000 8000 20002
+
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Debug build with verbose output"
+LABEL deployment-case="infinilm-metax-deployment"
+LABEL base-image="${BASE_IMAGE}"
