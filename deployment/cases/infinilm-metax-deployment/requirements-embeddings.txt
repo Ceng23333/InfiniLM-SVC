@@ -3,8 +3,11 @@
 
 # Web framework
 flask>=2.0.0
+blinker
+werkzeug
+itsdangerous
 
-# Transformers and ML libraries
-transformers>=4.30.0
-torch>=2.0.0
-numpy>=1.24.0
+# Transformers and ML libraries already installed in the base image
+# transformers>=4.30.0
+# torch>=2.0.0
+# numpy>=1.24.0

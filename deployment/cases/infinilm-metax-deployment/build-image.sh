@@ -15,7 +15,13 @@
 #   --progress TYPE        Docker build progress type (auto, plain, tty)
 #   --push                 Push image to registry after build
 #   --registry REGISTRY    Registry to push to (required if --push)
+#   --proxy PROXY          Set HTTP/HTTPS proxy (e.g., http://127.0.0.1:7890)
+#   --no-proxy NO_PROXY    Set NO_PROXY list (comma-separated)
+#   --privileged           Use privileged mode for device access during build (not recommended)
 #   -h, --help             Show this help message
+#
+# Note: Device access errors during build verification are expected and non-fatal.
+#       See TROUBLESHOOTING.md for details.
 
 set -euo pipefail
 
@@ -31,6 +37,10 @@ USE_DEBUG="${USE_DEBUG:-false}"
 PROGRESS_TYPE="${PROGRESS_TYPE:-auto}"
 PUSH_IMAGE="${PUSH_IMAGE:-false}"
 REGISTRY="${REGISTRY:-}"
+HTTP_PROXY="${HTTP_PROXY:-}"
+HTTPS_PROXY="${HTTPS_PROXY:-}"
+ALL_PROXY="${ALL_PROXY:-}"
+NO_PROXY="${NO_PROXY:-}"
 
 usage() {
     cat <<EOF
@@ -47,6 +57,10 @@ Options:
   --no-cache             Build without using cache
   --push                 Push image to registry after build
   --registry REGISTRY    Registry to push to (required if --push)
+  --proxy PROXY          Set HTTP/HTTPS proxy (e.g., http://127.0.0.1:7890)
+                         Also checks HTTP_PROXY/HTTPS_PROXY environment variables
+  --no-proxy NO_PROXY    Set NO_PROXY list (comma-separated)
+                         Also checks NO_PROXY environment variable
   -h, --help             Show this help message
 
 Examples:
@@ -109,6 +123,15 @@ while [[ $# -gt 0 ]]; do
             REGISTRY="$2"
             shift 2
             ;;
+        --proxy)
+            HTTP_PROXY="$2"
+            HTTPS_PROXY="$2"
+            shift 2
+            ;;
+        --no-proxy)
+            NO_PROXY="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -148,6 +171,9 @@ echo "Dockerfile: ${DOCKERFILE}"
 echo "Base image: ${BASE_IMAGE}"
 echo "Output tag: ${IMAGE_TAG}"
 echo "No cache: ${NO_CACHE}"
+if [ -n "${HTTP_PROXY}" ] || [ -n "${HTTPS_PROXY}" ]; then
+    echo "Proxy: ${HTTP_PROXY:-${HTTPS_PROXY}}"
+fi
 echo ""
 
 # Build Docker build arguments
@@ -157,6 +183,36 @@ BUILD_ARGS=(
     --progress "${PROGRESS_TYPE}"
     -t "${IMAGE_TAG}"
 )
+
+# Check if proxy is localhost/127.0.0.1 - need host network for container to access host proxy
+USE_HOST_NETWORK=false
+if echo "${HTTP_PROXY}${HTTPS_PROXY}" | grep -qE "127\.0\.0\.1|localhost"; then
+    USE_HOST_NETWORK=true
+    echo "Detected localhost proxy - will use --network host for Docker build"
+fi
+
+# Add proxy build args if set
+if [ -n "${HTTP_PROXY}" ]; then
+    BUILD_ARGS+=(--build-arg "HTTP_PROXY=${HTTP_PROXY}")
+    BUILD_ARGS+=(--build-arg "http_proxy=${HTTP_PROXY}")
+fi
+if [ -n "${HTTPS_PROXY}" ]; then
+    BUILD_ARGS+=(--build-arg "HTTPS_PROXY=${HTTPS_PROXY}")
+    BUILD_ARGS+=(--build-arg "https_proxy=${HTTPS_PROXY}")
+fi
+if [ -n "${ALL_PROXY}" ]; then
+    BUILD_ARGS+=(--build-arg "ALL_PROXY=${ALL_PROXY}")
+    BUILD_ARGS+=(--build-arg "all_proxy=${ALL_PROXY}")
+fi
+if [ -n "${NO_PROXY}" ]; then
+    BUILD_ARGS+=(--build-arg "NO_PROXY=${NO_PROXY}")
+    BUILD_ARGS+=(--build-arg "no_proxy=${NO_PROXY}")
+fi
+
+# Add --network host if localhost proxy detected
+if [ "${USE_HOST_NETWORK}" = "true" ]; then
+    BUILD_ARGS+=(--network host)
+fi
 
 if [ "${NO_CACHE}" = "true" ]; then
     BUILD_ARGS+=(--no-cache)
@@ -171,8 +227,27 @@ BUILD_ARGS+=(
 # Change to project root for build context
 cd "${PROJECT_ROOT}"
 
+# Setup cache directories on host for future use
+# These can be used with Docker BuildKit cache mounts (Docker 19.03+) or manually
+CACHE_BASE_DIR="${HOME}/.docker-build-cache/infinilm-svc"
+mkdir -p "${CACHE_BASE_DIR}/cargo" "${CACHE_BASE_DIR}/pip" "${CACHE_BASE_DIR}/cache" "${CACHE_BASE_DIR}/tmp"
+
+# Note: Docker 18.09 has limited BuildKit support and may timeout on Docker Hub
+# Disable BuildKit for compatibility. For Docker 19.03+, enable BuildKit and use cache mounts:
+#   DOCKER_BUILDKIT=1 docker build --mount=type=cache,target=/root/.cargo ...
+export DOCKER_BUILDKIT=0
+
 echo "Building image..."
 echo "Command: docker build ${BUILD_ARGS[*]} ."
+echo ""
+echo "Cache directories prepared at: ${CACHE_BASE_DIR}"
+echo "  - Cargo cache: ${CACHE_BASE_DIR}/cargo"
+echo "  - Pip cache: ${CACHE_BASE_DIR}/pip"
+echo "  - General cache: ${CACHE_BASE_DIR}/cache"
+echo "  - Temp cache: ${CACHE_BASE_DIR}/tmp"
+echo ""
+echo "Note: For Docker 19.03+ with BuildKit cache mounts, use:"
+echo "  DOCKER_BUILDKIT=1 docker build --mount=type=cache,target=/root/.cargo --mount=type=cache,target=/root/.cache/pip ..."
 echo ""
 
 if docker build "${BUILD_ARGS[@]}" .; then

@@ -98,21 +98,23 @@ docker build -f docker/Dockerfile.rust -t infinilm-svc:latest .
 docker build -f docker/Dockerfile.demo -t infinilm-svc:infinilm-demo .
 ```
 
-## Start Server 1
+## Start Master Server
 
 ```bash
 cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
 
 # Required environment:
 export MODEL1_DIR=/path/to/9g8b_model_dir
-export MODEL2_GGUF=/path/to/Qwen3-32B.gguf
+export MODEL2_DIR=/path/to/Qwen3-32B
 
 # Optional environment:
 export REGISTRY_PORT=18000      # Default: 18000
 export ROUTER_PORT=8000         # Default: 8000
+export EMBEDDING_MODEL_DIR=/path/to/embedding/models  # Optional: enables embedding server
 export INFINILM_DIR=/path/to/InfiniLM      # Optional: mount InfiniLM
 export INFINICORE_DIR=/path/to/InfiniCore  # Optional: mount InfiniCore
 export CONFIG_DIR=/path/to/config          # Optional: custom config dir
+export IMAGE_NAME=infinilm-svc:infinilm-demo-20260130-135954  # Optional: specify image tag
 
 ./start-master.sh <MASTER_IP>
 ```
@@ -134,19 +136,20 @@ docker exec -it infinilm-svc-master bash -c '
 
 Note: If `INFINILM_DIR` and `INFINICORE_DIR` are mounted, they override `/workspace/InfiniLM` and `/workspace/InfiniCore` directly, so installation may not be needed if the mounted directories are already built.
 
-## Start Server 2
+## Start Slave Server
 
 ```bash
 cd /path/to/InfiniLM-SVC/deployment/cases/infinilm-metax-deployment
 
 # Required environment:
 export MODEL1_DIR=/path/to/9g8b_model_dir
-export MODEL2_GGUF=/path/to/Qwen3-32B.gguf
+export MODEL2_DIR=/path/to/Qwen3-32B
 
 # Optional environment:
 export INFINILM_DIR=/path/to/InfiniLM      # Optional: mount InfiniLM
 export INFINICORE_DIR=/path/to/InfiniCore  # Optional: mount InfiniCore
 export CONFIG_DIR=/path/to/config          # Optional: custom config dir
+export IMAGE_NAME=infinilm-svc:infinilm-demo-20260130-135954  # Optional: specify image tag
 
 ./start-slave.sh <MASTER_IP> <SLAVE_IP> [SLAVE_ID]
 ```

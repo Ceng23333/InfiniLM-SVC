@@ -1,4 +1,5 @@
 # Master (Server 1) - Qwen3-32B model
+# Backend: InfiniLM Python inference server (InfiniLM-Rust/xtask is deprecated)
 
 name = "master-Qwen3-32B"
 host = "0.0.0.0"
@@ -12,18 +13,27 @@ max_restarts = 10000
 restart_delay = 5
 heartbeat_interval = 30
 
+# Backend: InfiniLM Python inference server
 [backend]
 type = "command"
-command = "/root/.infini/bin/xtask"
+command = "/opt/conda/bin/python"
 args = [
-  "service",
-  "/app/config/master-service_qwen.toml",
-  "-p", "8200"
+  "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
+  "--metax",
+  "--model_path", "/models/Qwen3-32B",
+  "--max_batch_size", "8",
+  "--tp", "4",
+  "--temperature", "1.0",
+  "--top_p", "0.8",
+  "--top_k", "1",
+  "--host", "0.0.0.0",
+  "--port", "8200",
 ]
-work_dir = "/app"
+work_dir = "/workspace/InfiniLM"
 
 [backend.env]
 PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
 INFINI_ROOT = "/root/.infini"
 LD_LIBRARY_PATH = "/opt/conda/lib:/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib"
 MACA_HOME = "/opt/hpcc"

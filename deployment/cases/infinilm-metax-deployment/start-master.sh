@@ -33,7 +33,7 @@ CONFIG_DIR="${CONFIG_DIR:-${SCRIPT_DIR}/config}"
 
 # Required model paths
 MODEL1_DIR="${MODEL1_DIR:-}"
-MODEL2_GGUF="${MODEL2_GGUF:-}"
+MODEL2_DIR="${MODEL2_DIR:-}"
 
 # Embedding model paths (optional - embedding server will only start if provided)
 EMBEDDING_MODEL_DIR="${EMBEDDING_MODEL_DIR:-}"
@@ -41,25 +41,18 @@ RERANK_MODEL_DIR="${RERANK_MODEL_DIR:-}"
 BCE_RERANK_MODEL_DIR="${BCE_RERANK_MODEL_DIR:-}"
 
 if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
-  echo "Error: MODEL1_DIR must point to the 9g8b model directory on this host."
-  echo "  Example: export MODEL1_DIR=/path/to/9g8b_model_dir"
+  echo "Error: MODEL1_DIR must point to the 9g_8b_thinking_llama model directory on this host."
+  echo "  Current value: MODEL1_DIR=${MODEL1_DIR}"
+  echo "  Example: export MODEL1_DIR=/data-aisoft/zenghua/models/9g_8b_thinking_llama"
   exit 1
 fi
 
-if [ -z "${MODEL2_GGUF}" ]; then
-  echo "Error: MODEL2_GGUF must point to the Qwen3 gguf model file on this host."
-  echo "  Example: export MODEL2_GGUF=/path/to/Qwen3-32B.gguf"
+if [ -z "${MODEL2_DIR}" ] || [ ! -d "${MODEL2_DIR}" ]; then
+  echo "Error: MODEL2_DIR must point to the Qwen3-32B model directory on this host."
+  echo "  Current value: MODEL2_DIR=${MODEL2_DIR}"
+  echo "  Example: export MODEL2_DIR=/data-aisoft/zenghua/models/Qwen3-32B"
   exit 1
 fi
-
-if [ ! -f "${MODEL2_GGUF}" ]; then
-  echo "Error: MODEL2_GGUF must be a file: ${MODEL2_GGUF}"
-  exit 1
-fi
-
-# Mount the file directly to /models/Qwen3-32B.gguf
-MODEL2_MOUNT_DIR="${MODEL2_GGUF}"
-MODEL2_CONTAINER_PATH="/models/Qwen3-32B.gguf"
 
 echo "=========================================="
 echo "Starting InfiniLM-SVC Master"
@@ -72,8 +65,8 @@ echo "Components: Registry, Router, master-9g_8b_thinking, master-Qwen3-32B"
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"
-echo "  MODEL1_DIR: ${MODEL1_DIR}"
-echo "  MODEL2_GGUF: ${MODEL2_GGUF} (mounted to ${MODEL2_CONTAINER_PATH})"
+echo "  MODEL1_DIR (9g_8b_thinking_llama): ${MODEL1_DIR}"
+echo "  MODEL2_DIR (Qwen3-32B): ${MODEL2_DIR}"
 echo ""
 if [ -n "${INFINILM_DIR}" ]; then
   echo "INFINILM_DIR: ${INFINILM_DIR} (will mount to /workspace/InfiniLM)"
@@ -129,6 +122,16 @@ DOCKER_ARGS=(
   -e BABYSITTER_CONFIGS="master-9g_8b_thinking.toml master-Qwen3-32B.toml"
 )
 
+# Set NO_PROXY to exclude localhost/127.0.0.1 so local registry/router connections bypass proxy
+# This ensures validation scripts and internal services can access the registry directly
+if [ -n "${NO_PROXY:-}" ]; then
+  DOCKER_ARGS+=(-e "NO_PROXY=${NO_PROXY},localhost,127.0.0.1,0.0.0.0")
+  DOCKER_ARGS+=(-e "no_proxy=${NO_PROXY},localhost,127.0.0.1,0.0.0.0")
+else
+  DOCKER_ARGS+=(-e "NO_PROXY=localhost,127.0.0.1,0.0.0.0")
+  DOCKER_ARGS+=(-e "no_proxy=localhost,127.0.0.1,0.0.0.0")
+fi
+
 # Mount config directory
 DOCKER_ARGS+=(-v "${CONFIG_DIR}:/app/config:ro")
 
@@ -146,16 +149,35 @@ if [ -n "${INFINICORE_DIR}" ] && [ -d "${INFINICORE_DIR}" ]; then
 fi
 
 # Mount models
+# MODEL1_DIR should be mounted to the expected model path in container
 DOCKER_ARGS+=(
   -v "${MODEL1_DIR}:/models/9g_8b_thinking:ro"
-  -v "${MODEL2_MOUNT_DIR}:${MODEL2_CONTAINER_PATH}:ro"
+  -v "${MODEL2_DIR}:/models/Qwen3-32B:ro"
 )
 
 # Mount embedding models (model-level mounting, not whole workspace)
+# If EMBEDDING_MODEL_DIR points to a parent directory, mount individual models
+# Otherwise, mount the specific model directory
 if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
-  DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}:/workspace/models/MiniCPM-Embedding-Light:ro")
+  # Check if EMBEDDING_MODEL_DIR is a parent directory containing MiniCPM-Embedding-Light
+  if [ -d "${EMBEDDING_MODEL_DIR}/MiniCPM-Embedding-Light" ]; then
+    DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}/MiniCPM-Embedding-Light:/workspace/models/MiniCPM-Embedding-Light:ro")
+  else
+    # Assume EMBEDDING_MODEL_DIR points directly to MiniCPM-Embedding-Light
+    DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}:/workspace/models/MiniCPM-Embedding-Light:ro")
+  fi
+  
+  # Also mount reranker models if they exist in the same parent directory
+  if [ -d "${EMBEDDING_MODEL_DIR}/MiniCPM-Reranker-Light" ]; then
+    DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}/MiniCPM-Reranker-Light:/workspace/models/MiniCPM-Reranker-Light:ro")
+  fi
+  
+  if [ -d "${EMBEDDING_MODEL_DIR}/bce-reranker-base_v1" ]; then
+    DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}/bce-reranker-base_v1:/workspace/models/bce-reranker-base_v1:ro")
+  fi
 fi
 
+# Mount reranker models if explicitly specified (overrides auto-detection above)
 if [ -n "${RERANK_MODEL_DIR}" ] && [ -d "${RERANK_MODEL_DIR}" ]; then
   DOCKER_ARGS+=(-v "${RERANK_MODEL_DIR}:/workspace/models/MiniCPM-Reranker-Light:ro")
 fi
@@ -188,8 +210,10 @@ if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
   echo "🚀 Starting embedding server inside ${CONTAINER_NAME}..."
 
   # Start embedding server in background (dependencies should be installed during build/install phase)
+  # Use conda Python which has Flask and other dependencies installed
   docker exec -d "${CONTAINER_NAME}" /bin/bash -c "
-    nohup python3 /app/embeddings_server.py > /tmp/embeddings_server.log 2>&1 &
+    source /opt/conda/etc/profile.d/conda.sh && conda activate base && \
+    nohup /opt/conda/bin/python /app/embeddings_server.py > /tmp/embeddings_server.log 2>&1 &
     echo \$! > /tmp/embeddings_server.pid
   "
 

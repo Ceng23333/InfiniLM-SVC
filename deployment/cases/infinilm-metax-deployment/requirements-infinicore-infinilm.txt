@@ -1,0 +1,15 @@
+# Python dependencies for InfiniCore and InfiniLM
+# These are required for building and running InfiniCore/InfiniLM Python packages
+
+# Common dependencies (required by both InfiniCore and InfiniLM)
+ml_dtypes>=0.5.0
+
+# InfiniLM-specific dependencies
+# Note: These may already be installed in the base image, but listed here for completeness
+fastapi>=0.100.0
+uvicorn>=0.20.0
+janus>=2.0.0
+# transformers>=4.30.0
+# tokenizers>=0.13.0
+# torch is typically provided by the base image, but listed for reference
+# torch>=2.0.0

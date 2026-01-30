@@ -113,7 +113,15 @@ check "${ROUTER_URL}/health" "Router /health"
 echo ""
 
 echo -e "${BLUE}[2] Service discovery${NC}"
-services_json="$(curl -s "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
+# Query registry from inside container if available to avoid proxy interference
+# With --network host, the container's registry should be accessible, but proxy may route incorrectly
+CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
+if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+  # Query from inside container to bypass proxy and get correct registry instance
+  services_json="$(docker exec "${CONTAINER_NAME}" curl -s --noproxy "*" "http://127.0.0.1:${REGISTRY_PORT}/services" 2>/dev/null || curl -s "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
+else
+  services_json="$(curl -s "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
+fi
 service_count="$(echo "${services_json}" | grep -o '"name"' | wc -l || echo "0")"
 echo "  Found ${service_count} services"
 
@@ -318,7 +326,10 @@ if curl -s -f --connect-timeout 3 "${EMBEDDING_URL}/v1/embeddings" -X POST \
     -H "Content-Type: application/json" \
     -d "${embedding_request}" 2>/dev/null || echo '{}')"
 
-  if echo "${embedding_resp}" | grep -q '"object":"list"' && \
+  # Check if response is valid OpenAI-compatible format
+  # Response should have: {"object": "list", "data": [{"object": "embedding", "embedding": [...]}]}
+  if echo "${embedding_resp}" | grep -qE '"object"\s*:\s*"list"' && \
+     echo "${embedding_resp}" | grep -q '"data"' && \
      echo "${embedding_resp}" | grep -q '"embedding"'; then
     echo -e "    ${GREEN}✓${NC} /v1/embeddings endpoint working"
     # Extract embedding dimension if available
@@ -329,7 +340,17 @@ if curl -s -f --connect-timeout 3 "${EMBEDDING_URL}/v1/embeddings" -X POST \
     test_passed
   else
     echo -e "    ${RED}✗${NC} /v1/embeddings endpoint returned invalid response"
-    echo "    Response: ${embedding_resp:0:200}..."
+    echo "    Response preview: ${embedding_resp:0:200}..."
+    # Show what was found for debugging
+    if echo "${embedding_resp}" | grep -q '"object"'; then
+      echo "    Found 'object' field"
+    fi
+    if echo "${embedding_resp}" | grep -q '"data"'; then
+      echo "    Found 'data' field"
+    fi
+    if echo "${embedding_resp}" | grep -q '"embedding"'; then
+      echo "    Found 'embedding' field"
+    fi
     test_failed
   fi
 

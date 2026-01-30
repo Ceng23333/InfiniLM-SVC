@@ -6,13 +6,34 @@
 #
 # This Dockerfile uses install.sh script to build and install InfiniLM-SVC
 # (simplified single-stage build using the installation script)
+# Uses BuildKit cache mounts for faster rebuilds
 
 # Base image: GPU factory image with HPCC, PyTorch, Python, etc.
 # Default can be overridden via --build-arg BASE_IMAGE
 ARG BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64
+# Proxy settings (optional, can be set via --build-arg)
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG http_proxy=""
+ARG https_proxy=""
+ARG ALL_PROXY=""
+ARG all_proxy=""
+ARG NO_PROXY=""
+ARG no_proxy=""
+
 FROM ${BASE_IMAGE}
 
 WORKDIR /app
+
+# Set proxy environment variables if provided
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV ALL_PROXY=${ALL_PROXY}
+ENV all_proxy=${all_proxy}
+ENV NO_PROXY=${NO_PROXY}
+ENV no_proxy=${no_proxy}
 
 # Copy all project files (needed for install.sh to work)
 # install.sh will handle OS detection and install all required dependencies
@@ -21,15 +42,33 @@ COPY . .
 # Set deployment case environment variable for install.sh
 ENV DEPLOYMENT_CASE=infinilm-metax-deployment
 
+# Install git first (required for cloning InfiniCore/InfiniLM)
+# Try multiple methods to ensure git is available
+RUN (command -v git >/dev/null 2>&1 || \
+     [ -f /usr/bin/git ] || \
+     [ -f /usr/local/bin/git ] || \
+     (yum install -y git >/dev/null 2>&1 || dnf install -y git >/dev/null 2>&1 || apt-get update -qq >/dev/null 2>&1 && apt-get install -y git >/dev/null 2>&1 || true)) && \
+    (command -v git >/dev/null 2>&1 || [ -f /usr/bin/git ] || [ -f /usr/local/bin/git ] || \
+     (echo "Warning: git may not be available" && false)) || \
+    echo "Warning: git installation check failed, will try to continue"
+
 # Run install script to build and install binaries
 # This will:
 # - Install Rust if not present
 # - Build release binaries
 # - Install binaries to /usr/local/bin
 # - Install Python dependencies (if INSTALL_PYTHON_DEPS=true)
-RUN ./scripts/install.sh \
+# - Clone and install InfiniCore and InfiniLM if not present
+# Note: For cache mounts, use Docker BuildKit with --build-arg CACHE_DIR=/path/to/cache
+#       or mount host directories: -v /host/cache/cargo:/root/.cargo -v /host/cache/pip:/root/.cache/pip
+RUN mkdir -p /workspace && \
+    ./scripts/install.sh \
     --install-path /usr/local/bin \
-    --deployment-case infinilm-metax-deployment
+        --deployment-case infinilm-metax-deployment \
+        --install-infinicore true \
+        --install-infinilm true \
+        --infinicore-src /workspace/InfiniCore \
+        --infinilm-src /workspace/InfiniLM
 
 # Verify installation
 RUN which infini-registry && \
@@ -39,8 +78,13 @@ RUN which infini-registry && \
 
 # Copy deployment case specific files to /app
 COPY deployment/cases/infinilm-metax-deployment/embeddings_server.py ./embeddings_server.py
-COPY deployment/cases/infinilm-metax-deployment/env-set.sh ./env-set.sh 2>/dev/null || true
-COPY deployment/cases/infinilm-metax-deployment/requirements-embeddings.txt ./requirements-embeddings.txt 2>/dev/null || true
+# Copy env-set.sh and requirements-embeddings.txt if they exist (handle optional files with RUN)
+RUN if [ -f deployment/cases/infinilm-metax-deployment/env-set.sh ]; then \
+        cp deployment/cases/infinilm-metax-deployment/env-set.sh ./env-set.sh; \
+    fi || true
+RUN if [ -f deployment/cases/infinilm-metax-deployment/requirements-embeddings.txt ]; then \
+        cp deployment/cases/infinilm-metax-deployment/requirements-embeddings.txt ./requirements-embeddings.txt; \
+    fi || true
 
 # Copy docker entrypoint script
 COPY docker/docker_entrypoint_rust.sh ./docker_entrypoint.sh
@@ -50,6 +94,19 @@ RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
 
 # Create necessary directories
 RUN mkdir -p logs config /workspace/models
+
+# Unset proxy environment variables at the end of build to avoid proxy interference at runtime
+# Proxy is only needed during build for downloading dependencies
+# At runtime, services should connect directly without proxy routing issues
+# Set NO_PROXY to include localhost/127.0.0.1 to ensure local connections bypass proxy
+ENV HTTP_PROXY=""
+ENV HTTPS_PROXY=""
+ENV http_proxy=""
+ENV https_proxy=""
+ENV ALL_PROXY=""
+ENV all_proxy=""
+ENV NO_PROXY="localhost,127.0.0.1,0.0.0.0"
+ENV no_proxy="localhost,127.0.0.1,0.0.0.0"
 
 # Set working directory
 WORKDIR /app
