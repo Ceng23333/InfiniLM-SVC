@@ -14,6 +14,7 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use crate::proxy::model_extractor::extract_model_from_body;
+use crate::proxy::session_extractor::extract_session_id;
 use crate::proxy::streaming::handle_streaming_response;
 use crate::router::load_balancer::LoadBalancer;
 
@@ -68,6 +69,11 @@ pub async fn proxy_handler(
         None
     };
 
+    // Extract session ID (prompt_cache_key or IP-based)
+    // Note: remote_addr is None here since we don't have direct access to it in axum Request
+    // The session_extractor will use X-Forwarded-For header as fallback
+    let session_id = extract_session_id(&headers, &body_bytes, None, model_id.as_deref());
+
     // Try multiple services if one fails (retry logic for multi-server scenarios)
     let max_retries = 3;
     let mut last_error: Option<(StatusCode, String)> = None;
@@ -86,24 +92,48 @@ pub async fn proxy_handler(
     };
 
     for attempt in 0..max_retries {
-        // Get next healthy service, optionally filtered by model
-        let service = match load_balancer
-            .get_next_healthy_service_by_model(model_id.as_deref())
-            .await
-        {
-            Some(s) => s,
-            None => {
-                // No more healthy services available
-                let error_msg = if let Some(model) = model_id {
-                    format!("No healthy services available for model '{}'", model)
-                } else {
-                    "No healthy services available".to_string()
-                };
-                return (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({"error": error_msg})),
-                )
-                    .into_response();
+        // Get service: session-aware routing if session_id exists, else round-robin
+        let service = if let Some(ref session_key) = session_id {
+            // Session-aware routing
+            match load_balancer
+                .get_service_by_session(session_key, model_id.as_deref())
+                .await
+            {
+                Some(s) => s,
+                None => {
+                    // No more healthy services available
+                    let error_msg = if let Some(model) = &model_id {
+                        format!("No healthy services available for model '{}'", model)
+                    } else {
+                        "No healthy services available".to_string()
+                    };
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({"error": error_msg})),
+                    )
+                        .into_response();
+                }
+            }
+        } else {
+            // Fallback to existing round-robin logic (no session identifier available)
+            match load_balancer
+                .get_next_healthy_service_by_model(model_id.as_deref())
+                .await
+            {
+                Some(s) => s,
+                None => {
+                    // No more healthy services available
+                    let error_msg = if let Some(model) = &model_id {
+                        format!("No healthy services available for model '{}'", model)
+                    } else {
+                        "No healthy services available".to_string()
+                    };
+                    return (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        Json(json!({"error": error_msg})),
+                    )
+                        .into_response();
+                }
             }
         };
 

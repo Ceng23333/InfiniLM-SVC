@@ -1,6 +1,6 @@
 //! Process management for the babysitter
 
-use super::BabysitterState;
+use crate::babysitter::BabysitterState;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;

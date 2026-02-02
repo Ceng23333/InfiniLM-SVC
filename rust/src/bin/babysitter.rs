@@ -3,23 +3,21 @@
 
 use anyhow::Result;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::signal;
 use tokio::sync::RwLock;
 use tracing::info;
 
-mod config;
-mod config_file;
-mod handlers;
-mod process_manager;
-mod registry_client;
+// Declare babysitter modules (using path attribute to point to src/babysitter/)
+#[path = "../babysitter/mod.rs"]
+mod babysitter;
 
 use anyhow::Context;
-use config::BabysitterConfig;
-use config_file::BabysitterConfigFile;
-use handlers::BabysitterHandlers;
-use process_manager::ProcessManager;
-use registry_client::BabysitterRegistryClient;
+use babysitter::config::BabysitterConfig;
+use babysitter::config_file::BabysitterConfigFile;
+use babysitter::handlers::BabysitterHandlers;
+use babysitter::process_manager::ProcessManager;
+use babysitter::registry_client::BabysitterRegistryClient;
+use babysitter::BabysitterState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,7 +33,7 @@ async fn main() -> Result<()> {
     let cli_config = <BabysitterConfig as clap::Parser>::parse();
 
     // Load config from file if specified, otherwise use CLI config
-    let (config, config_file) = if let Some(config_file_path) = &cli_config.config_file {
+    let (config, config_file): (BabysitterConfig, Option<BabysitterConfigFile>) = if let Some(config_file_path) = &cli_config.config_file {
         // Load from TOML file and merge with CLI args (CLI takes precedence)
         let file_config = BabysitterConfigFile::from_file(config_file_path)
             .with_context(|| format!("Failed to load config file: {:?}", config_file_path))?;
@@ -84,7 +82,7 @@ async fn main() -> Result<()> {
         config_file,
         process: Arc::new(RwLock::new(None)),
         service_port: Arc::new(RwLock::new(None)),
-        start_time: Instant::now(),
+        start_time: std::time::Instant::now(),
         restart_count: Arc::new(RwLock::new(0)),
     });
 
@@ -102,7 +100,7 @@ async fn main() -> Result<()> {
 
     // Start registry client (if configured)
     if let Some(registry_url) = &config.registry_url {
-        let registry_client = BabysitterRegistryClient::new(registry_url.clone(), state.clone());
+        let registry_client = BabysitterRegistryClient::new(registry_url.to_string(), state.clone());
         let registry_handle = tokio::spawn(async move { registry_client.run().await });
 
         // Wait for shutdown signal
@@ -125,25 +123,4 @@ async fn main() -> Result<()> {
 
     info!("Babysitter stopped");
     Ok(())
-}
-
-/// Shared state for the babysitter
-#[derive(Clone)]
-pub struct BabysitterState {
-    config: BabysitterConfig,
-    config_file: Option<BabysitterConfigFile>,
-    process: Arc<RwLock<Option<tokio::process::Child>>>,
-    service_port: Arc<RwLock<Option<u16>>>,
-    start_time: Instant,
-    restart_count: Arc<RwLock<u32>>,
-}
-
-impl BabysitterState {
-    pub fn babysitter_port(&self) -> u16 {
-        self.config.port.expect("Port must be set") + 1
-    }
-
-    pub fn service_target_port(&self) -> u16 {
-        self.config.port.expect("Port must be set")
-    }
 }

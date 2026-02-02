@@ -620,7 +620,7 @@ install_system_deps() {
                     # We'll check package installation status regardless of yum exit code
                     yum install -y \
                         gcc \
-                        pkgconf \
+                        pkgconfig \
                         openssl-devel \
                         clang \
                         clang-devel \

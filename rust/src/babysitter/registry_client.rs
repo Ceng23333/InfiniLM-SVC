@@ -1,6 +1,6 @@
 //! Registry client for the babysitter
 
-use super::BabysitterState;
+use crate::babysitter::BabysitterState;
 use reqwest::Client;
 use serde_json::json;
 use std::sync::Arc;

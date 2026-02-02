@@ -13,8 +13,8 @@ tokio = { version = "1", features = ["full"] }
 tower = { version = "0.4", features = ["util"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
-# HTTP client
-reqwest = { version = "0.11", features = ["json", "stream"] }
+# HTTP client (using rustls instead of OpenSSL to avoid system dependencies)
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"], default-features = false }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -41,6 +41,9 @@ tokio-stream = "0.1"
 
 # Time utilities
 chrono = { version = "0.4", features = ["serde"] }
+
+# Hashing
+sha2 = "0.10"
 
 [dev-dependencies]
 tokio-test = "0.4"
