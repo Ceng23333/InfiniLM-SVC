@@ -95,10 +95,18 @@ impl ProcessManager {
         if let Some(config_file) = &self.state.config_file {
             let env_vars = config_file.backend_env();
             if !env_vars.is_empty() {
+                info!("Setting {} environment variables from config file", env_vars.len());
+                for (key, value) in &env_vars {
+                    info!("  {}={}", key, value);
+                }
                 // Inherit parent environment and merge with config env vars
                 cmd.envs(std::env::vars());
                 cmd.envs(env_vars);
+            } else {
+                warn!("Config file has no environment variables");
             }
+        } else {
+            warn!("No config file available for environment variables");
         }
 
         // Convert std::process::Command to tokio::process::Command for async I/O

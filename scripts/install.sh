@@ -2374,7 +2374,7 @@ main() {
     build_binaries
     install_binaries
     install_python_deps
-    install_xtask_optional  # Install xtask after Rust is available
+    # install_xtask_optional  # Install xtask after Rust is available
     setup_scripts
 
     echo -e "${GREEN}========================================${NC}"

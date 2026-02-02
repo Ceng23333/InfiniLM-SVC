@@ -35,10 +35,10 @@ async fn main() -> Result<()> {
     let cli_config = <BabysitterConfig as clap::Parser>::parse();
 
     // Load config from file if specified, otherwise use CLI config
-    let config = if let Some(config_file) = &cli_config.config_file {
+    let (config, config_file) = if let Some(config_file_path) = &cli_config.config_file {
         // Load from TOML file and merge with CLI args (CLI takes precedence)
-        let file_config = BabysitterConfigFile::from_file(config_file)
-            .with_context(|| format!("Failed to load config file: {:?}", config_file))?;
+        let file_config = BabysitterConfigFile::from_file(config_file_path)
+            .with_context(|| format!("Failed to load config file: {:?}", config_file_path))?;
         let mut merged = file_config.to_cli_config();
 
         // Override with CLI values if provided
@@ -62,13 +62,14 @@ async fn main() -> Result<()> {
         }
         // ... add more overrides as needed
 
-        merged
+        // Store the loaded config file object so environment variables can be accessed
+        (merged, Some(file_config))
     } else {
         // Validate required CLI arguments when not using config file
         if cli_config.port.is_none() {
             anyhow::bail!("--port is required when --config-file is not provided");
         }
-        cli_config
+        (cli_config, None)
     };
 
     info!("Starting Enhanced Babysitter");
@@ -76,16 +77,6 @@ async fn main() -> Result<()> {
     let port = config.port.expect("Port must be set");
     info!("Port: {} (babysitter: {})", port, port + 1);
     info!("Registry: {:?}", config.registry_url);
-
-    // Load config file if specified
-    let config_file = if let Some(config_file_path) = &config.config_file {
-        Some(
-            BabysitterConfigFile::from_file(config_file_path)
-                .with_context(|| format!("Failed to load config file: {:?}", config_file_path))?,
-        )
-    } else {
-        None
-    };
 
     // Create shared state
     let state = Arc::new(BabysitterState {
