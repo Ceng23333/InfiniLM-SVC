@@ -13,8 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
 
-use crate::proxy::model_extractor::extract_model_from_body;
-use crate::proxy::session_extractor::extract_session_id;
+use crate::proxy::session_extractor::generate_session_from_ip;
 use crate::proxy::streaming::handle_streaming_response;
 use crate::router::load_balancer::LoadBalancer;
 
@@ -62,17 +61,39 @@ pub async fn proxy_handler(
         }
     };
 
-    // Extract model from request body if it's a POST request
-    let model_id = if method == Method::POST {
-        extract_model_from_body(&body_bytes)
+    // Parse JSON body at most once for POST requests, and extract fields needed for routing.
+    // This avoids doing multiple full serde_json parses per request (which is expensive for large prompts).
+    let (model_id, prompt_cache_key) = if method == Method::POST {
+        match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
+            Ok(v) => {
+                let model_id = v
+                    .get("model")
+                    .and_then(|vv| vv.as_str())
+                    .map(|s| s.to_string());
+                let prompt_cache_key = v
+                    .get("prompt_cache_key")
+                    .and_then(|vv| vv.as_str())
+                    .map(|s| s.to_string());
+                (model_id, prompt_cache_key)
+            }
+            Err(_) => (None, None),
+        }
     } else {
-        None
+        (None, None)
     };
 
     // Extract session ID (prompt_cache_key or IP-based)
-    // Note: remote_addr is None here since we don't have direct access to it in axum Request
-    // The session_extractor will use X-Forwarded-For header as fallback
-    let session_id = extract_session_id(&headers, &body_bytes, None, model_id.as_deref());
+    // Note: remote_addr is None here since we don't have direct access to it in axum Request.
+    // We still use X-Forwarded-For as a fallback via generate_session_from_ip.
+    let session_id = if let Some(key) = prompt_cache_key {
+        let model_prefix = model_id.as_deref().unwrap_or("default");
+        Some(format!("{}:prompt_cache:{}", model_prefix, key))
+    } else if let Some(ip_hash) = generate_session_from_ip(&headers, None) {
+        let model_prefix = model_id.as_deref().unwrap_or("default");
+        Some(format!("{}:ip:{}", model_prefix, ip_hash))
+    } else {
+        None
+    };
 
     // Try multiple services if one fails (retry logic for multi-server scenarios)
     let max_retries = 3;

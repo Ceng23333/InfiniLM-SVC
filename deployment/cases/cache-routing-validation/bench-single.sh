@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Benchmark script for single instance configuration
+# Only master-9g_8b_thinking instance is running (port 8100)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Configuration
+REGISTRY_IP="${1:-localhost}"
+ROUTER_PORT="${ROUTER_PORT:-8000}"
+ROUTER_URL="http://${REGISTRY_IP}:${ROUTER_PORT}"
+
+# vLLM bench configuration
+VLLM_DIR="${VLLM_DIR:-/home/zenghua/repos/vllm}"
+CONDA_ENV_NAME="${CONDA_ENV_NAME:-vllm-bench}"
+MODEL="${MODEL:-9g_8b_thinking}"
+REQUEST_RATE="${REQUEST_RATE:-1.0}"
+NUM_REQUESTS="${NUM_REQUESTS:-64}"
+
+# Multi-prefix configuration (default for all benchmarks)
+NUM_PREFIXES="${NUM_PREFIXES:-4}"      # Number of different shared prefixes
+PREFIX_LEN="${PREFIX_LEN:-8192}"       # Length of each shared prefix in characters
+SUFFIX_LEN="${SUFFIX_LEN:-32}"         # Length of unique suffix in characters
+DATASET_FILE="${DATASET_FILE:-${SCRIPT_DIR}/multi_prefix.jsonl}"
+
+# Tokenizer path - MODEL1_DIR is required
+TOKENIZER_DIR="${TOKENIZER_DIR:-${MODEL1_DIR:-}}"
+if [ -z "${TOKENIZER_DIR}" ] || [ ! -d "${TOKENIZER_DIR}" ]; then
+  echo "❌ Error: TOKENIZER_DIR or MODEL1_DIR must be set and point to a valid model directory"
+  echo ""
+  echo "  The benchmark requires a local tokenizer and cannot download from HuggingFace (offline mode)."
+  echo "  Please set MODEL1_DIR to point to your model directory:"
+  echo ""
+  echo "    export MODEL1_DIR=/path/to/9g_8b_thinking_llama"
+  echo "    ./bench-single.sh 172.22.162.18"
+  echo ""
+  echo "  Or set TOKENIZER_DIR directly:"
+  echo "    export TOKENIZER_DIR=/path/to/model/directory"
+  echo ""
+  exit 1
+fi
+
+TOKENIZER_ARG="--tokenizer ${TOKENIZER_DIR}"
+echo "Using tokenizer from: ${TOKENIZER_DIR}"
+
+echo "=========================================="
+echo "Single Instance Benchmark"
+echo "=========================================="
+echo "Router URL: ${ROUTER_URL}"
+echo "Model: ${MODEL}"
+echo "Request Rate: ${REQUEST_RATE} req/s"
+echo "Number of Requests: ${NUM_REQUESTS}"
+echo "Number of Prefixes: ${NUM_PREFIXES}"
+echo "Prefix Length: ${PREFIX_LEN} chars"
+echo "Suffix Length: ${SUFFIX_LEN} chars"
+echo ""
+echo "Configuration: Only master-9g_8b_thinking (port 8100) is running"
+echo "Dataset: Multi-prefix prompts (${NUM_PREFIXES} different prefixes)"
+echo ""
+
+# Check if vLLM directory exists
+if [ ! -d "${VLLM_DIR}" ]; then
+  echo "Error: VLLM_DIR does not exist: ${VLLM_DIR}"
+  echo "  Set VLLM_DIR to point to your vLLM repository"
+  exit 1
+fi
+
+# Check if benchmark module exists
+if [ ! -f "${VLLM_DIR}/vllm/benchmarks/serve.py" ]; then
+  echo "Error: vLLM benchmarks module not found at ${VLLM_DIR}/vllm/benchmarks/serve.py"
+  exit 1
+fi
+
+# Generate multi-prefix dataset if it doesn't exist
+if [ ! -f "${DATASET_FILE}" ]; then
+  echo "Generating multi-prefix dataset..."
+  python "${SCRIPT_DIR}/gen-multi-prefix.py" \
+    --output "${DATASET_FILE}" \
+    --num-prompts "${NUM_REQUESTS}" \
+    --num-prefixes "${NUM_PREFIXES}" \
+    --prefix-len "${PREFIX_LEN}" \
+    --suffix-len "${SUFFIX_LEN}"
+  echo ""
+fi
+
+# Activate conda environment if available
+if command -v conda &> /dev/null; then
+  eval "$(conda shell.bash hook)"
+  conda activate "${CONDA_ENV_NAME}" 2>/dev/null || {
+    echo "Warning: Could not activate conda environment '${CONDA_ENV_NAME}'"
+    echo "  Make sure it exists: conda env list"
+    echo "  Or create it: ${SCRIPT_DIR}/setup-vllm-env.sh"
+  }
+fi
+
+# Check if Python is available
+if ! command -v python &> /dev/null; then
+  echo "Error: Python not found. Please activate the conda environment:"
+  echo "  conda activate ${CONDA_ENV_NAME}"
+  echo "  Or run: ${SCRIPT_DIR}/setup-vllm-env.sh"
+  exit 1
+fi
+
+# Check if router is accessible
+if ! curl -s -f --connect-timeout 3 "${ROUTER_URL}/health" > /dev/null 2>&1; then
+  echo "Error: Router is not accessible at ${ROUTER_URL}"
+  echo "  Make sure the deployment is running: ${SCRIPT_DIR}/start-master.sh"
+  exit 1
+fi
+
+# Test if model is available
+echo "Checking if model '${MODEL}' is available..."
+MODELS_JSON="$(curl -s "${ROUTER_URL}/models" 2>/dev/null || echo '{}')"
+if ! echo "${MODELS_JSON}" | grep -q "\"id\":\"${MODEL}\""; then
+  echo "⚠️  Warning: Model '${MODEL}' not found in available models"
+  echo "Available models:"
+  echo "${MODELS_JSON}" | grep -o '"id":"[^"]*"' | sed 's/"id":"\([^"]*\)"/  - \1/' || echo "  (could not parse)"
+  echo ""
+  echo "Continuing anyway - benchmark will try to use the model..."
+fi
+
+echo "Running benchmark..."
+cd "${VLLM_DIR}"
+
+# Set PYTHONPATH to include vLLM directory so we can import the module directly
+export PYTHONPATH="${VLLM_DIR}:${PYTHONPATH:-}"
+
+# Suppress warnings about missing compiled extensions (expected when not building vLLM)
+export PYTHONWARNINGS="ignore::UserWarning"
+
+# Force offline mode to use local tokenizer only (no network access)
+export HF_HUB_OFFLINE=1
+
+# Test endpoint connectivity before running benchmark
+echo "Testing endpoint connectivity..."
+TEST_RESPONSE="$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d "{\"model\": \"${MODEL}\", \"messages\": [{\"role\": \"user\", \"content\": \"test\"}], \"max_tokens\": 5}" \
+  2>&1)"
+if echo "${TEST_RESPONSE}" | grep -q '"object"'; then
+  echo "✓ Endpoint is accessible and responding"
+else
+  echo "⚠️  Warning: Endpoint test failed. Response: ${TEST_RESPONSE:0:200}"
+  echo "Continuing anyway..."
+fi
+echo ""
+
+# Disable ready check timeout or set it very high to avoid silent failures
+# Set to 0 to skip ready check entirely (we already tested above)
+READY_CHECK_TIMEOUT="${READY_CHECK_TIMEOUT:-0}"
+
+# Run vLLM bench without prompt_cache_key (single instance, no routing needed)
+# Add verbose output to see what's happening
+echo "Executing benchmark (full output logged to: ${SCRIPT_DIR}/bench-single.log)..."
+echo ""
+
+# Run with explicit error handling - don't suppress stderr, capture everything
+# Run benchmark with output to both log file and stdout
+# Use a temporary file to ensure all output is captured
+TEMP_LOG="${SCRIPT_DIR}/bench-single.tmp.log"
+
+python -u -W ignore::UserWarning "${SCRIPT_DIR}/run_benchmark.py" "${VLLM_DIR}" \
+  --backend openai \
+  --host "${REGISTRY_IP}" \
+  --port "${ROUTER_PORT}" \
+  --endpoint /v1/chat/completions \
+  --model "${MODEL}" \
+  ${TOKENIZER_ARG} \
+  --dataset-name custom \
+  --dataset-path "${DATASET_FILE}" \
+  --request-rate "${REQUEST_RATE}" \
+  --num-prompts "${NUM_REQUESTS}" \
+  --label "single-instance" \
+  --save-result \
+  --result-dir "${SCRIPT_DIR}/results" \
+  --ready-check-timeout-sec "${READY_CHECK_TIMEOUT}" \
+  2>&1 | tee "${TEMP_LOG}"
+BENCHMARK_EXIT_CODE=${PIPESTATUS[0]}
+
+# Move temp log to final location
+mv "${TEMP_LOG}" "${SCRIPT_DIR}/bench-single.log" 2>/dev/null || true
+
+if [ ${BENCHMARK_EXIT_CODE} -eq 0 ]; then
+  echo ""
+  echo "✅ Benchmark command completed!"
+  # Wait a moment for file to be written
+  sleep 2
+  if [ -d "${SCRIPT_DIR}/results" ] && [ "$(ls -A ${SCRIPT_DIR}/results 2>/dev/null)" ]; then
+    # Find result files matching our label from the last 5 minutes
+    RESULT_FILES=$(find "${SCRIPT_DIR}/results" -name "single-instance-*.json" -type f -mmin -5 2>/dev/null | sort -r)
+    if [ -n "${RESULT_FILES}" ]; then
+      LATEST_RESULT=$(echo "${RESULT_FILES}" | head -1)
+      echo "Results saved to: ${SCRIPT_DIR}/results/"
+      echo "Latest result file: $(basename ${LATEST_RESULT})"
+      ls -lh "${LATEST_RESULT}"
+    else
+      # Fallback: show most recent file
+      LATEST_RESULT="$(ls -t ${SCRIPT_DIR}/results/*.json 2>/dev/null | head -1)"
+      if [ -n "${LATEST_RESULT}" ]; then
+        echo "⚠️  Warning: Could not find result file from this run"
+        echo "Most recent result file: $(basename ${LATEST_RESULT})"
+        ls -lh "${LATEST_RESULT}"
+      else
+        echo "⚠️  Warning: No results files found in ${SCRIPT_DIR}/results/"
+        echo "Check the log file for details: ${SCRIPT_DIR}/bench-single.log"
+        echo ""
+        echo "Last 50 lines of log:"
+        tail -50 "${SCRIPT_DIR}/bench-single.log" 2>/dev/null || echo "  (log file not found)"
+      fi
+    fi
+  else
+    echo "⚠️  Warning: No results files found in ${SCRIPT_DIR}/results/"
+    echo "Check the log file for details: ${SCRIPT_DIR}/bench-single.log"
+    echo ""
+    echo "Last 50 lines of log:"
+    tail -50 "${SCRIPT_DIR}/bench-single.log" 2>/dev/null || echo "  (log file not found)"
+  fi
+else
+  EXIT_CODE=$?
+  echo ""
+  echo "❌ Benchmark failed with exit code ${EXIT_CODE}"
+  echo "Check the log file for details: ${SCRIPT_DIR}/bench-single.log"
+  echo ""
+  echo "Last 30 lines of log:"
+  tail -30 "${SCRIPT_DIR}/bench-single.log" 2>/dev/null || echo "  (log file not found)"
+  exit 1
+fi

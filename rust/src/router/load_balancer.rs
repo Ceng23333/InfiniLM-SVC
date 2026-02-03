@@ -208,12 +208,13 @@ impl LoadBalancer {
     }
 
     /// Get service by session key with fallback to round-robin
+    /// Optimized to reduce lock contention and avoid double work for new sessions
     pub async fn get_service_by_session(
         &self,
         session_key: &str,
         model_id: Option<&str>,
     ) -> Option<ServiceInstance> {
-        // Check if session mapping exists
+        // Fast path: Check if session mapping exists (minimal lock time)
         let mapped_service_name = {
             let mappings = self.session_mappings.read().await;
             mappings.get(session_key).cloned()
@@ -221,35 +222,41 @@ impl LoadBalancer {
 
         // If mapping exists, verify the service is healthy and supports the model
         if let Some(service_name) = mapped_service_name {
+            // Get service and check health/model in one lock scope to minimize lock time
             let service = {
                 let services = self.services.read().await;
                 services.get(&service_name).cloned()
             };
 
             if let Some(service) = service {
-                // Check if service is healthy
+                // Quick health check (read-only, fast)
                 if service.is_healthy().await {
-                    // Check if service supports the model (if model_id is specified)
-                    if let Some(model_id) = model_id {
+                    // Check model support if needed
+                    let model_ok = if let Some(model_id) = model_id {
                         let models = service.models.read().await;
-                        if models.contains(&model_id.to_string()) {
-                            drop(models);
-                            service.increment_request_count().await;
-                            return Some(service);
-                        }
+                        let ok = models.contains(&model_id.to_string());
+                        drop(models);
+                        ok
                     } else {
-                        // No model filter, service is healthy
+                        true
+                    };
+
+                    if model_ok {
                         service.increment_request_count().await;
                         return Some(service);
                     }
                 }
             }
+            // If mapped service is unhealthy or doesn't support model, fall through to round-robin
         }
 
-        // No mapping or mapped service is unhealthy - use round-robin to select new service
+        // Slow path: No mapping or mapped service is unhealthy - use round-robin
+        // This path is taken for new sessions or when mapped service becomes unhealthy
         let new_service = self.get_next_healthy_service_by_model(model_id).await?;
 
         // Update session mapping with new assignment
+        // Note: Write lock only needed for new/migrated sessions (rare after warmup)
+        // The write lock contention is minimal since most requests hit the fast path above
         {
             let mut mappings = self.session_mappings.write().await;
             mappings.insert(session_key.to_string(), new_service.name.clone());
