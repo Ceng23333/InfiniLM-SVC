@@ -366,11 +366,20 @@ if curl -s -f --connect-timeout 3 "${EMBEDDING_URL}/v1/embeddings" -X POST \
     -d "${multi_embedding_request}" 2>/dev/null || echo '{}')"
 
   index_count="$(echo "${multi_embedding_resp}" | grep -o '"index"' | wc -l || echo "0")"
-  if echo "${multi_embedding_resp}" | grep -q '"object":"list"' && [ "${index_count}" -ge 2 ]; then
+  if echo "${multi_embedding_resp}" | grep -qE '"object"\s*:\s*"list"' && \
+     echo "${multi_embedding_resp}" | grep -q '"data"' && \
+     [ "${index_count}" -ge 2 ]; then
     echo -e "    ${GREEN}✓${NC} Multiple inputs handled correctly (${index_count} embeddings)"
     test_passed
   else
     echo -e "    ${YELLOW}⚠${NC} Multiple inputs test inconclusive (found ${index_count} embeddings)"
+    # Show what was found for debugging
+    if echo "${multi_embedding_resp}" | grep -qE '"object"\s*:\s*"list"'; then
+      echo "    Found 'object: list' field"
+    fi
+    if echo "${multi_embedding_resp}" | grep -q '"data"'; then
+      echo "    Found 'data' field"
+    fi
   fi
 
   # Test legacy /embedding endpoint (optional)

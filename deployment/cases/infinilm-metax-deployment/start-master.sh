@@ -21,6 +21,14 @@ CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
 # Use LAUNCH_COMPONENTS from deployment case defaults, or allow override via env
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
+# Build BABYSITTER_CONFIGS - include embeddings config if embedding model is provided
+BABYSITTER_CONFIGS_BASE="master-9g_8b_thinking.toml master-Qwen3-32B.toml"
+if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
+  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-${BABYSITTER_CONFIGS_BASE} master-embeddings.toml}"
+else
+  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-${BABYSITTER_CONFIGS_BASE}}"
+fi
+
 # Configurable ports (defaults)
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
@@ -119,7 +127,7 @@ DOCKER_ARGS=(
   -e LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS}"
   -e REGISTRY_PORT="${REGISTRY_PORT}"
   -e ROUTER_PORT="${ROUTER_PORT}"
-  -e BABYSITTER_CONFIGS="master-9g_8b_thinking.toml master-Qwen3-32B.toml"
+  -e BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS}"
 )
 
 # Set NO_PROXY to exclude localhost/127.0.0.1 so local registry/router connections bypass proxy
@@ -166,12 +174,12 @@ if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
     # Assume EMBEDDING_MODEL_DIR points directly to MiniCPM-Embedding-Light
     DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}:/workspace/models/MiniCPM-Embedding-Light:ro")
   fi
-  
+
   # Also mount reranker models if they exist in the same parent directory
   if [ -d "${EMBEDDING_MODEL_DIR}/MiniCPM-Reranker-Light" ]; then
     DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}/MiniCPM-Reranker-Light:/workspace/models/MiniCPM-Reranker-Light:ro")
   fi
-  
+
   if [ -d "${EMBEDDING_MODEL_DIR}/bce-reranker-base_v1" ]; then
     DOCKER_ARGS+=(-v "${EMBEDDING_MODEL_DIR}/bce-reranker-base_v1:/workspace/models/bce-reranker-base_v1:ro")
   fi
@@ -197,40 +205,16 @@ echo "Router:   http://${REGISTRY_IP}:${ROUTER_PORT}"
 echo ""
 echo "Logs: docker logs -f ${CONTAINER_NAME}"
 
-# Start embedding server inside the master container if embedding model is provided
+# Embedding server is now managed by babysitter via master-embeddings.toml config
+# The babysitter will automatically start it if EMBEDDING_MODEL_DIR is mounted
 if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
   echo ""
-  echo "=========================================="
-  echo "Starting Embedding Server"
-  echo "=========================================="
-
-  # Wait a moment for container to be ready
-  sleep 2
-
-  echo "🚀 Starting embedding server inside ${CONTAINER_NAME}..."
-
-  # Start embedding server in background (dependencies should be installed during build/install phase)
-  # Use conda Python which has Flask and other dependencies installed
-  docker exec -d "${CONTAINER_NAME}" /bin/bash -c "
-    source /opt/conda/etc/profile.d/conda.sh && conda activate base && \
-    nohup /opt/conda/bin/python /app/embeddings_server.py > /tmp/embeddings_server.log 2>&1 &
-    echo \$! > /tmp/embeddings_server.pid
-  "
-
-  # Wait a moment for server to start
-  sleep 3
-
-  echo ""
-  echo "✅ Embedding server started inside ${CONTAINER_NAME}"
-  echo "Embedding API: http://${REGISTRY_IP}:${EMBEDDING_PORT}/v1/embeddings"
-  echo "Legacy endpoint: http://${REGISTRY_IP}:${EMBEDDING_PORT}/embedding"
-  echo "Rerank endpoint: http://${REGISTRY_IP}:${EMBEDDING_PORT}/rerank"
-  echo "BCE Rerank endpoint: http://${REGISTRY_IP}:${EMBEDDING_PORT}/rerankbce"
-  echo ""
-  echo "To check embedding server logs: docker exec ${CONTAINER_NAME} tail -f /tmp/embeddings_server.log"
-  echo "To stop embedding server: docker exec ${CONTAINER_NAME} kill \$(cat /tmp/embeddings_server.pid)"
+  echo "ℹ️  Embedding server will be managed by babysitter (master-embeddings.toml)"
+  echo "   Embedding API: http://${REGISTRY_IP}:${EMBEDDING_PORT}/v1/embeddings"
+  echo "   Babysitter health: http://${REGISTRY_IP}:$((EMBEDDING_PORT + 1))/health"
+  echo "   To check logs: docker logs -f ${CONTAINER_NAME} | grep embeddings"
 else
   echo ""
-  echo "ℹ️  Embedding server not started (EMBEDDING_MODEL_DIR not set or invalid)"
-  echo "   To start embedding server, set: export EMBEDDING_MODEL_DIR=/path/to/MiniCPM-Embedding-Light"
+  echo "ℹ️  Embedding server config included but will not start (EMBEDDING_MODEL_DIR not set or invalid)"
+  echo "   To enable embedding server, set: export EMBEDDING_MODEL_DIR=/path/to/MiniCPM-Embedding-Light"
 fi

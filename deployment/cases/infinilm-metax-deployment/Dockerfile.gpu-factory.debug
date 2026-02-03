@@ -4,7 +4,8 @@
 #
 # Usage:
 #   docker build --progress=plain -f Dockerfile.gpu-factory.debug -t infinilm-svc:debug .
-# Uses BuildKit cache mounts for faster rebuilds
+# Note: BuildKit cache mounts removed for compatibility with Docker versions that don't support BuildKit
+# To enable cache mounts, set DOCKER_BUILDKIT=1 before building
 
 ARG BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64
 # Proxy settings (optional, can be set via --build-arg)
@@ -41,6 +42,31 @@ ENV DEPLOYMENT_CASE=infinilm-metax-deployment
 ENV DEBUG=1
 ENV VERBOSE=1
 
+# Install git first (required for cloning InfiniCore/InfiniLM)
+# Try multiple methods: check existing, conda, yum/dnf, apt-get
+# Ensure common git locations are in PATH
+ENV PATH="/usr/bin:/usr/local/bin:/opt/conda/bin:${PATH}"
+
+# Configure git and conda to use proxy if set
+RUN echo "[Pre-install] Configuring proxy for git/conda..." && \
+    ([ -z "${HTTP_PROXY}" ] && [ -z "${HTTPS_PROXY}" ] && echo "No proxy configured" || \
+     (([ -n "${HTTP_PROXY}" ] && git config --global http.proxy "${HTTP_PROXY}" 2>/dev/null || true) && \
+      ([ -n "${HTTPS_PROXY}" ] && git config --global https.proxy "${HTTPS_PROXY}" 2>/dev/null || true) && \
+      echo "✓ Proxy configured for git")) && \
+    echo "[Pre-install] Installing git..." && \
+    (command -v git >/dev/null 2>&1 && echo "✓ git already available" || \
+     ([ -f /usr/bin/git ] || [ -f /usr/local/bin/git ] || [ -f /opt/conda/bin/git ]) && echo "✓ git found in common locations" || \
+     (command -v conda >/dev/null 2>&1 && \
+      ([ -n "${HTTP_PROXY}" ] && export http_proxy="${HTTP_PROXY}" || true) && \
+      ([ -n "${HTTPS_PROXY}" ] && export https_proxy="${HTTPS_PROXY}" || true) && \
+      conda install -y git -c conda-forge >/dev/null 2>&1 && echo "✓ git installed via conda" || \
+      (yum install -y git >/dev/null 2>&1 || dnf install -y git >/dev/null 2>&1 || apt-get update -qq >/dev/null 2>&1 && apt-get install -y git >/dev/null 2>&1 || true))) && \
+    (command -v git >/dev/null 2>&1 && git --version || \
+     ([ -f /usr/bin/git ] && /usr/bin/git --version) || \
+     ([ -f /usr/local/bin/git ] && /usr/local/bin/git --version) || \
+     ([ -f /opt/conda/bin/git ] && /opt/conda/bin/git --version)) && \
+    echo "[Pre-install] ✓ git installation verified"
+
 # Run install script with explicit output (no redirection)
 # Split into steps for better visibility
 RUN echo "==========================================" && \
@@ -50,11 +76,7 @@ RUN echo "==========================================" && \
     echo "Install path: /usr/local/bin" && \
     echo ""
 
-RUN --mount=type=cache,target=/root/.cargo \
-    --mount=type=cache,target=/root/.cache/pip \
-    --mount=type=cache,target=/root/.cache \
-    --mount=type=cache,target=/tmp \
-    echo "[Step 1/6] Running install.sh..." && \
+RUN echo "[Step 1/6] Running install.sh..." && \
     mkdir -p /workspace && \
     ./scripts/install.sh \
         --install-path /usr/local/bin \

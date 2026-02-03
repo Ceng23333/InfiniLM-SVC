@@ -4,6 +4,7 @@ import time
 import sys
 from datetime import datetime
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 app = Flask(__name__)
 from transformers import AutoModel, AutoModelForSequenceClassification, AutoTokenizer, LlamaTokenizer
 import torch
@@ -37,6 +38,30 @@ embedding_model = AutoModel.from_pretrained(embedding_model_name, trust_remote_c
 embedding_model.eval()
 logger.info("Embedding model loaded successfully")
 
+# Warmup the embedding model to avoid slow first requests
+def warmup_embedding_model():
+    """Warmup the embedding model with sample requests to initialize CUDA kernels and optimize performance."""
+    logger.info("Warming up embedding model...")
+    warmup_texts = [
+        "This is a warmup request.",
+        "The model needs to initialize CUDA kernels.",
+        "Subsequent requests will be faster."
+    ]
+    try:
+        with torch.no_grad():
+            # Run multiple warmup iterations to ensure all CUDA kernels are initialized
+            for i in range(3):
+                logger.info(f"Warmup iteration {i+1}/3...")
+                start_time = time.time()
+                embeddings_dense, embeddings_sparse = embedding_model.encode_corpus(warmup_texts, return_sparse_vectors=True)
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                warmup_time = time.time() - start_time
+                logger.info(f"Warmup iteration {i+1} completed in {warmup_time:.3f}s")
+        logger.info("Embedding model warmup completed successfully")
+    except Exception as e:
+        logger.warning(f"Warmup failed (non-fatal): {e}")
+
 @app.route("/v1/embeddings", methods=["POST"])
 def embeddings():
     """
@@ -69,7 +94,8 @@ def embeddings():
 
         # Use encode_corpus for document embeddings (OpenAI doesn't distinguish query/doc)
         # If you need query-specific encoding, you could check a custom parameter or use encode_query
-        embeddings_dense, embeddings_sparse = embedding_model.encode_corpus(texts, return_sparse_vectors=True)
+        with torch.no_grad():
+            embeddings_dense, embeddings_sparse = embedding_model.encode_corpus(texts, return_sparse_vectors=True)
 
         # Convert to numpy array if needed
         if isinstance(embeddings_dense, torch.Tensor):
@@ -143,6 +169,21 @@ rerank_model = AutoModelForSequenceClassification.from_pretrained(rerank_model_n
 rerank_model.eval()
 logger.info("Reranking model loaded successfully")
 
+# Warmup the reranking model
+def warmup_rerank_model():
+    """Warmup the reranking model to avoid slow first requests."""
+    logger.info("Warming up reranking model...")
+    try:
+        with torch.no_grad():
+            test_query = "test query"
+            test_passages = ["test passage 1", "test passage 2"]
+            rerank_model.rerank(test_query, test_passages, query_instruction="Query:", batch_size=32, max_length=8000)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+        logger.info("Reranking model warmup completed successfully")
+    except Exception as e:
+        logger.warning(f"Rerank warmup failed (non-fatal): {e}")
+
 @app.route("/rerank", methods=["GET", "POST"])
 def rerank():
     start_time = time.time()
@@ -173,6 +214,25 @@ bce_model = AutoModelForSequenceClassification.from_pretrained(bcepath, local_fi
 device = 'cuda'  # if no GPU, set "cpu"
 bce_model.to(device)
 logger.info("BCE reranker model loaded successfully")
+
+# Warmup the BCE reranking model
+def warmup_bce_model():
+    """Warmup the BCE reranking model to avoid slow first requests."""
+    logger.info("Warming up BCE reranking model...")
+    try:
+        test_query = "test query"
+        test_passages = ["test passage"]
+        sentence_pairs = [[test_query, passage] for passage in test_passages]
+        inputs = bce_tokenizer(sentence_pairs, padding=True, truncation=True, max_length=512, return_tensors="pt")
+        inputs_on_device = {k: v.to(device) for k, v in inputs.items()}
+        with torch.no_grad():
+            scores = bce_model(**inputs_on_device, return_dict=True).logits.view(-1,).float()
+            scores = torch.sigmoid(scores)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+        logger.info("BCE reranking model warmup completed successfully")
+    except Exception as e:
+        logger.warning(f"BCE warmup failed (non-fatal): {e}")
 
 @app.route("/rerankbce", methods=["GET", "POST"])
 def rerankbce():
@@ -211,8 +271,34 @@ if __name__ == "__main__":
     logger.info("  POST /rerankbce - Rerank passages using BCE model")
     logger.info("Server will run on host=0.0.0.0, port=20002")
 
+    # Warmup all models before starting the server (run in parallel)
+    logger.info("=" * 50)
+    logger.info("Warming up all models before server start...")
+    logger.info("=" * 50)
+
+    # Run warmup functions concurrently
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {
+            executor.submit(warmup_embedding_model): "embedding",
+            executor.submit(warmup_rerank_model): "rerank",
+            executor.submit(warmup_bce_model): "bce"
+        }
+
+        # Wait for all warmups to complete
+        for future in as_completed(futures):
+            model_name = futures[future]
+            try:
+                future.result()
+                logger.info(f"✓ {model_name} model warmup completed")
+            except Exception as e:
+                logger.warning(f"✗ {model_name} model warmup failed: {e}")
+
+    logger.info("=" * 50)
+    logger.info("All models warmed up. Starting server...")
+    logger.info("=" * 50)
+
     try:
-        app.run(host="0.0.0.0", port=20002, debug=True, use_reloader=False)
+        app.run(host="0.0.0.0", port=20002, debug=True, use_reloader=False, threaded=True)
     except KeyboardInterrupt:
         logger.info("Server shutdown requested by user")
     except Exception as e:
