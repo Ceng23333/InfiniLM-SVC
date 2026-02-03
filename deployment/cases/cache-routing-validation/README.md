@@ -124,7 +124,31 @@ python gen-multi-prefix.py \
 - With a single prefix, all requests go to the same instance (no routing benefit)
 - With multiple prefixes, requests are distributed across instances
 - Requests with the same prefix route to the same instance and benefit from cache hits
-- Better demonstrates cache routing impact and benefits
+- Good for testing routing distribution, but limited cache benefit
+
+**Accumulating Context** (recommended for chatbot scenarios):
+```bash
+python gen-accumulate-context.py \
+  --num-conversations 4 \
+  --messages-per-conv 8 \
+  --context-len 2048 \
+  --new-msg-len 128 \
+  --output accumulate_context.jsonl
+```
+
+**Parameters:**
+- `--num-conversations`: Number of different conversations (default: 4)
+- `--messages-per-conv`: Number of messages per conversation (default: 8)
+- `--context-len`: Length of context added by each message (default: 2048)
+- `--new-msg-len`: Length of new message content (default: 128)
+- `--output`: Output JSONL file path (default: accumulate_context.jsonl)
+
+**Why use accumulating context?**
+- Simulates real chatbot behavior where each request contains full conversation history
+- Early messages have short context, later messages have long accumulated context
+- Cache routing benefits **increase dramatically** as shared prefix grows
+- Better matches real-world chatbot workloads where context accumulates over time
+- Shows the **true value** of cache routing for conversational AI
 
 ### Single Instance Benchmark
 
@@ -150,7 +174,7 @@ conda activate vllm-bench
 ```
 
 **Configuration**: Both instances running, no prompt_cache_key
-**Dataset**: Multi-prefix prompts (4 prefixes by default, auto-generated if needed)
+**Dataset**: Accumulating context (chatbot scenario) - same as cache-routing for fair comparison
 **Expected Behavior**: Requests should be distributed across both instances in round-robin fashion
 
 ### Cache Routing Benchmark
@@ -164,20 +188,22 @@ export MODEL1_DIR=/path/to/9g_8b_thinking_llama
 ```
 
 **Configuration**: Both instances running, with prompt_cache_key
-**Dataset**: Multi-prefix prompts (4 prefixes by default, auto-generated if needed)
+**Dataset**: Accumulating context (chatbot scenario) - same as round-robin for fair comparison
 
 **Expected Behavior**:
 - Requests with the same `prompt_cache_key` should route to the same instance
-- The default pattern `bench_key_{request_id % 4}` creates 4 different cache keys (matches number of prefixes)
-- Requests are distributed across instances based on cache key hash
-- **Cache hits** (same prefix/key) show lower TTFT compared to **cache misses** (different prefix/key)
-- Better demonstrates cache routing impact compared to single-prefix approach
+- Each conversation uses the same cache key (`conv_{conversation_id}`)
+- Requests from the same conversation share accumulating context (growing shared prefix)
+- **Cache hits** show significantly lower TTFT compared to round-robin routing
+- Later messages in conversations benefit most from cached prefixes
+- This simulates real chatbot scenarios where context accumulates over time
 
-**Why multiple prefixes?**
-- With a single shared prefix, all requests go to the same instance (no routing benefit)
-- With multiple prefixes, requests are distributed across instances
-- Requests with the same prefix route to the same instance and benefit from cache hits
-- This better demonstrates the cache routing impact
+**Why accumulating context?**
+- Real chatbots send full conversation history with each request
+- Early messages have short context, later messages have long accumulated context
+- Cache routing benefits **increase dramatically** as shared prefix grows
+- This scenario shows the **true value** of cache routing for conversational AI
+- See [Performance Benefits](#cache-routing-performance-benefits) section for benchmark results
 
 **Compare Results:**
 ```bash
@@ -187,24 +213,20 @@ python compare-results.py \
   results/cache-routing-*.json
 ```
 
-**Custom Cache Key Pattern**:
 
-```bash
-export CACHE_KEY_PATTERN="my_key_{request_id % 2}"
-./bench-cache-routing.sh [REGISTRY_IP]
-```
+**Note**: `prompt_cache_key` is now read directly from the JSON dataset. Each record in the accumulating context dataset includes an explicit `prompt_cache_key` field (e.g., `conv_0`, `conv_1`), so no CLI argument is needed.
 
 ## Benchmark Configuration
 
 You can customize benchmark parameters via environment variables:
 
 ```bash
-export REQUEST_RATE=2.0      # Requests per second (default: 1.0)
-export NUM_REQUESTS=100      # Total number of requests (default: 64)
-export NUM_PREFIXES=8        # Number of different prefixes (default: 4)
-export PREFIX_LEN=8192       # Each prefix length in chars (default: 8192)
-export SUFFIX_LEN=32         # Unique suffix length in chars (default: 32)
-export DATASET_FILE=./my_custom.jsonl  # Custom dataset file (default: multi_prefix.jsonl)
+export REQUEST_RATE=2.0              # Requests per second (default: 1.0)
+export NUM_CONVERSATIONS=4            # Number of conversations (default: 4)
+export MESSAGES_PER_CONV=8            # Messages per conversation (default: 8)
+export CONTEXT_LEN=2048               # Context length per message (default: 2048)
+export NEW_MSG_LEN=128                # New message length (default: 128)
+export DATASET_FILE=./my_custom.jsonl # Custom dataset file (default: accumulate_context.jsonl)
 ```
 
 ## Results
@@ -220,17 +242,93 @@ Benchmark results are saved to `results/` directory in JSON format. Each run inc
 Use the comparison script to analyze cache routing impact:
 
 ```bash
-# Compare round-robin vs cache-routing results
+# Compare round-robin vs cache-routing results (backward compatible)
 python compare-results.py \
   results/round-robin-*.json \
-  results/cache-routing-multi-prefix-*.json
+  results/cache-routing-*.json
+
+# Compare single-instance vs round-robin
+python compare-results.py \
+  --single results/single-instance-*.json \
+  --roundrobin results/round-robin-*.json
+
+# Compare single-instance vs cache-routing
+python compare-results.py \
+  --single results/single-instance-*.json \
+  --cache-routing results/cache-routing-*.json
+
+# Compare all three configurations (comprehensive analysis)
+python compare-results.py \
+  --single results/single-instance-*.json \
+  --roundrobin results/round-robin-*.json \
+  --cache-routing results/cache-routing-*.json
 ```
 
 The comparison script shows:
-- Performance differences between round-robin and cache-routing
+- Performance differences between configurations
 - Cache hit benefits (lower TTFT for cached requests)
+- Load balancing benefits (round-robin vs single-instance)
 - Throughput improvements
 - Insights about cache routing effectiveness
+
+### Cache Routing Performance Benefits
+
+Based on benchmark results using accumulating context dataset (chatbot scenario), comprehensive comparison of all three deployment configurations:
+
+#### Comprehensive Performance Comparison
+
+| Metric | Single-Instance | Round-Robin | Cache-Routing | Round-Robin vs Single | Cache-Routing vs Single | Cache-Routing vs Round-Robin |
+|--------|----------------|-------------|---------------|----------------------|------------------------|----------------------------|
+| **Mean TTFT (ms)** | 11851.87 | 3487.55 | 2375.03 | **+70.57% ↓** | **+79.96% ↓** | **+31.90% ↓** |
+| **Median TTFT (ms)** | 12465.53 | 2882.27 | 2077.73 | **+76.88% ↓** | **+83.33% ↓** | **+27.91% ↓** |
+| **P99 TTFT (ms)** | 14741.05 | 7284.62 | 5064.15 | **+50.58% ↓** | **+65.65% ↓** | **+30.48% ↓** |
+| **Mean TPOT (ms)** | 487.74 | 239.56 | 218.77 | **+50.88% ↓** | **+55.15% ↓** | **+8.68% ↓** |
+| **Median TPOT (ms)** | 485.22 | 234.48 | 208.22 | **+51.68% ↓** | **+57.09% ↓** | **+11.20% ↓** |
+| **P99 TPOT (ms)** | 562.13 | 298.05 | 286.43 | **+46.98% ↓** | **+49.05% ↓** | **+3.90% ↓** |
+| **Output Throughput (tok/s)** | 53.64 | 100.42 | 106.64 | **+87.22% ↑** | **+98.82% ↑** | **+6.19% ↑** |
+| **Total Token Throughput (tok/s)** | 265.57 | 497.21 | 528.00 | **+87.22% ↑** | **+98.82% ↑** | **+6.19% ↑** |
+| **Request Throughput (req/s)** | 0.21 | 0.39 | 0.42 | **+87.22% ↑** | **+98.82% ↑** | **+6.19% ↑** |
+
+**Test Configuration:**
+- Dataset: Accumulating context (4 conversations, 8 messages each, 32 total requests)
+- Context length: 1024 chars per message
+- New message length: 128 chars
+- Request rate: 1.0 req/s
+- Model: 9g_8b_thinking
+
+#### Key Insights
+
+✅ **Cache-Routing shows best overall performance:**
+   - **31.9% improvement vs Round-Robin** in Mean TTFT
+   - **80.0% improvement vs Single-Instance** in Mean TTFT
+   - This indicates cache hits are working effectively
+   - Accumulating context scenario maximizes cache benefits
+   - Later messages in conversations benefit most from cached prefixes
+
+✅ **Round-Robin shows significant improvement vs Single-Instance:**
+   - **70.6% improvement** in Mean TTFT
+   - **87.2% improvement** in throughput metrics
+   - This indicates load balancing is distributing load effectively
+   - Two instances handle requests better than one
+
+✅ **Consistent improvements across all latency metrics:**
+   - Mean, median, and P99 TTFT all show significant improvements
+   - TPOT improvements indicate better token generation efficiency
+   - Lower variance in response times
+
+✅ **Throughput gains:**
+   - Cache-Routing: 6.19% improvement vs Round-Robin
+   - Round-Robin: 87.22% improvement vs Single-Instance
+   - Cache-Routing: 98.82% improvement vs Single-Instance
+   - Better resource utilization through cache reuse and load balancing
+   - Higher overall system capacity
+
+**Why these benefits matter:**
+- **Lower TTFT**: Users experience faster first-token response times, critical for interactive applications
+- **Better throughput**: System can handle more requests per second with the same resources
+- **Consistent performance**: Lower variance means more predictable user experience
+- **Cost efficiency**: Cache reuse reduces redundant computation, improving cost per request
+- **Scalability**: Load balancing enables horizontal scaling with multiple instances
 
 ## Validation Criteria
 

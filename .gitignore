@@ -133,3 +133,8 @@ rust/tests/integration/*.log
 # Keep Cargo.lock for applications (but ignore for libraries)
 # Uncomment if this is a library crate:
 # Cargo.lock
+
+# Benchmark results and generated datasets
+deployment/cases/cache-routing-validation/results/
+deployment/cases/cache-routing-validation/*.jsonl
+deployment/cases/cache-routing-validation/*.tmp.log

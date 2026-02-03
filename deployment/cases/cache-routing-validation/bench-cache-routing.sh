@@ -18,11 +18,13 @@ MODEL="${MODEL:-9g_8b_thinking}"
 REQUEST_RATE="${REQUEST_RATE:-1.0}"
 NUM_REQUESTS="${NUM_REQUESTS:-64}"
 
-# Multi-prefix configuration (default for all benchmarks)
-NUM_PREFIXES="${NUM_PREFIXES:-4}"      # Number of different shared prefixes
-PREFIX_LEN="${PREFIX_LEN:-8192}"       # Length of each shared prefix in characters
-SUFFIX_LEN="${SUFFIX_LEN:-32}"         # Length of unique suffix in characters
-DATASET_FILE="${DATASET_FILE:-${SCRIPT_DIR}/multi_prefix.jsonl}"
+# Accumulating context configuration (default for cache routing - chatbot scenario)
+NUM_CONVERSATIONS="${NUM_CONVERSATIONS:-4}"      # Number of different conversations
+MESSAGES_PER_CONV="${MESSAGES_PER_CONV:-8}"      # Messages per conversation
+CONTEXT_LEN="${CONTEXT_LEN:-2048}"                # Context length per message
+NEW_MSG_LEN="${NEW_MSG_LEN:-128}"                 # New message length
+DATASET_FILE="${DATASET_FILE:-${SCRIPT_DIR}/accumulate_context.jsonl}"
+NUM_REQUESTS=$((NUM_CONVERSATIONS * MESSAGES_PER_CONV))
 
 # Tokenizer path - MODEL1_DIR is required
 TOKENIZER_DIR="${TOKENIZER_DIR:-${MODEL1_DIR:-}}"
@@ -45,9 +47,9 @@ TOKENIZER_ARG="--tokenizer ${TOKENIZER_DIR}"
 echo "Using tokenizer from: ${TOKENIZER_DIR}"
 
 # Cache routing configuration
-# Use dynamic key pattern to test routing distribution
-# Default pattern matches number of prefixes to maximize cache hit benefits
-CACHE_KEY_PATTERN="${CACHE_KEY_PATTERN:-bench_key_{request_id % ${NUM_PREFIXES}}}"
+# prompt_cache_key is now explicitly included in the JSON dataset
+# No need to use --prompt-cache-key CLI argument - it will be read from JSON
+# The dataset generator creates prompt_cache_key field in each record
 
 echo "=========================================="
 echo "Cache Routing Benchmark"
@@ -55,15 +57,16 @@ echo "=========================================="
 echo "Router URL: ${ROUTER_URL}"
 echo "Model: ${MODEL}"
 echo "Request Rate: ${REQUEST_RATE} req/s"
-echo "Number of Requests: ${NUM_REQUESTS}"
-echo "Number of Prefixes: ${NUM_PREFIXES}"
-echo "Prefix Length: ${PREFIX_LEN} chars"
-echo "Suffix Length: ${SUFFIX_LEN} chars"
-echo "Cache Key Pattern: ${CACHE_KEY_PATTERN}"
+echo "Number of Conversations: ${NUM_CONVERSATIONS}"
+echo "Messages per Conversation: ${MESSAGES_PER_CONV}"
+echo "Total Requests: ${NUM_REQUESTS}"
+echo "Context Length per Message: ${CONTEXT_LEN} chars"
+echo "New Message Length: ${NEW_MSG_LEN} chars"
+echo "Cache Key Source: From JSON dataset (prompt_cache_key field)"
 echo ""
 echo "Configuration: Both instances running (master:8100, slave:8200)"
 echo "Routing: Cache-aware (with prompt_cache_key)"
-echo "Dataset: Multi-prefix prompts (${NUM_PREFIXES} different prefixes)"
+echo "Dataset: Accumulating context (chatbot scenario)"
 echo ""
 
 # Check if vLLM directory exists
@@ -79,15 +82,15 @@ if [ ! -f "${VLLM_DIR}/vllm/benchmarks/serve.py" ]; then
   exit 1
 fi
 
-# Generate multi-prefix dataset if it doesn't exist
+# Generate accumulating context dataset if it doesn't exist
 if [ ! -f "${DATASET_FILE}" ]; then
-  echo "Generating multi-prefix dataset..."
-  python "${SCRIPT_DIR}/gen-multi-prefix.py" \
+  echo "Generating accumulating context dataset..."
+  python "${SCRIPT_DIR}/gen-accumulate-context.py" \
     --output "${DATASET_FILE}" \
-    --num-prompts "${NUM_REQUESTS}" \
-    --num-prefixes "${NUM_PREFIXES}" \
-    --prefix-len "${PREFIX_LEN}" \
-    --suffix-len "${SUFFIX_LEN}"
+    --num-conversations "${NUM_CONVERSATIONS}" \
+    --messages-per-conv "${MESSAGES_PER_CONV}" \
+    --context-len "${CONTEXT_LEN}" \
+    --new-msg-len "${NEW_MSG_LEN}"
   echo ""
 fi
 
@@ -173,7 +176,6 @@ python -u -W ignore::UserWarning "${SCRIPT_DIR}/run_benchmark.py" "${VLLM_DIR}" 
   --dataset-path "${DATASET_FILE}" \
   --request-rate "${REQUEST_RATE}" \
   --num-prompts "${NUM_REQUESTS}" \
-  --prompt-cache-key "${CACHE_KEY_PATTERN}" \
   --label "cache-routing" \
   --save-result \
   --result-dir "${SCRIPT_DIR}/results" \
@@ -220,11 +222,11 @@ if [ ${BENCHMARK_EXIT_CODE} -eq 0 ]; then
     tail -50 "${SCRIPT_DIR}/bench-cache-routing.log" 2>/dev/null || echo "  (log file not found)"
   fi
   echo ""
-  echo "📊 Cache Routing Validation:"
-  echo "  - With ${NUM_PREFIXES} different prefixes, requests are distributed across instances"
-  echo "  - Requests with the same prompt_cache_key should route to the same instance"
-  echo "  - Cache key pattern '${CACHE_KEY_PATTERN}' creates ${NUM_PREFIXES} different cache keys"
-  echo "  - Cache hits should show lower TTFT compared to cache misses"
+  echo "📊 Cache Routing Validation (Accumulating Context):"
+  echo "  - Simulates chatbot scenario with accumulating conversation history"
+  echo "  - Each request contains full conversation history (shared prefix grows)"
+  echo "  - Requests from same conversation route to same instance (cache key: conv_{id})"
+  echo "  - Later messages in conversation should show significant TTFT improvement"
   echo ""
   echo "  To compare with round-robin results, run:"
   echo "    python ${SCRIPT_DIR}/compare-results.py \\"

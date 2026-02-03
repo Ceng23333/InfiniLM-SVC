@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Slave: Two babysitters (InfiniLM backends) registering to Master
+# Start Slave: Qwen3-32B babysitter (InfiniLM backend) registering to Master
 
 set -euo pipefail
 
@@ -174,30 +174,23 @@ EOF
   fi
 fi
 
-# Required model paths
-MODEL1_DIR="${MODEL1_DIR:-}"
+# Required model paths - only Qwen3-32B is needed
 MODEL2_GGUF="${MODEL2_GGUF:-}"
 
-if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
-  echo "Error: MODEL1_DIR must point to the 9g8b model directory on this host."
-  echo "  Example: export MODEL1_DIR=/path/to/9g8b_model_dir"
-  exit 1
-fi
-
 if [ -z "${MODEL2_GGUF}" ]; then
-  echo "Error: MODEL2_GGUF must point to the Qwen3 gguf model file on this host."
-  echo "  Example: export MODEL2_GGUF=/path/to/Qwen3-32B.gguf"
+  echo "Error: MODEL2_GGUF must point to the Qwen3 model directory on this host."
+  echo "  Example: export MODEL2_GGUF=/path/to/Qwen3-32B"
   exit 1
 fi
 
-if [ ! -f "${MODEL2_GGUF}" ]; then
-  echo "Error: MODEL2_GGUF must be a file: ${MODEL2_GGUF}"
+if [ ! -d "${MODEL2_GGUF}" ]; then
+  echo "Error: MODEL2_GGUF must be a directory: ${MODEL2_GGUF}"
   exit 1
 fi
 
-# Mount the file directly to /models/Qwen3-32B.gguf
+# Mount the model directory to /models/Qwen3-32B
 MODEL2_MOUNT_DIR="${MODEL2_GGUF}"
-MODEL2_CONTAINER_PATH="/models/Qwen3-32B.gguf"
+MODEL2_CONTAINER_PATH="/models/Qwen3-32B"
 
 echo "=========================================="
 echo "Starting InfiniLM-SVC Slave"
@@ -208,11 +201,10 @@ echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
 echo "Image: ${IMAGE_NAME}"
 echo "Slave ID: ${SLAVE_ID} (registration prefix: ${SLAVE_NAME}-*)"
-echo "Components: ${SLAVE_NAME}-9g_8b_thinking, ${SLAVE_NAME}-Qwen3-32B"
+echo "Components: ${SLAVE_NAME}-Qwen3-32B"
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"
-echo "  MODEL1_DIR: ${MODEL1_DIR}"
 echo "  MODEL2_GGUF: ${MODEL2_GGUF} (mounted to ${MODEL2_CONTAINER_PATH})"
 echo ""
 if [ -n "${INFINILM_DIR}" ]; then
@@ -267,7 +259,7 @@ DOCKER_ARGS=(
   -e REGISTRY_URL="http://${REGISTRY_IP}:${REGISTRY_PORT}"
   -e ROUTER_URL="http://${REGISTRY_IP}:${ROUTER_PORT}"
   -e BABYSITTER_HOST="${LOCALHOST_IP}"
-  -e BABYSITTER_CONFIGS="${CFG_9G} ${CFG_QWEN}"
+  -e BABYSITTER_CONFIGS="${CFG_QWEN}"
 )
 
 # Mount config directory
@@ -289,9 +281,8 @@ if [ -n "${INFINICORE_DIR}" ] && [ -d "${INFINICORE_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINICORE_DIR}:/workspace/InfiniCore:ro")
 fi
 
-# Mount models
+# Mount models - only Qwen3-32B
 DOCKER_ARGS+=(
-  -v "${MODEL1_DIR}:/models/9g_8b_thinking:ro"
   -v "${MODEL2_MOUNT_DIR}:${MODEL2_CONTAINER_PATH}:ro"
   "${IMAGE_NAME}"
 )

@@ -18,11 +18,13 @@ MODEL="${MODEL:-9g_8b_thinking}"
 REQUEST_RATE="${REQUEST_RATE:-1.0}"
 NUM_REQUESTS="${NUM_REQUESTS:-64}"
 
-# Multi-prefix configuration (default for all benchmarks)
-NUM_PREFIXES="${NUM_PREFIXES:-4}"      # Number of different shared prefixes
-PREFIX_LEN="${PREFIX_LEN:-8192}"       # Length of each shared prefix in characters
-SUFFIX_LEN="${SUFFIX_LEN:-32}"         # Length of unique suffix in characters
-DATASET_FILE="${DATASET_FILE:-${SCRIPT_DIR}/multi_prefix.jsonl}"
+# Accumulating context configuration (same as other benchmarks for fair comparison)
+NUM_CONVERSATIONS="${NUM_CONVERSATIONS:-4}"      # Number of different conversations
+MESSAGES_PER_CONV="${MESSAGES_PER_CONV:-8}"      # Messages per conversation
+CONTEXT_LEN="${CONTEXT_LEN:-2048}"                # Context length per message
+NEW_MSG_LEN="${NEW_MSG_LEN:-128}"                 # New message length
+DATASET_FILE="${DATASET_FILE:-${SCRIPT_DIR}/accumulate_context.jsonl}"
+NUM_REQUESTS=$((NUM_CONVERSATIONS * MESSAGES_PER_CONV))
 
 # Tokenizer path - MODEL1_DIR is required
 TOKENIZER_DIR="${TOKENIZER_DIR:-${MODEL1_DIR:-}}"
@@ -50,13 +52,14 @@ echo "=========================================="
 echo "Router URL: ${ROUTER_URL}"
 echo "Model: ${MODEL}"
 echo "Request Rate: ${REQUEST_RATE} req/s"
-echo "Number of Requests: ${NUM_REQUESTS}"
-echo "Number of Prefixes: ${NUM_PREFIXES}"
-echo "Prefix Length: ${PREFIX_LEN} chars"
-echo "Suffix Length: ${SUFFIX_LEN} chars"
+echo "Number of Conversations: ${NUM_CONVERSATIONS}"
+echo "Messages per Conversation: ${MESSAGES_PER_CONV}"
+echo "Total Requests: ${NUM_REQUESTS}"
+echo "Context Length per Message: ${CONTEXT_LEN} chars"
+echo "New Message Length: ${NEW_MSG_LEN} chars"
 echo ""
 echo "Configuration: Only master-9g_8b_thinking (port 8100) is running"
-echo "Dataset: Multi-prefix prompts (${NUM_PREFIXES} different prefixes)"
+echo "Dataset: Accumulating context (chatbot scenario)"
 echo ""
 
 # Check if vLLM directory exists
@@ -72,15 +75,15 @@ if [ ! -f "${VLLM_DIR}/vllm/benchmarks/serve.py" ]; then
   exit 1
 fi
 
-# Generate multi-prefix dataset if it doesn't exist
+# Generate accumulating context dataset if it doesn't exist
 if [ ! -f "${DATASET_FILE}" ]; then
-  echo "Generating multi-prefix dataset..."
-  python "${SCRIPT_DIR}/gen-multi-prefix.py" \
+  echo "Generating accumulating context dataset..."
+  python "${SCRIPT_DIR}/gen-accumulate-context.py" \
     --output "${DATASET_FILE}" \
-    --num-prompts "${NUM_REQUESTS}" \
-    --num-prefixes "${NUM_PREFIXES}" \
-    --prefix-len "${PREFIX_LEN}" \
-    --suffix-len "${SUFFIX_LEN}"
+    --num-conversations "${NUM_CONVERSATIONS}" \
+    --messages-per-conv "${MESSAGES_PER_CONV}" \
+    --context-len "${CONTEXT_LEN}" \
+    --new-msg-len "${NEW_MSG_LEN}"
   echo ""
 fi
 

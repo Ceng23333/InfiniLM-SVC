@@ -1,4 +1,5 @@
 # Slave (Server 2) - Qwen3-32B model
+# Settings copied from master-Qwen3-32B.toml
 #
 # Note: registry_url/router_url/host are overridden at runtime by docker entrypoint env:
 #   - BABYSITTER_HOST (for registration)

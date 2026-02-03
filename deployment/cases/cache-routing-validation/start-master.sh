@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Start Master: Registry, Router, and two babysitters (both 9g_8b_thinking instances)
-# Both instances run on the same host with different ports (8100 and 8200)
+# Start Master: Registry, Router, and babysitter(s)
+# Default: Both instances (master and slave) on one host
+# Set SINGLE_INSTANCE=true to launch only master instance
 
 set -euo pipefail
 
@@ -21,8 +22,13 @@ CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
 # Use LAUNCH_COMPONENTS from deployment case defaults, or allow override via env
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
-# Build BABYSITTER_CONFIGS - both instances on one host
-BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml slave-9g_8b_thinking.toml}"
+# Build BABYSITTER_CONFIGS - single or both instances based on SINGLE_INSTANCE flag
+SINGLE_INSTANCE="${SINGLE_INSTANCE:-false}"
+if [ "${SINGLE_INSTANCE}" = "true" ]; then
+  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml}"
+else
+  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml slave-9g_8b_thinking.toml}"
+fi
 
 # Configurable ports (defaults)
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
@@ -44,13 +50,21 @@ if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
 fi
 
 echo "=========================================="
-echo "Starting InfiniLM-SVC Master (Cache Routing Validation)"
+if [ "${SINGLE_INSTANCE}" = "true" ]; then
+  echo "Starting InfiniLM-SVC (Single Instance)"
+else
+  echo "Starting InfiniLM-SVC Master (Cache Routing Validation)"
+fi
 echo "=========================================="
 echo "Registry IP: ${REGISTRY_IP}"
 echo "Image: ${IMAGE_NAME}"
 echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
-echo "Components: Registry, Router, master-9g_8b_thinking (8100), slave-9g_8b_thinking (8200)"
+if [ "${SINGLE_INSTANCE}" = "true" ]; then
+  echo "Components: Registry, Router, master-9g_8b_thinking (8100)"
+else
+  echo "Components: Registry, Router, master-9g_8b_thinking (8100), slave-9g_8b_thinking (8200)"
+fi
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"
@@ -135,11 +149,15 @@ DOCKER_ARGS+=("${IMAGE_NAME}")
 docker run "${DOCKER_ARGS[@]}"
 
 echo ""
-echo "✅ Master container started: ${CONTAINER_NAME}"
+echo "✅ Container started: ${CONTAINER_NAME}"
 echo "Registry: http://${REGISTRY_IP}:${REGISTRY_PORT}"
 echo "Router:   http://${REGISTRY_IP}:${ROUTER_PORT}"
 echo ""
-echo "Instance 1 (master-9g_8b_thinking): port 8100"
-echo "Instance 2 (slave-9g_8b_thinking): port 8200"
+if [ "${SINGLE_INSTANCE}" = "true" ]; then
+  echo "Instance (master-9g_8b_thinking): port 8100"
+else
+  echo "Instance 1 (master-9g_8b_thinking): port 8100"
+  echo "Instance 2 (slave-9g_8b_thinking): port 8200"
+fi
 echo ""
 echo "Logs: docker logs -f ${CONTAINER_NAME}"
