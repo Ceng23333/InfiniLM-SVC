@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use tracing::debug;
 
 /// Extract prompt_cache_key from request body
+#[allow(dead_code)]
 pub fn extract_prompt_cache_key_from_body(body: &Bytes) -> Option<String> {
     // Try to parse as JSON
     let json_value: Value = match serde_json::from_slice(body) {
@@ -58,6 +59,7 @@ pub fn generate_session_from_ip(
 /// Extract session ID from request
 /// Priority: 1. prompt_cache_key, 2. IP-based hash, 3. None
 /// Returns None if no session identifier is available
+#[allow(dead_code)]
 pub fn extract_session_id(
     headers: &HeaderMap,
     body: &Bytes,

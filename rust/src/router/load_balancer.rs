@@ -7,6 +7,7 @@ use crate::router::service_instance::ServiceInstance;
 use crate::utils::errors::RouterError;
 use crate::utils::time::current_timestamp;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
@@ -25,7 +26,6 @@ pub struct LoadBalancer {
     health_checker: Arc<HealthChecker>,
     registry_client: Option<Arc<RegistryClient>>,
     running: Arc<RwLock<bool>>,
-    session_mappings: Arc<RwLock<HashMap<String, String>>>, // Maps session_key -> service_name
 }
 
 impl LoadBalancer {
@@ -77,7 +77,6 @@ impl LoadBalancer {
             health_checker,
             registry_client,
             running: Arc::new(RwLock::new(true)),
-            session_mappings: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -207,62 +206,62 @@ impl LoadBalancer {
         Some(service)
     }
 
-    /// Get service by session key with fallback to round-robin
-    /// Optimized to reduce lock contention and avoid double work for new sessions
+    /// Get service by session key using consistent hashing
+    /// Uses hash of session_key to deterministically map to a service from the available healthy services
+    /// This ensures the same session always routes to the same service (when healthy)
     pub async fn get_service_by_session(
         &self,
         session_key: &str,
         model_id: Option<&str>,
     ) -> Option<ServiceInstance> {
-        // Fast path: Check if session mapping exists (minimal lock time)
-        let mapped_service_name = {
-            let mappings = self.session_mappings.read().await;
-            mappings.get(session_key).cloned()
-        };
+        // Get all healthy services that support the model
+        let services = self.services.read().await;
+        let all_services: Vec<_> = services.values().cloned().collect();
+        drop(services);
 
-        // If mapping exists, verify the service is healthy and supports the model
-        if let Some(service_name) = mapped_service_name {
-            // Get service and check health/model in one lock scope to minimize lock time
-            let service = {
-                let services = self.services.read().await;
-                services.get(&service_name).cloned()
-            };
+        // Check health status for all services
+        let health_checks: Vec<bool> =
+            futures::future::join_all(all_services.iter().map(|s| s.is_healthy())).await;
 
-            if let Some(service) = service {
-                // Quick health check (read-only, fast)
-                if service.is_healthy().await {
-                    // Check model support if needed
-                    let model_ok = if let Some(model_id) = model_id {
-                        let models = service.models.read().await;
-                        let ok = models.contains(&model_id.to_string());
-                        drop(models);
-                        ok
-                    } else {
-                        true
-                    };
+        let mut healthy_services: Vec<_> = all_services
+            .into_iter()
+            .zip(health_checks)
+            .filter(|(_, healthy)| *healthy)
+            .map(|(service, _)| service)
+            .collect();
 
-                    if model_ok {
-                        service.increment_request_count().await;
-                        return Some(service);
-                    }
+        // Filter by model if specified
+        if let Some(model_id) = model_id {
+            let mut filtered_services = Vec::new();
+            for service in &healthy_services {
+                let models = service.models.read().await;
+                if models.contains(&model_id.to_string()) {
+                    filtered_services.push(service.clone());
                 }
             }
-            // If mapped service is unhealthy or doesn't support model, fall through to round-robin
+            healthy_services = filtered_services;
+
+            if healthy_services.is_empty() {
+                warn!("No healthy services available for model '{}'", model_id);
+                return None;
+            }
         }
 
-        // Slow path: No mapping or mapped service is unhealthy - use round-robin
-        // This path is taken for new sessions or when mapped service becomes unhealthy
-        let new_service = self.get_next_healthy_service_by_model(model_id).await?;
-
-        // Update session mapping with new assignment
-        // Note: Write lock only needed for new/migrated sessions (rare after warmup)
-        // The write lock contention is minimal since most requests hit the fast path above
-        {
-            let mut mappings = self.session_mappings.write().await;
-            mappings.insert(session_key.to_string(), new_service.name.clone());
+        if healthy_services.is_empty() {
+            error!("No healthy services available");
+            return None;
         }
 
-        Some(new_service)
+        // Use hash of session_key to deterministically select a service
+        // This ensures the same session always routes to the same service
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        session_key.hash(&mut hasher);
+        let hash_value = hasher.finish();
+        let service_index = (hash_value as usize) % healthy_services.len();
+
+        let selected_service = healthy_services[service_index].clone();
+        selected_service.increment_request_count().await;
+        Some(selected_service)
     }
 
     /// Start health check background task

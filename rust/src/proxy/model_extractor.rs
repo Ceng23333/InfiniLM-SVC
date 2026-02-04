@@ -5,6 +5,7 @@ use serde_json::Value;
 use tracing::debug;
 
 /// Extract model ID from request body
+#[allow(dead_code)]
 pub fn extract_model_from_body(body: &Bytes) -> Option<String> {
     // Try to parse as JSON
     let json_value: Value = match serde_json::from_slice(body) {
