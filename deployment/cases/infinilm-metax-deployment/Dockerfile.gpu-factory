@@ -42,17 +42,21 @@ COPY . .
 # Set deployment case environment variable for install.sh
 ENV DEPLOYMENT_CASE=infinilm-metax-deployment
 
-# Install git first (required for cloning InfiniCore/InfiniLM)
-# Try multiple methods to ensure git is available
-RUN (command -v git >/dev/null 2>&1 || \
-     [ -f /usr/bin/git ] || \
-     [ -f /usr/local/bin/git ] || \
-     (yum install -y git >/dev/null 2>&1 || dnf install -y git >/dev/null 2>&1 || apt-get update -qq >/dev/null 2>&1 && apt-get install -y git >/dev/null 2>&1 || true)) && \
-    (command -v git >/dev/null 2>&1 || [ -f /usr/bin/git ] || [ -f /usr/local/bin/git ] || \
-     (echo "Warning: git may not be available" && false)) || \
-    echo "Warning: git installation check failed, will try to continue"
+# Use the base conda environment from the base image directly
+# Ensure conda bin is first in PATH so git and other tools from conda are used
+ENV PATH="/opt/conda/bin:/usr/bin:/usr/local/bin:${PATH}"
+
+# Check if git is available in base conda environment (use conda bin directly)
+RUN if [ -x /opt/conda/bin/git ]; then \
+        echo "✓ git found in base conda environment at /opt/conda/bin/git"; \
+    elif command -v git >/dev/null 2>&1; then \
+        echo "✓ git found at $(command -v git)"; \
+    else \
+        echo "⚠ git not found in base conda environment, install.sh will attempt installation"; \
+    fi
 
 # Run install script to build and install binaries
+# Note: install.sh will handle git installation if needed (with conda fallback)
 # This will:
 # - Install Rust if not present
 # - Build release binaries

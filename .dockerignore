@@ -1,0 +1,149 @@
+# Rust/Cargo build artifacts
+rust/target/
+rust/**/*.rs.bk
+*.pdb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+conda-meta/
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Process IDs
+*.pid
+
+# Test artifacts
+/tmp/babysitter*.log
+/tmp/router_*.log
+/tmp/registry_*.log
+/tmp/babysitter_test_configs/
+*.test.log
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+
+# Coverage reports
+*.gcov
+*.gcda
+*.gcno
+coverage/
+*.lcov
+.nyc_output/
+
+# Profiling data
+*.prof
+*.profdata
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Conda
+.conda/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.tox/
+.hypothesis/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Rust-specific
+**/*.rs.bk
+*.pdb
+
+# Integration test temporary files
+rust/tests/integration/*.toml.tmp
+rust/tests/integration/*.log
+
+# Build artifacts
+*.o
+*.a
+*.dylib
+*.dll
+*.exe
+
+# Benchmark results and generated datasets
+deployment/cases/cache-routing-validation/results/
+deployment/cases/cache-routing-validation/*.jsonl
+deployment/cases/cache-routing-validation/*.tmp.log
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+
+# Documentation (optional - uncomment if you don't need docs in image)
+# *.md
+# docs/

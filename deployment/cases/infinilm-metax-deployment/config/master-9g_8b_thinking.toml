@@ -20,7 +20,8 @@ args = [
   "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
   "--metax",
   "--model_path", "/models/9g_8b_thinking",
-  "--max_batch_size", "8",
+  "--max_batch_size", "32",
+  "--max_tokens", "2048",
   "--tp", "1",
   "--temperature", "1.0",
   "--top_p", "0.8",
@@ -40,4 +41,4 @@ MACA_PATH = "/opt/hpcc"
 HPCC_PATH = "/opt/hpcc"
 C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
 XMAKE_ROOT = "y"
-HPCC_VISIBLE_DEVICES = "1"
+HPCC_VISIBLE_DEVICES = "0"

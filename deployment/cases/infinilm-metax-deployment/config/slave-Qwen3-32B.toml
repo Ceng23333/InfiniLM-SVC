@@ -27,6 +27,7 @@ args = [
   "--model_path", "/models/Qwen3-32B",
   "--max_batch_size", "32",
   "--tp", "4",
+  "--max_tokens", "2048",
   "--temperature", "1.0",
   "--top_p", "0.8",
   "--top_k", "1",

@@ -70,12 +70,114 @@ fi
 
 cd "${PROJECT_ROOT}" || exit 1
 
+# Function to verify proxy accessibility
+verify_proxy() {
+    local proxy="${1}"
+    local proxy_type="${2:-HTTP}"
+
+    if [ -z "${proxy}" ]; then
+        return 0  # No proxy configured, skip verification
+    fi
+
+    echo "  Verifying ${proxy_type} proxy: ${proxy}..."
+
+    # Extract host and port from proxy URL
+    # Format: http://host:port or https://host:port
+    local proxy_host_port
+    if echo "${proxy}" | grep -qE "^https?://"; then
+        proxy_host_port=$(echo "${proxy}" | sed -E 's|^https?://||' | sed -E 's|/.*$||')
+    else
+        proxy_host_port="${proxy}"
+    fi
+
+    local proxy_host
+    local proxy_port
+    if echo "${proxy_host_port}" | grep -q ":"; then
+        proxy_host=$(echo "${proxy_host_port}" | cut -d: -f1)
+        proxy_port=$(echo "${proxy_host_port}" | cut -d: -f2)
+    else
+        proxy_host="${proxy_host_port}"
+        proxy_port="80"
+    fi
+
+    # Test connectivity to proxy host:port using timeout
+    if command -v timeout >/dev/null 2>&1; then
+        if timeout 5 bash -c "echo > /dev/tcp/${proxy_host}/${proxy_port}" 2>/dev/null; then
+            echo "  ✓ ${proxy_type} proxy ${proxy} is accessible"
+            return 0
+        else
+            echo "  ✗ ${proxy_type} proxy ${proxy} is NOT accessible (cannot connect to ${proxy_host}:${proxy_port})"
+            return 1
+        fi
+    elif command -v nc >/dev/null 2>&1; then
+        if nc -z -w 5 "${proxy_host}" "${proxy_port}" 2>/dev/null; then
+            echo "  ✓ ${proxy_type} proxy ${proxy} is accessible"
+            return 0
+        else
+            echo "  ✗ ${proxy_type} proxy ${proxy} is NOT accessible (cannot connect to ${proxy_host}:${proxy_port})"
+            return 1
+        fi
+    elif command -v curl >/dev/null 2>&1; then
+        # Use curl to test proxy connectivity (try a simple request through proxy)
+        if curl -s --connect-timeout 5 --proxy "${proxy}" -o /dev/null http://www.example.com 2>/dev/null || \
+           curl -s --connect-timeout 5 --proxy "${proxy}" -o /dev/null https://www.example.com 2>/dev/null; then
+            echo "  ✓ ${proxy_type} proxy ${proxy} is accessible and working"
+            return 0
+        else
+            echo "  ✗ ${proxy_type} proxy ${proxy} is NOT accessible or not working"
+            return 1
+        fi
+    else
+        echo "  ⚠ Cannot verify proxy (no timeout/nc/curl available), assuming accessible"
+        return 0
+    fi
+}
+
+# Verify proxy accessibility if configured
 echo "========================================"
 echo "InfiniLM-SVC Docker Entrypoint (Rust)"
 echo "========================================"
 echo "PROJECT_ROOT: ${PROJECT_ROOT}"
 echo "SCRIPT_DIR: ${SCRIPT_DIR}"
 echo ""
+
+# Check and verify HTTP/HTTPS proxies
+PROXY_VERIFICATION_FAILED=false
+
+if [ -n "${HTTP_PROXY:-}" ] || [ -n "${http_proxy:-}" ]; then
+    echo "Verifying proxy configuration..."
+    http_proxy_val="${HTTP_PROXY:-${http_proxy:-}}"
+    if ! verify_proxy "${http_proxy_val}" "HTTP"; then
+        PROXY_VERIFICATION_FAILED=true
+    fi
+fi
+
+if [ -n "${HTTPS_PROXY:-}" ] || [ -n "${https_proxy:-}" ]; then
+    https_proxy_val="${HTTPS_PROXY:-${https_proxy:-}}"
+    if ! verify_proxy "${https_proxy_val}" "HTTPS"; then
+        PROXY_VERIFICATION_FAILED=true
+    fi
+fi
+
+if [ -n "${ALL_PROXY:-}" ] || [ -n "${all_proxy:-}" ]; then
+    all_proxy_val="${ALL_PROXY:-${all_proxy:-}}"
+    if ! verify_proxy "${all_proxy_val}" "ALL"; then
+        PROXY_VERIFICATION_FAILED=true
+    fi
+fi
+
+if [ "${PROXY_VERIFICATION_FAILED}" = "true" ]; then
+    echo ""
+    echo "⚠ Warning: Proxy verification failed!"
+    echo "  Some network operations may fail if proxy is required."
+    echo "  Continuing startup anyway..."
+    echo ""
+else
+    if [ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${ALL_PROXY:-}${http_proxy:-}${https_proxy:-}${all_proxy:-}" ]; then
+        echo "✓ Proxy verification completed"
+        echo ""
+    fi
+fi
 
 # Parse LAUNCH_COMPONENTS (default: "all")
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"

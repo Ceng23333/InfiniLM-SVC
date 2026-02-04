@@ -42,30 +42,9 @@ ENV DEPLOYMENT_CASE=infinilm-metax-deployment
 ENV DEBUG=1
 ENV VERBOSE=1
 
-# Install git first (required for cloning InfiniCore/InfiniLM)
-# Try multiple methods: check existing, conda, yum/dnf, apt-get
-# Ensure common git locations are in PATH
-ENV PATH="/usr/bin:/usr/local/bin:/opt/conda/bin:${PATH}"
-
-# Configure git and conda to use proxy if set
-RUN echo "[Pre-install] Configuring proxy for git/conda..." && \
-    ([ -z "${HTTP_PROXY}" ] && [ -z "${HTTPS_PROXY}" ] && echo "No proxy configured" || \
-     (([ -n "${HTTP_PROXY}" ] && git config --global http.proxy "${HTTP_PROXY}" 2>/dev/null || true) && \
-      ([ -n "${HTTPS_PROXY}" ] && git config --global https.proxy "${HTTPS_PROXY}" 2>/dev/null || true) && \
-      echo "✓ Proxy configured for git")) && \
-    echo "[Pre-install] Installing git..." && \
-    (command -v git >/dev/null 2>&1 && echo "✓ git already available" || \
-     ([ -f /usr/bin/git ] || [ -f /usr/local/bin/git ] || [ -f /opt/conda/bin/git ]) && echo "✓ git found in common locations" || \
-     (command -v conda >/dev/null 2>&1 && \
-      ([ -n "${HTTP_PROXY}" ] && export http_proxy="${HTTP_PROXY}" || true) && \
-      ([ -n "${HTTPS_PROXY}" ] && export https_proxy="${HTTPS_PROXY}" || true) && \
-      conda install -y git -c conda-forge >/dev/null 2>&1 && echo "✓ git installed via conda" || \
-      (yum install -y git >/dev/null 2>&1 || dnf install -y git >/dev/null 2>&1 || apt-get update -qq >/dev/null 2>&1 && apt-get install -y git >/dev/null 2>&1 || true))) && \
-    (command -v git >/dev/null 2>&1 && git --version || \
-     ([ -f /usr/bin/git ] && /usr/bin/git --version) || \
-     ([ -f /usr/local/bin/git ] && /usr/local/bin/git --version) || \
-     ([ -f /opt/conda/bin/git ] && /opt/conda/bin/git --version)) && \
-    echo "[Pre-install] ✓ git installation verified"
+# Use the base conda environment from the base image directly
+# Ensure conda bin is first in PATH so git and other tools from conda are used
+ENV PATH="/opt/conda/bin:/usr/bin:/usr/local/bin:${PATH}"
 
 # Run install script with explicit output (no redirection)
 # Split into steps for better visibility
@@ -75,6 +54,19 @@ RUN echo "==========================================" && \
     echo "Deployment case: ${DEPLOYMENT_CASE}" && \
     echo "Install path: /usr/local/bin" && \
     echo ""
+
+# Check if git is available in base conda environment (use conda bin directly)
+RUN echo "[Step 0/6] Checking for git in base conda environment..." && \
+    if [ -x /opt/conda/bin/git ]; then \
+        echo "✓ git found in base conda environment at /opt/conda/bin/git"; \
+        /opt/conda/bin/git --version || true; \
+    elif command -v git >/dev/null 2>&1; then \
+        echo "✓ git found at $(command -v git)"; \
+        git --version || true; \
+    else \
+        echo "⚠ git not found in base conda environment, install.sh will attempt installation"; \
+    fi && \
+    echo "[Step 0/6] ✓ Git check completed"
 
 RUN echo "[Step 1/6] Running install.sh..." && \
     mkdir -p /workspace && \
@@ -117,6 +109,19 @@ RUN echo "[Step 6/6] Creating directories..." && \
     echo "==========================================" && \
     echo "Build completed successfully!" && \
     echo "=========================================="
+
+# Unset proxy environment variables at the end of build to avoid proxy interference at runtime
+# Proxy is only needed during build for downloading dependencies
+# At runtime, services should connect directly without proxy routing issues
+# Set NO_PROXY to include localhost/127.0.0.1 to ensure local connections bypass proxy
+ENV HTTP_PROXY=""
+ENV HTTPS_PROXY=""
+ENV http_proxy=""
+ENV https_proxy=""
+ENV ALL_PROXY=""
+ENV all_proxy=""
+ENV NO_PROXY="localhost,127.0.0.1,0.0.0.0"
+ENV no_proxy="localhost,127.0.0.1,0.0.0.0"
 
 WORKDIR /app
 

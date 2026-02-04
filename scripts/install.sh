@@ -328,6 +328,265 @@ detect_os() {
 }
 
 # Ensure python3 + pip3 exist (installs if running as root and package manager available)
+# Ensure git is installed and configured (installs if running as root and package manager available)
+ensure_git() {
+    local git_path=""
+
+    # Fast path: check common locations + PATH
+    # Prioritize conda bin since we're using base conda environment
+    echo "  Checking if git is already installed..."
+    for git_loc in "/opt/conda/bin/git" "/bin/git" "/usr/bin/git" "/usr/local/bin/git"; do
+        if [ -f "${git_loc}" ] && [ -x "${git_loc}" ]; then
+            if "${git_loc}" --version >/dev/null 2>&1; then
+                git_path="${git_loc}"
+                echo "    Found git at: ${git_loc}"
+                break
+            fi
+        fi
+    done
+    if [ -z "${git_path}" ] && command -v git >/dev/null 2>&1; then
+        git_path="$(command -v git)"
+        echo "    Found git via command -v: ${git_path}"
+    fi
+
+    if [ -n "${git_path}" ] && "${git_path}" --version >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ git available at ${git_path}${NC}"
+        if [ -n "${HTTP_PROXY:-}" ]; then
+            "${git_path}" config --global http.proxy "${HTTP_PROXY}" 2>/dev/null || true
+        fi
+        if [ -n "${HTTPS_PROXY:-}" ]; then
+            "${git_path}" config --global https.proxy "${HTTPS_PROXY}" 2>/dev/null || true
+        fi
+        # Configure git timeouts to prevent hanging on network issues
+        "${git_path}" config --global http.timeout 30 2>/dev/null || true
+        "${git_path}" config --global http.lowSpeedLimit 1000 2>/dev/null || true
+        "${git_path}" config --global http.lowSpeedTime 10 2>/dev/null || true
+        "${git_path}" config --global http.postBuffer 524288000 2>/dev/null || true
+        return 0
+    fi
+
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${RED}✗ git is required but not found (not running as root, cannot install).${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Installing git...${NC}"
+    detect_os
+    case "${OS}" in
+        ubuntu|debian)
+            command_exists apt-get || return 1
+            apt-get update -qq
+            apt-get install -y git
+            ;;
+        alpine)
+            command_exists apk || return 1
+            apk add --no-cache git
+            ;;
+        centos|rhel|fedora|kylin)
+            command_exists yum || return 1
+
+            # FIRST: Check if git is already installed (base image might have it)
+            echo "  Checking if git is already installed..."
+            if command_exists rpm; then
+                if rpm -q git >/dev/null 2>&1; then
+                    echo "    git package found in rpm database"
+                    local git_rpm_path=$(rpm -ql git 2>/dev/null | grep -E "/bin/git$" | head -1)
+                    if [ -n "${git_rpm_path}" ] && [ -f "${git_rpm_path}" ] && [ -x "${git_rpm_path}" ]; then
+                        if "${git_rpm_path}" --version >/dev/null 2>&1; then
+                            git_path="${git_rpm_path}"
+                            local git_version=$("${git_path}" --version 2>/dev/null || echo "unknown")
+                            echo -e "    ${GREEN}✓ git already installed at ${git_path}${NC}"
+                            echo "    Version: ${git_version}"
+                        fi
+                    fi
+                fi
+            fi
+
+            # If not found, try to install via yum (may fail due to libdnf issues)
+            if [ -z "${git_path}" ]; then
+                echo "  Running: yum install -y git"
+                # CRITICAL: Unset proxy env vars for yum - yum repos are internal and don't need proxy
+                # Proxy is only needed for git operations (cloning repos), not for package installation
+                # Save proxy vars, unset them, run yum, then restore them
+                local saved_http_proxy="${http_proxy:-}"
+                local saved_https_proxy="${https_proxy:-}"
+                local saved_HTTP_PROXY="${HTTP_PROXY:-}"
+                local saved_HTTPS_PROXY="${HTTPS_PROXY:-}"
+                local saved_all_proxy="${all_proxy:-}"
+                local saved_ALL_PROXY="${ALL_PROXY:-}"
+                unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+                local yum_output=$(yum install -y git 2>&1)
+                local yum_exit=$?
+                # Restore proxy vars
+                [ -n "${saved_http_proxy}" ] && export http_proxy="${saved_http_proxy}" || unset http_proxy
+                [ -n "${saved_https_proxy}" ] && export https_proxy="${saved_https_proxy}" || unset https_proxy
+                [ -n "${saved_HTTP_PROXY}" ] && export HTTP_PROXY="${saved_HTTP_PROXY}" || unset HTTP_PROXY
+                [ -n "${saved_HTTPS_PROXY}" ] && export HTTPS_PROXY="${saved_HTTPS_PROXY}" || unset HTTPS_PROXY
+                [ -n "${saved_all_proxy}" ] && export all_proxy="${saved_all_proxy}" || unset all_proxy
+                [ -n "${saved_ALL_PROXY}" ] && export ALL_PROXY="${saved_ALL_PROXY}" || unset ALL_PROXY
+
+                # Show relevant yum output (success messages or errors)
+                # Check for success FIRST, even if libdnf errors are present
+                if echo "${yum_output}" | grep -qiE "complete|installed|installing.*git|nothing to do|already installed|package.*is already installed"; then
+                    echo "${yum_output}" | grep -iE "complete|installed|installing.*git|nothing to do|already installed|package.*is already installed" | head -3
+                else
+                    # If no success message, check for libdnf errors (but git might still be installed)
+                    if echo "${yum_output}" | grep -qiE "ImportError|libdnf|undefined symbol"; then
+                        echo "  ⚠ yum has libdnf compatibility issues (this is expected on Kylin)"
+                        echo "  Checking if git was installed despite the error..."
+                    else
+                        # Show first few lines of output for debugging
+                        echo "  yum output (first 10 lines):"
+                        echo "${yum_output}" | head -10
+                    fi
+                fi
+
+                # Give yum time to complete installation (even if it showed errors)
+                sleep 3
+
+                # CRITICAL: Check /bin/git and /usr/bin/git directly (where yum installs git)
+                # Don't rely on PATH or rpm -q which may fail due to libdnf issues
+                echo "  Checking for git after yum install..."
+                for check_git in "/bin/git" "/usr/bin/git"; do
+                    if [ -f "${check_git}" ]; then
+                        echo "    Found file: ${check_git}"
+                        if [ -x "${check_git}" ]; then
+                            echo "    File is executable, testing..."
+                            if "${check_git}" --version >/dev/null 2>&1; then
+                                git_path="${check_git}"
+                                local git_version=$("${git_path}" --version 2>/dev/null || echo "unknown")
+                                echo -e "    ${GREEN}✓ git found at ${git_path}${NC}"
+                                echo "    Version: ${git_version}"
+                                break
+                            else
+                                echo "    File exists but --version test failed"
+                            fi
+                        else
+                            echo "    File exists but not executable"
+                        fi
+                    else
+                        echo "    File not found: ${check_git}"
+                    fi
+                done
+
+                # Also check rpm database again (rpm -q may work even if yum fails)
+                if [ -z "${git_path}" ] && command_exists rpm; then
+                    echo "  Checking rpm database for git package..."
+                    if rpm -q git >/dev/null 2>&1; then
+                        echo "    git package found in rpm database"
+                        local git_rpm_path=$(rpm -ql git 2>/dev/null | grep -E "/bin/git$" | head -1)
+                        if [ -n "${git_rpm_path}" ] && [ -f "${git_rpm_path}" ] && [ -x "${git_rpm_path}" ]; then
+                            if "${git_rpm_path}" --version >/dev/null 2>&1; then
+                                git_path="${git_rpm_path}"
+                                echo -e "    ${GREEN}✓ git found via rpm at ${git_path}${NC}"
+                            fi
+                        fi
+                    fi
+                fi
+
+                # Fallback: Try installing git via conda if yum failed and conda is available
+                if [ -z "${git_path}" ] && [ -f "/opt/conda/etc/profile.d/conda.sh" ]; then
+                    echo "  Attempting to install git via conda (fallback for yum failures)..."
+                    source /opt/conda/etc/profile.d/conda.sh
+                    conda activate base 2>/dev/null || true
+
+                    local conda_cmd="/opt/conda/bin/conda"
+                    if command -v conda >/dev/null 2>&1; then
+                        conda_cmd="conda"
+                    fi
+
+                    # Configure conda to use proxy if available, but increase timeout
+                    if [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ]; then
+                        echo "    Configuring conda proxy settings..."
+                        "${conda_cmd}" config --set remote_connect_timeout_secs 30.0 2>/dev/null || true
+                        "${conda_cmd}" config --set remote_read_timeout_secs 120.0 2>/dev/null || true
+                    fi
+
+                    # Determine output redirection based on DEBUG/VERBOSE
+                    local conda_output_redirect=">/dev/null 2>&1"
+                    if [ "${DEBUG:-0}" = "1" ] || [ "${VERBOSE:-0}" = "1" ]; then
+                        conda_output_redirect=""
+                    fi
+
+                    # Try conda install with proxy support (conda respects HTTP_PROXY/HTTPS_PROXY)
+                    # Use only conda-forge channel to avoid timeout issues with multiple channels
+                    echo "    Running: conda install -y git -c conda-forge"
+
+                    # Run conda install (proxy env vars are already set, conda will use them)
+                    # Use mamba if available (faster), otherwise use conda
+                    local install_success=false
+                    if command -v mamba >/dev/null 2>&1; then
+                        echo "    Using mamba for faster installation..."
+                        if eval "mamba install -y git -c conda-forge ${conda_output_redirect}"; then
+                            install_success=true
+                        fi
+                    fi
+
+                    if [ "${install_success}" = "false" ]; then
+                        if eval "${conda_cmd} install -y git -c conda-forge ${conda_output_redirect}"; then
+                            install_success=true
+                        fi
+                    fi
+
+                    if [ "${install_success}" = "true" ]; then
+                        echo "    conda install completed, checking for git..."
+                        sleep 2
+                        # Check conda bin directory for git
+                        if [ -x "/opt/conda/bin/git" ] && "/opt/conda/bin/git" --version >/dev/null 2>&1; then
+                            git_path="/opt/conda/bin/git"
+                            echo -e "    ${GREEN}✓ git installed via conda at ${git_path}${NC}"
+                        else
+                            echo "    ⚠ conda install succeeded but git not found at /opt/conda/bin/git"
+                        fi
+                    else
+                        echo "    ⚠ conda git installation failed (network/proxy timeout - git may need to be pre-installed in base image)"
+                        if [ "${DEBUG:-0}" = "1" ] || [ "${VERBOSE:-0}" = "1" ]; then
+                            echo "    Debug: Testing conda availability..."
+                            "${conda_cmd}" --version 2>&1 || echo "    Debug: conda command failed"
+                            echo "    Debug: Proxy settings: HTTP_PROXY=${HTTP_PROXY:-unset}, HTTPS_PROXY=${HTTPS_PROXY:-unset}"
+                        fi
+                    fi
+                fi
+            fi
+            ;;
+        *)
+            echo -e "${RED}✗ Unsupported OS for automatic git install (OS='${OS}').${NC}"
+            return 1
+            ;;
+    esac
+
+    # If git_path not set yet (for non-yum installs), check common locations
+    if [ -z "${git_path}" ]; then
+        for git_loc in "/bin/git" "/usr/bin/git" "/usr/local/bin/git" "/opt/conda/bin/git"; do
+            if [ -x "${git_loc}" ] && "${git_loc}" --version >/dev/null 2>&1; then
+                git_path="${git_loc}"
+                break
+            fi
+        done
+    fi
+    if [ -z "${git_path}" ] && command -v git >/dev/null 2>&1; then
+        git_path="$(command -v git)"
+    fi
+    if [ -z "${git_path}" ] || ! "${git_path}" --version >/dev/null 2>&1; then
+        echo -e "${RED}✗ git installation failed (git still not found).${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}✓ git installed at ${git_path}${NC}"
+    if [ -n "${HTTP_PROXY:-}" ]; then
+        "${git_path}" config --global http.proxy "${HTTP_PROXY}" 2>/dev/null || true
+    fi
+    if [ -n "${HTTPS_PROXY:-}" ]; then
+        "${git_path}" config --global https.proxy "${HTTPS_PROXY}" 2>/dev/null || true
+    fi
+    # Configure git timeouts to prevent hanging on network issues
+    "${git_path}" config --global http.timeout 30 2>/dev/null || true
+    "${git_path}" config --global http.lowSpeedLimit 1000 2>/dev/null || true
+    "${git_path}" config --global http.lowSpeedTime 10 2>/dev/null || true
+    "${git_path}" config --global http.postBuffer 524288000 2>/dev/null || true
+    return 0
+}
+
 ensure_python3_pip() {
     if command_exists python3 && command_exists pip3; then
         return 0
@@ -444,42 +703,22 @@ install_xmake() {
     echo -e "${BLUE}Installing xmake...${NC}"
     # Official installer: https://xmake.io/#/guide/installation
     # Non-interactive install to /usr/local (default for root)
-    # Try with proxy if available, then retry without proxy if needed
     local xmake_installed=false
-
-    # Try installation with proxy support
-    if [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ]; then
-        echo "  Trying xmake installation with proxy..."
-        if curl -fsSL --proxy "${HTTP_PROXY:-${HTTPS_PROXY:-}}" https://xmake.io/shget.text 2>/dev/null | bash 2>&1; then
-            xmake_installed=true
-        fi
+    if ! command_exists curl; then
+        echo -e "${RED}✗ xmake install requires curl, but curl is not available${NC}"
+        return 1
     fi
 
-    # If proxy install failed or no proxy, try direct connection
-    if [ "${xmake_installed}" != "true" ]; then
-        echo "  Trying xmake installation without proxy..."
-        # Unset proxy for direct connection
+    # Single primary path: use current environment (proxy if configured).
+    if curl -fsSL https://xmake.io/shget.text 2>/dev/null | bash 2>&1; then
+        xmake_installed=true
+    elif [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ]; then
+        # Minimal fallback: if a proxy is set but doesn't work for curl, retry once with proxy env unset.
+        echo -e "${YELLOW}⚠ xmake install failed with current environment; retrying once without proxy env...${NC}"
         if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
             curl -fsSL https://xmake.io/shget.text 2>/dev/null | bash 2>&1; then
             xmake_installed=true
         fi
-    fi
-
-    # If still failed, try alternative method: download and install manually
-    if [ "${xmake_installed}" != "true" ]; then
-        echo "  Trying alternative xmake installation method..."
-        local xmake_installer="/tmp/xmake_installer.sh"
-        # Try to download installer script
-        if [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ]; then
-            curl -fsSL --proxy "${HTTP_PROXY:-${HTTPS_PROXY:-}}" https://xmake.io/shget.text -o "${xmake_installer}" 2>/dev/null && \
-            bash "${xmake_installer}" 2>&1 && xmake_installed=true || true
-        fi
-        if [ "${xmake_installed}" != "true" ]; then
-            env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
-                curl -fsSL https://xmake.io/shget.text -o "${xmake_installer}" 2>/dev/null && \
-                bash "${xmake_installer}" 2>&1 && xmake_installed=true || true
-        fi
-        rm -f "${xmake_installer}" 2>/dev/null || true
     fi
 
     # Source xmake profile after installation to add it to PATH
@@ -611,13 +850,19 @@ install_system_deps() {
                 echo -e "${GREEN}✓ All required packages are already installed${NC}"
             else
                 echo -e "${BLUE}Missing ${missing_packages} package(s):${missing_list}${NC}"
-                # Try yum first (common in many base images), then fallback to dnf.
-                # Note: Even if yum --version fails due to libdnf issues, yum install might still work.
-                # We need to handle stderr noise from libdnf carefully.
+                # Primary path for Kylin/RHEL/CentOS/Fedora images: yum
                 if command_exists yum; then
                     echo "Attempting to install missing packages via yum..."
-                    # Try yum install - some systems have libdnf issues but yum install still works
-                    # We'll check package installation status regardless of yum exit code
+                    # CRITICAL: Unset proxy env vars for yum - yum repos are internal and don't need proxy
+                    # Save proxy vars, unset them, run yum, then restore them
+                    local saved_http_proxy="${http_proxy:-}"
+                    local saved_https_proxy="${https_proxy:-}"
+                    local saved_HTTP_PROXY="${HTTP_PROXY:-}"
+                    local saved_HTTPS_PROXY="${HTTPS_PROXY:-}"
+                    local saved_all_proxy="${all_proxy:-}"
+                    local saved_ALL_PROXY="${ALL_PROXY:-}"
+                    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+                    # yum may print libdnf noise but still install; always verify via rpm afterwards.
                     yum install -y \
                         gcc \
                         pkgconfig \
@@ -628,6 +873,13 @@ install_system_deps() {
                         curl \
                         bash \
                         git >/dev/null 2>&1 || true
+                    # Restore proxy vars
+                    [ -n "${saved_http_proxy}" ] && export http_proxy="${saved_http_proxy}" || unset http_proxy
+                    [ -n "${saved_https_proxy}" ] && export https_proxy="${saved_https_proxy}" || unset https_proxy
+                    [ -n "${saved_HTTP_PROXY}" ] && export HTTP_PROXY="${saved_HTTP_PROXY}" || unset HTTP_PROXY
+                    [ -n "${saved_HTTPS_PROXY}" ] && export HTTPS_PROXY="${saved_HTTPS_PROXY}" || unset HTTPS_PROXY
+                    [ -n "${saved_all_proxy}" ] && export all_proxy="${saved_all_proxy}" || unset all_proxy
+                    [ -n "${saved_ALL_PROXY}" ] && export ALL_PROXY="${saved_ALL_PROXY}" || unset ALL_PROXY
 
                     # Check if packages are actually installed (regardless of yum exit code)
                     # This handles cases where yum crashes due to libdnf but packages are still installed
@@ -645,76 +897,13 @@ install_system_deps() {
                         echo -e "${YELLOW}⚠ ${missing_packages} package(s) still missing after yum install${NC}"
                         echo -e "${YELLOW}  yum may have libdnf compatibility issues, but packages might still be installed${NC}"
                     fi
-                fi
-
-                # Try dnf if yum failed or doesn't exist (modern RHEL/CentOS/Fedora)
-                if [ "$INSTALLED" != "true" ] && command_exists dnf; then
-                    echo "Attempting to install missing packages via dnf..."
-                    # Suppress stderr to avoid libdnf Python binding errors
-                    dnf install -y \
-                        gcc \
-                        pkgconf \
-                        openssl-devel \
-                        clang \
-                        clang-devel \
-                        ca-certificates \
-                        curl \
-                        bash \
-                        git >/dev/null 2>&1 || true
-
-                    # Check if packages are now installed
-                    missing_packages=0
-                    for pkg in gcc pkgconf openssl-devel clang clang-devel git; do
-                        if ! rpm -q "${pkg}" >/dev/null 2>&1; then
-                            missing_packages=$((missing_packages + 1))
-                        fi
-                    done
-                    if [ ${missing_packages} -eq 0 ]; then
-                        echo -e "${GREEN}✓ Required packages are now installed${NC}"
-                        INSTALLED=true
-                    else
-                        echo -e "${YELLOW}⚠ dnf installation failed and ${missing_packages} package(s) still missing${NC}"
-                        echo -e "${YELLOW}  dnf may have libdnf compatibility issues${NC}"
-                    fi
-                fi
-
-                # Final check - if still missing, warn but don't fail yet
-                if [ "$INSTALLED" != "true" ]; then
-                    echo -e "${YELLOW}⚠ Could not install all system dependencies via yum/dnf.${NC}"
-                    echo -e "${YELLOW}  Missing packages may need to be installed manually:${NC}"
-                    echo -e "${YELLOW}    gcc, pkgconf, openssl-devel, clang, clang-devel, ca-certificates, curl, bash, git${NC}"
-                    echo -e "${YELLOW}  Note: Base image may already have these packages despite package manager issues${NC}"
+                else
+                    echo -e "${YELLOW}⚠ yum not available; cannot install system dependencies automatically on ${OS}${NC}"
                 fi
             fi
             ;;
         *)
-            echo -e "${YELLOW}Warning: Unknown OS ($OS), trying to detect package manager...${NC}"
-            # Try common package managers as fallback
-            if command_exists apt-get; then
-                echo "Detected apt-get, attempting installation..."
-                apt-get update && \
-                apt-get install -y build-essential pkg-config libssl-dev clang libclang-dev ca-certificates curl bash && \
-                INSTALLED=true
-            elif command_exists dnf; then
-                echo "Detected dnf, attempting installation..."
-                dnf install -y gcc pkgconf openssl-devel clang clang-devel ca-certificates curl bash git 2>&1 && \
-                INSTALLED=true
-            elif command_exists yum; then
-                echo "Detected yum, checking if it's working..."
-                if yum --version >/dev/null 2>&1; then
-                    echo "Installing dependencies via yum..."
-                    yum install -y gcc pkgconf openssl-devel clang clang-devel ca-certificates curl bash git 2>&1 && \
-                    INSTALLED=true
-                else
-                    echo -e "${YELLOW}⚠ yum appears to be corrupted (libdnf issue), skipping system package installation${NC}"
-                    echo -e "${YELLOW}  Please fix yum/dnf or install dependencies manually:${NC}"
-                    echo -e "${YELLOW}    gcc, pkgconf, openssl-devel, clang, clang-devel, ca-certificates, curl, bash, git${NC}"
-                fi
-            elif command_exists apk; then
-                echo "Detected apk, attempting installation..."
-                apk add --no-cache build-base pkgconfig openssl-dev clang clang-dev ca-certificates curl bash && \
-                INSTALLED=true
-            fi
+            echo -e "${YELLOW}Warning: Unknown OS ($OS). Skipping system package installation.${NC}"
             ;;
     esac
 
@@ -1039,158 +1228,10 @@ install_infinicore_and_infinilm_optional() {
     # These installs require python + pip, and typically require xmake for native modules.
     echo -e "${BLUE}Installing optional Python backends (InfiniCore/InfiniLM)...${NC}"
 
-    # Ensure git is available FIRST for cloning repos
-    # Check common git locations in case it's installed but not in PATH
-    local git_found=false
-    local git_path=""
-
-    # Try to find git in common locations (check file existence directly)
-    for git_loc in "/usr/bin/git" "/usr/local/bin/git" "/bin/git" "/opt/conda/bin/git"; do
-        if [ -f "${git_loc}" ] && [ -x "${git_loc}" ]; then
-            git_path="${git_loc}"
-            git_found=true
-            # Add to PATH if not already there
-            local git_dir="$(dirname "${git_loc}")"
-            if ! echo "${PATH}" | grep -q "${git_dir}"; then
-                export PATH="${git_dir}:${PATH}"
-            fi
-            break
-        fi
-    done
-
-    # Also try command -v if PATH is set
-    if [ "${git_found}" != "true" ] && command -v git >/dev/null 2>&1; then
-        git_path="$(command -v git)"
-        git_found=true
-    fi
-
-    if [ "${git_found}" = "true" ]; then
-        echo -e "${GREEN}✓ git available at ${git_path}${NC}"
-        # Verify git actually works
-        if ! "${git_path}" --version >/dev/null 2>&1; then
-            echo -e "${YELLOW}⚠ git found but not working, will try to install...${NC}"
-            git_found=false
-        fi
-    fi
-
-    if [ "${git_found}" != "true" ]; then
-        echo -e "${BLUE}Installing git for repository cloning...${NC}"
-
-        # First check if git is already installed via rpm (common in RHEL/CentOS/Kylin)
-        if command_exists rpm; then
-            if rpm -q git >/dev/null 2>&1; then
-                echo "  git is installed via rpm, finding location..."
-                # Find git binary from rpm package
-                local git_rpm_path=$(rpm -ql git 2>/dev/null | grep -E "/bin/git$" | head -1)
-                if [ -n "${git_rpm_path}" ] && [ -f "${git_rpm_path}" ]; then
-                    git_path="${git_rpm_path}"
-                    git_found=true
-                    local git_dir="$(dirname "${git_rpm_path}")"
-                    if ! echo "${PATH}" | grep -q "${git_dir}"; then
-                        export PATH="${git_dir}:${PATH}"
-                    fi
-                    echo -e "${GREEN}✓ git found via rpm at ${git_path}${NC}"
-                fi
-            fi
-        fi
-
-        # Try to install git using available package manager if still not found
-        if [ "${git_found}" != "true" ]; then
-            if command_exists apt-get; then
-                echo "  Trying apt-get..."
-                apt-get update -qq >/dev/null 2>&1
-                apt-get install -y git >/dev/null 2>&1 || true
-            elif command_exists yum; then
-                echo "  Trying yum install git..."
-                # yum may have libdnf issues but still install packages
-                # Try installation and then verify git actually exists
-                yum install -y git 2>&1 | grep -v "libdnf\|ImportError" || true
-                # Wait a moment for installation to complete
-                sleep 1
-                # Check if git was actually installed despite yum errors
-                if rpm -q git >/dev/null 2>&1; then
-                    echo "  git package installed via rpm"
-                    # Find git binary from rpm package
-                    local git_rpm_path=$(rpm -ql git 2>/dev/null | grep -E "/bin/git$" | head -1)
-                    if [ -n "${git_rpm_path}" ] && [ -f "${git_rpm_path}" ]; then
-                        git_path="${git_rpm_path}"
-                        git_found=true
-                        local git_dir="$(dirname "${git_rpm_path}")"
-                        if ! echo "${PATH}" | grep -q "${git_dir}"; then
-                            export PATH="${git_dir}:${PATH}"
-                        fi
-                        echo -e "${GREEN}✓ git installed via yum at ${git_path}${NC}"
-                    fi
-                fi
-            elif command_exists dnf; then
-                echo "  Trying dnf install git..."
-                dnf install -y git 2>&1 | grep -v "libdnf\|ImportError" || true
-                sleep 1
-                # Check if git was actually installed
-                if rpm -q git >/dev/null 2>&1; then
-                    echo "  git package installed via rpm"
-                    local git_rpm_path=$(rpm -ql git 2>/dev/null | grep -E "/bin/git$" | head -1)
-                    if [ -n "${git_rpm_path}" ] && [ -f "${git_rpm_path}" ]; then
-                        git_path="${git_rpm_path}"
-                        git_found=true
-                        local git_dir="$(dirname "${git_rpm_path}")"
-                        if ! echo "${PATH}" | grep -q "${git_dir}"; then
-                            export PATH="${git_dir}:${PATH}"
-                        fi
-                        echo -e "${GREEN}✓ git installed via dnf at ${git_path}${NC}"
-                    fi
-                fi
-            elif command_exists apk; then
-                echo "  Trying apk..."
-                apk add --no-cache git >/dev/null 2>&1 || true
-            fi
-
-            # Final check after installation attempt - look in all common locations
-            for git_loc in "/usr/bin/git" "/usr/local/bin/git" "/bin/git" "/opt/conda/bin/git"; do
-                if [ -f "${git_loc}" ] && [ -x "${git_loc}" ]; then
-                    git_path="${git_loc}"
-                    git_found=true
-                    local git_dir="$(dirname "${git_loc}")"
-                    if ! echo "${PATH}" | grep -q "${git_dir}"; then
-                        export PATH="${git_dir}:${PATH}"
-                    fi
-                    break
-                fi
-            done
-
-            # Also check command -v again
-            if [ "${git_found}" != "true" ] && command -v git >/dev/null 2>&1; then
-                git_path="$(command -v git)"
-                git_found=true
-            fi
-        fi
-
-        # Check again after installation attempt - look in all common locations
-        for git_loc in "/usr/bin/git" "/usr/local/bin/git" "/bin/git" "/opt/conda/bin/git"; do
-            if [ -f "${git_loc}" ] && [ -x "${git_loc}" ]; then
-                git_path="${git_loc}"
-                git_found=true
-                local git_dir="$(dirname "${git_loc}")"
-                if ! echo "${PATH}" | grep -q "${git_dir}"; then
-                    export PATH="${git_dir}:${PATH}"
-                fi
-                break
-            fi
-        done
-
-        # Also check command -v again
-        if [ "${git_found}" != "true" ] && command -v git >/dev/null 2>&1; then
-            git_path="$(command -v git)"
-            git_found=true
-        fi
-
-        if [ "${git_found}" = "true" ]; then
-            echo -e "${GREEN}✓ git installed/found at ${git_path}${NC}"
-        else
-            echo -e "${RED}✗ git installation failed and git is not available.${NC}"
+    # Ensure git is available for cloning repos (should already be done in main(), but verify)
+    if ! ensure_git; then
             echo -e "${RED}Error: Cannot clone repositories without git. Please install git manually or mount repos.${NC}"
             return 1
-        fi
     fi
 
     if ! ensure_python3_pip; then
@@ -1232,47 +1273,46 @@ install_infinicore_and_infinilm_optional() {
             echo -e "${YELLOW}    - requirements-infinicore-infinilm.txt${NC}"
         else
             echo "Using requirements file: ${requirements_file}"
-            # Try multiple China mainland mirrors in order: Tsinghua -> Aliyun -> Tencent
-            # Note: Tsinghua is tried first as it's more likely to have all packages (e.g., ml_dtypes)
-            local packages_installed=false
-            for mirror_url in "https://pypi.tuna.tsinghua.edu.cn/simple" "http://mirrors.aliyun.com/pypi/simple" "https://mirrors.cloud.tencent.com/pypi/simple"; do
-                local mirror_name=$(echo "${mirror_url}" | sed 's|https\?://||' | sed 's|/.*||')
-                echo "  Trying ${mirror_name} mirror..."
-                # Unset proxy env vars for pip to avoid proxy connection errors
-                if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
-                    ${python_cmd} -m pip install --no-cache-dir -i "${mirror_url}" --trusted-host "${mirror_name}" -r "${requirements_file}" 2>&1; then
-                    echo -e "${GREEN}✓ Python dependencies installed from ${mirror_name}${NC}"
-                    packages_installed=true
-                    break
-                else
-                    echo "  ${mirror_name} mirror failed, trying next..."
+            local pip_index_url="${PIP_INDEX_URL:-}"
+            local pip_ok=false
+
+            if [ -n "${pip_index_url}" ]; then
+                local pip_host
+                pip_host="$(echo "${pip_index_url}" | sed 's|https\?://||' | sed 's|/.*||')"
+                echo "  Using PIP_INDEX_URL=${pip_index_url}"
+                # Use trusted-host for mirrors (tsinghua, aliyun, etc.)
+                if ${python_cmd} -m pip install --no-cache-dir -i "${pip_index_url}" --trusted-host "${pip_host}" -r "${requirements_file}"; then
+                    pip_ok=true
                 fi
-            done
-            if [ "${packages_installed}" != "true" ]; then
-                echo -e "${YELLOW}⚠ Python dependencies installation failed from all China mirrors${NC}"
+            else
+                # Check if pip config has a custom index-url (from base image)
+                # If so, we may need to override it or use default PyPI
+                if ${python_cmd} -m pip install --no-cache-dir -r "${requirements_file}"; then
+                    pip_ok=true
+                else
+                    # Fallback: try with tsinghua mirror if default fails
+                    echo "  Retrying with tsinghua mirror..."
+                    if ${python_cmd} -m pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn -r "${requirements_file}"; then
+                        pip_ok=true
+                    fi
+                fi
+            fi
+
+            # Minimal fallback: if pip fails and a proxy is set, retry once without proxy env.
+            if [ "${pip_ok}" != "true" ] && { [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ] || [ -n "${http_proxy:-}" ] || [ -n "${https_proxy:-}" ]; }; then
+                echo -e "${YELLOW}⚠ pip install failed; retrying once with proxy env unset...${NC}"
+                if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+                    ${python_cmd} -m pip install --no-cache-dir -r "${requirements_file}"; then
+                    pip_ok=true
+                fi
+            fi
+
+            if [ "${pip_ok}" = "true" ]; then
+                echo -e "${GREEN}✓ Python dependencies installed${NC}"
+            else
+                echo -e "${YELLOW}⚠ Python dependencies installation failed${NC}"
                 echo -e "${YELLOW}  Requirements file: ${requirements_file}${NC}"
             fi
-        fi
-    fi
-
-    # Ensure git is available for cloning repos
-    if ! command_exists git; then
-        echo -e "${BLUE}Installing git for repository cloning...${NC}"
-        # Try to install git using available package manager
-        if command_exists apt-get; then
-            apt-get update -qq && apt-get install -y git >/dev/null 2>&1 || true
-        elif command_exists yum; then
-            yum install -y git >/dev/null 2>&1 || true
-        elif command_exists dnf; then
-            dnf install -y git >/dev/null 2>&1 || true
-        elif command_exists apk; then
-            apk add --no-cache git >/dev/null 2>&1 || true
-        fi
-        # Verify git is now available
-        if ! command_exists git; then
-            echo -e "${YELLOW}⚠ git installation failed, but continuing - repos may need to be mounted manually.${NC}"
-        else
-            echo -e "${GREEN}✓ git installed${NC}"
         fi
     fi
 
@@ -1476,21 +1516,25 @@ install_infinicore_and_infinilm_optional() {
                         (cd "${INFINICORE_SRC}" && xmake clean _infinicore 2>/dev/null || true)
                     fi
                     # pip install -e will trigger setup.py which builds _infinicore
-                    # Try multiple China mainland mirrors in order: Aliyun -> Tsinghua -> Tencent
+                    # Simplified: one pip install attempt (uses PIP_INDEX_URL if set).
+                    echo "Installing InfiniCore (editable mode)..."
+                    local pip_index_url="${PIP_INDEX_URL:-}"
                     local infinicore_installed=false
-                    for mirror_url in "http://mirrors.aliyun.com/pypi/simple" "https://pypi.tuna.tsinghua.edu.cn/simple" "https://mirrors.cloud.tencent.com/pypi/simple"; do
-                        local mirror_name=$(echo "${mirror_url}" | sed 's|https\?://||' | sed 's|/.*||')
-                        echo "  Trying ${mirror_name} mirror for InfiniCore..."
-                        if ${python_cmd} -m pip install --no-cache-dir -i "${mirror_url}" --trusted-host "${mirror_name}" -e "${INFINICORE_SRC}" 2>&1; then
-                            echo -e "${GREEN}✓ InfiniCore installed from ${mirror_name}${NC}"
+                    if [ -n "${pip_index_url}" ]; then
+                        local pip_host
+                        pip_host="$(echo "${pip_index_url}" | sed 's|https\?://||' | sed 's|/.*||')"
+                        if ${python_cmd} -m pip install --no-cache-dir -i "${pip_index_url}" --trusted-host "${pip_host}" -e "${INFINICORE_SRC}" 2>&1; then
                             infinicore_installed=true
-                            break
-                        else
-                            echo "  ${mirror_name} mirror failed, trying next..."
                         fi
-                    done
-                    if [ "${infinicore_installed}" != "true" ]; then
-                        echo -e "${YELLOW}⚠ InfiniCore Python extension install failed from all China mirrors${NC}"
+                    else
+                        if ${python_cmd} -m pip install --no-cache-dir -e "${INFINICORE_SRC}" 2>&1; then
+                            infinicore_installed=true
+                        fi
+                    fi
+                    if [ "${infinicore_installed}" = "true" ]; then
+                        echo -e "${GREEN}✓ InfiniCore installed${NC}"
+                    else
+                        echo -e "${YELLOW}⚠ InfiniCore Python extension install failed${NC}"
                     fi
                 ) || echo -e "${YELLOW}⚠ InfiniCore Python extension install failed (likely missing toolchain/libs).${NC}"
             else
@@ -1564,29 +1608,30 @@ install_infinicore_and_infinilm_optional() {
                     export PYTHON="${python_cmd}"
 
                     # Ensure build dependencies are installed first (setuptools, wheel)
-                    # Try multiple China mainland mirrors in order: Aliyun -> Tsinghua -> Tencent
-                    # Unset proxy env vars to avoid proxy connection errors in pip subprocess
+                    # Simplified: single attempt (uses PIP_INDEX_URL if set), plus one retry without proxy env.
                     echo "Installing build dependencies (setuptools, wheel)..."
+                    local pip_index_url="${PIP_INDEX_URL:-}"
                     local build_deps_installed=false
-                    local working_mirror_url=""
-                    local working_mirror_name=""
-                    for mirror_url in "http://mirrors.aliyun.com/pypi/simple" "https://pypi.tuna.tsinghua.edu.cn/simple" "https://mirrors.cloud.tencent.com/pypi/simple"; do
-                        local mirror_name=$(echo "${mirror_url}" | sed 's|https\?://||' | sed 's|/.*||')
-                        echo "  Trying ${mirror_name} mirror..."
-                        # Unset proxy env vars for pip to avoid proxy connection errors
-                        if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
-                            ${python_cmd} -m pip install --no-cache-dir -i "${mirror_url}" --trusted-host "${mirror_name}" setuptools wheel 2>&1; then
-                            echo -e "${GREEN}✓ Build dependencies installed from ${mirror_name}${NC}"
+                    if [ -n "${pip_index_url}" ]; then
+                        local pip_host
+                        pip_host="$(echo "${pip_index_url}" | sed 's|https\?://||' | sed 's|/.*||')"
+                        if ${python_cmd} -m pip install --no-cache-dir -i "${pip_index_url}" --trusted-host "${pip_host}" setuptools wheel 2>&1; then
                             build_deps_installed=true
-                            working_mirror_url="${mirror_url}"
-                            working_mirror_name="${mirror_name}"
-                            break
-                        else
-                            echo "  ${mirror_name} mirror failed, trying next..."
                         fi
-                    done
+                    else
+                        if ${python_cmd} -m pip install --no-cache-dir setuptools wheel 2>&1; then
+                            build_deps_installed=true
+                        fi
+                    fi
+                    if [ "${build_deps_installed}" != "true" ] && { [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ] || [ -n "${http_proxy:-}" ] || [ -n "${https_proxy:-}" ]; }; then
+                        echo -e "${YELLOW}⚠ Build deps install failed; retrying once with proxy env unset...${NC}"
+                        if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+                            ${python_cmd} -m pip install --no-cache-dir setuptools wheel 2>&1; then
+                            build_deps_installed=true
+                        fi
+                    fi
                     if [ "${build_deps_installed}" != "true" ]; then
-                        echo -e "${RED}✗ Failed to install build dependencies from all China mirrors${NC}"
+                        echo -e "${RED}✗ Failed to install build dependencies (setuptools, wheel)${NC}"
                         return 1
                     fi
 
@@ -1615,38 +1660,31 @@ install_infinicore_and_infinilm_optional() {
                     ) || echo -e "${YELLOW}⚠ xmake build/install _infinilm failed, falling back to pip install${NC}"
 
                     # Install InfiniLM package (editable mode)
-                    # Since _infinilm is already built by xmake, we can use --no-build-isolation to skip build deps
-                    # Create temporary pip config to ensure build dependencies subprocess uses the working mirror
-                    # The subprocess spawned by pip install -e doesn't always respect PIP_INDEX_URL env var
-                    echo "Installing InfiniLM package (editable mode) using ${working_mirror_name} mirror..."
-                    local temp_pip_config="/tmp/pip_infinilm_install.conf"
-                    cat > "${temp_pip_config}" << EOF
-[global]
-index-url = ${working_mirror_url}
-trusted-host = ${working_mirror_name}
-EOF
-                    # Use --no-build-isolation since _infinilm is already built by xmake
-                    # This avoids the subprocess build dependency installation issue
-                    # Use the temporary pip config and unset proxy for pip subprocess
-                    if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
-                        PIP_CONFIG_FILE="${temp_pip_config}" \
-                        ${python_cmd} -m pip install --no-cache-dir --no-build-isolation -e "${INFINILM_SRC}" 2>&1; then
-                        echo -e "${GREEN}✓ InfiniLM installed successfully from ${working_mirror_name}${NC}"
-                        rm -f "${temp_pip_config}" 2>/dev/null || true
-                    else
-                        echo -e "${YELLOW}⚠ pip install -e failed, but _infinilm is already built by xmake${NC}"
-                        echo -e "${YELLOW}  Checking if InfiniLM can be imported via PYTHONPATH...${NC}"
-                        # Check if the .so file exists
+                    # Since _infinilm is already built by xmake, use --no-build-isolation to reduce nested installs.
+                    echo "Installing InfiniLM package (editable mode)..."
+                    local infinilm_installed=false
+                    if ${python_cmd} -m pip install --no-cache-dir --no-build-isolation -e "${INFINILM_SRC}" 2>&1; then
+                        infinilm_installed=true
+                        echo -e "${GREEN}✓ InfiniLM installed successfully${NC}"
+                    elif { [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ] || [ -n "${http_proxy:-}" ] || [ -n "${https_proxy:-}" ]; }; then
+                        echo -e "${YELLOW}⚠ pip install -e failed; retrying once with proxy env unset...${NC}"
+                        if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u ALL_PROXY \
+                            ${python_cmd} -m pip install --no-cache-dir --no-build-isolation -e "${INFINILM_SRC}" 2>&1; then
+                            infinilm_installed=true
+                            echo -e "${GREEN}✓ InfiniLM installed successfully${NC}"
+                        fi
+                    fi
+
+                    if [ "${infinilm_installed}" != "true" ]; then
+                        echo -e "${YELLOW}⚠ pip install -e failed, but _infinilm may already be built by xmake${NC}"
+                        echo -e "${YELLOW}  Checking if InfiniLM can be used via PYTHONPATH...${NC}"
                         if [ -f "${INFINILM_SRC}/python/infinilm/lib/_infinilm"*.so ] || [ -f "${INFINILM_SRC}/build"*"/_infinilm"*.so ]; then
                             echo -e "${GREEN}✓ _infinilm.so found - InfiniLM should work at runtime with PYTHONPATH${NC}"
-                            echo -e "${YELLOW}  Note: InfiniLM is not installed as a package, but the module exists${NC}"
                             echo -e "${YELLOW}  The babysitter config should set PYTHONPATH=/workspace/InfiniLM/python:/workspace/InfiniCore/python${NC}"
                         else
                             echo -e "${RED}✗ _infinilm.so not found - InfiniLM installation incomplete${NC}"
-                            rm -f "${temp_pip_config}" 2>/dev/null || true
                             return 1
                         fi
-                        rm -f "${temp_pip_config}" 2>/dev/null || true
                     fi
                 ) || {
                     echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
@@ -2358,10 +2396,125 @@ setup_scripts() {
     echo ""
 }
 
+# Verify proxy accessibility
+verify_proxy() {
+    echo -e "${BLUE}Verifying proxy accessibility...${NC}"
+
+    # Check if proxy is configured
+    local http_proxy="${HTTP_PROXY:-${http_proxy:-}}"
+    local https_proxy="${HTTPS_PROXY:-${https_proxy:-}}"
+
+    # If HTTPS_PROXY is not set but HTTP_PROXY is, use HTTP_PROXY for HTTPS too
+    if [ -z "${https_proxy}" ] && [ -n "${http_proxy}" ]; then
+        https_proxy="${http_proxy}"
+    fi
+
+    if [ -z "${http_proxy}" ] && [ -z "${https_proxy}" ]; then
+        echo -e "${BLUE}  No proxy configured, skipping proxy verification${NC}"
+        echo ""
+        return 0
+    fi
+
+    echo "  HTTP_PROXY: ${http_proxy:-not set}"
+    echo "  HTTPS_PROXY: ${https_proxy:-not set}"
+
+    # Find curl or wget
+    local curl_cmd=""
+    local wget_cmd=""
+    if command_exists curl; then
+        curl_cmd="curl"
+    elif [ -f "/usr/bin/curl" ]; then
+        curl_cmd="/usr/bin/curl"
+    elif [ -f "/bin/curl" ]; then
+        curl_cmd="/bin/curl"
+    fi
+
+    if [ -z "${curl_cmd}" ]; then
+        if command_exists wget; then
+            wget_cmd="wget"
+        elif [ -f "/usr/bin/wget" ]; then
+            wget_cmd="/usr/bin/wget"
+        elif [ -f "/bin/wget" ]; then
+            wget_cmd="/bin/wget"
+        fi
+    fi
+
+    if [ -z "${curl_cmd}" ] && [ -z "${wget_cmd}" ]; then
+        echo -e "${YELLOW}  ⚠ curl/wget not available, cannot verify proxy${NC}"
+        echo ""
+        return 0
+    fi
+
+    # Test HTTP connectivity through proxy (quick test with short timeout)
+    # Note: Proxy failures are expected in some environments - verification is non-blocking
+    local http_test_passed=false
+    local https_test_passed=false
+
+    if [ -n "${http_proxy}" ]; then
+        echo "  Testing HTTP connectivity through proxy..."
+        if [ -n "${curl_cmd}" ]; then
+            # Use short timeout (5s connect, 8s total) - fail fast if proxy is unreachable
+            if ${curl_cmd} -fsSL --connect-timeout 5 --max-time 8 --proxy "${http_proxy}" http://www.google.com >/dev/null 2>&1; then
+                http_test_passed=true
+                echo -e "    ${GREEN}✓ HTTP proxy accessible${NC}"
+            else
+                echo -e "    ${YELLOW}⚠ HTTP proxy test failed (expected if proxy unavailable)${NC}"
+            fi
+        elif [ -n "${wget_cmd}" ]; then
+            if ${wget_cmd} --timeout=8 --tries=1 --spider --proxy=on --http-proxy="${http_proxy}" http://www.google.com >/dev/null 2>&1; then
+                http_test_passed=true
+                echo -e "    ${GREEN}✓ HTTP proxy accessible${NC}"
+            else
+                echo -e "    ${YELLOW}⚠ HTTP proxy test failed (expected if proxy unavailable)${NC}"
+            fi
+        fi
+    fi
+
+    # Test HTTPS connectivity through proxy (quick test with short timeout)
+    if [ -n "${https_proxy}" ]; then
+        echo "  Testing HTTPS connectivity through proxy..."
+        if [ -n "${curl_cmd}" ]; then
+            # Use short timeout (5s connect, 8s total) - fail fast if proxy is unreachable
+            # GitHub is most relevant for git operations
+            if ${curl_cmd} -fsSL --connect-timeout 5 --max-time 8 --proxy "${https_proxy}" https://github.com >/dev/null 2>&1; then
+                https_test_passed=true
+                echo -e "    ${GREEN}✓ HTTPS proxy accessible${NC}"
+            else
+                echo -e "    ${YELLOW}⚠ HTTPS proxy test failed (expected if proxy unavailable)${NC}"
+            fi
+        elif [ -n "${wget_cmd}" ]; then
+            if ${wget_cmd} --timeout=8 --tries=1 --spider --proxy=on --https-proxy="${https_proxy}" https://github.com >/dev/null 2>&1; then
+                https_test_passed=true
+                echo -e "    ${GREEN}✓ HTTPS proxy accessible${NC}"
+            else
+                echo -e "    ${YELLOW}⚠ HTTPS proxy test failed (expected if proxy unavailable)${NC}"
+            fi
+        fi
+    fi
+
+    # Summary
+    if [ "${http_test_passed}" = "true" ] || [ "${https_test_passed}" = "true" ]; then
+        echo -e "${GREEN}✓ Proxy verification completed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Proxy verification completed with warnings${NC}"
+        echo -e "${YELLOW}  Some network operations may fail, but installation will continue${NC}"
+    fi
+    echo ""
+}
+
 # Main installation flow
 main() {
     # Load deployment-case defaults early so it can influence installation behavior.
     load_deployment_case_preset
+
+    # Verify proxy accessibility early (before any network operations)
+    verify_proxy
+
+    # Ensure git is available early (needed for cloning repos)
+    ensure_git || {
+        echo -e "${YELLOW}⚠ git not available, some features may be limited${NC}"
+    }
+
     install_system_deps
 
     # Install InfiniCore and InfiniLM FIRST (before Rust/build) for quick validation

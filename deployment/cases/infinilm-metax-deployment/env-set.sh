@@ -39,6 +39,9 @@ if [ -d "/opt/conda/lib" ]; then
     export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH
 fi
 
+# PyPI mirror configuration (use tsinghua mirror)
+export PIP_INDEX_URL="${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+
 # MACA/HPCC (must come before system MPI to ensure HPCC MPI is used)
 export MACA_HOME=/opt/hpcc
 export MACA_PATH=${MACA_HOME}
