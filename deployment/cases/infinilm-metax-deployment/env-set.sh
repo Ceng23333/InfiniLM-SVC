@@ -34,6 +34,12 @@ export INFINI_ROOT=/root/.infini
 export PATH=${PATH}:${INFINI_ROOT}/bin
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$INFINI_ROOT/lib
 
+# Rust/Cargo (from Phase 1 installation)
+# Ensure cargo bin is in PATH for Phase 2 builds
+if [ -d "${HOME}/.cargo/bin" ]; then
+    export PATH="${HOME}/.cargo/bin:${PATH}"
+fi
+
 # Conda Python library (needed for _infinicore.so)
 if [ -d "/opt/conda/lib" ]; then
     export LD_LIBRARY_PATH=/opt/conda/lib:$LD_LIBRARY_PATH

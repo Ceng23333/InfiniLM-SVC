@@ -4,6 +4,16 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load environment file if it exists (allows easy configuration)
+if [ -f "${SCRIPT_DIR}/.env.server2" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/.env.server2"
+elif [ -f "${SCRIPT_DIR}/.env" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/.env"
+fi
+
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:demo}"
 USE_HOST_NETWORK="${USE_HOST_NETWORK:-true}"
 

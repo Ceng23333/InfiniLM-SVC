@@ -211,8 +211,62 @@ cargo clean
 cargo build --release
 ```
 
+## Phased Build
+
+For faster rebuilds and dependency caching, you can use a phased build approach:
+
+### Phase 1: Install Dependencies
+
+```bash
+# Install all dependencies and cache Rust crates
+./scripts/install-deps.sh --deployment-case <case>
+```
+
+This phase:
+- Installs system dependencies
+- Installs Rust toolchain
+- Installs xmake
+- Installs Python dependencies
+- Downloads and caches Rust crate dependencies (`cargo fetch`)
+
+### Phase 2: Build from Sources
+
+```bash
+# Build from local sources (no network needed)
+./scripts/install-build.sh \
+    --deployment-case <case> \
+    --infinicore-src /workspace/InfiniCore \
+    --infinilm-src /workspace/InfiniLM
+```
+
+This phase:
+- Validates prerequisites (Rust, xmake)
+- Builds Rust binaries (uses cached cargo deps)
+- Installs InfiniCore/InfiniLM from mounted/copied sources
+- Installs binaries and sets up scripts
+
+### Using --phase Argument
+
+You can also use the `--phase` argument with the main install script:
+
+```bash
+# Phase 1 only
+./scripts/install.sh --phase=deps
+
+# Phase 2 only
+./scripts/install.sh --phase=build
+
+# Both phases (default)
+./scripts/install.sh --phase=all
+```
+
+### Docker Phased Build
+
+See [docker/README.build.md](docker/README.build.md) for Docker-based phased builds.
+
 ## See Also
 
 - [QUICKSTART.md](QUICKSTART.md) - Complete installation guide
 - [docker/README.md](docker/README.md) - Docker deployment guide
+- [docker/README.build.md](docker/README.build.md) - Phased build guide
 - [README.md](README.md) - Project overview

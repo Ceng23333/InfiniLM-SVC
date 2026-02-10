@@ -1,0 +1,51 @@
+# Paged Cache Instance - 9g_8b_thinking model
+# Port 8100
+# Cache type: paged (for smaller, frequently changing contexts)
+
+name = "paged-cache-9g_8b_thinking"
+host = "0.0.0.0"
+port = 8100
+
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+# Backend: InfiniLM Python inference server launched via the README command shape.
+[backend]
+type = "command"
+command = "/opt/conda/bin/python"
+args = [
+  "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
+  "--metax",
+  "--model_path", "/models/9g_8b_thinking",
+  "--max_batch_size", "8",
+  "--tp", "1",
+  "--temperature", "1.0",
+  "--top_p", "0.8",
+  "--top_k", "1",
+  "--host", "0.0.0.0",
+  "--port", "8100",
+  "--cache_type", "paged",
+]
+work_dir = "/workspace/InfiniLM"
+
+[backend.env]
+PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
+INFINI_ROOT = "/root/.infini"
+LD_LIBRARY_PATH = "/opt/conda/lib:/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib:/opt/hpcc/ompi/lib"
+MACA_HOME = "/opt/hpcc"
+MACA_PATH = "/opt/hpcc"
+HPCC_PATH = "/opt/hpcc"
+C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
+XMAKE_ROOT = "y"
+HPCC_VISIBLE_DEVICES = "0"
+
+# Metadata for routing
+[metadata]
+cache_type = "paged"
+static = true

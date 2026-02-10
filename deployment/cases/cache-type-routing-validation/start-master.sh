@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Start Master: Registry, Router, and babysitter(s)
-# Default: Both instances (master and slave) on one host
-# Set SINGLE_INSTANCE=true to launch only master instance
+# Default: Both instances (paged and static cache) on one host
 
 set -euo pipefail
 
@@ -16,7 +15,7 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
 fi
 
 # Load deployment case defaults (for LAUNCH_COMPONENTS)
-DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-cache-routing-validation}"
+DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-cache-type-routing-validation}"
 if [ -f "${SCRIPT_DIR}/install.defaults.sh" ]; then
   # shellcheck disable=SC1091
   source "${SCRIPT_DIR}/install.defaults.sh"
@@ -28,13 +27,8 @@ CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
 # Use LAUNCH_COMPONENTS from deployment case defaults, or allow override via env
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
-# Build BABYSITTER_CONFIGS - single or both instances based on SINGLE_INSTANCE flag
-SINGLE_INSTANCE="${SINGLE_INSTANCE:-false}"
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml}"
-else
-  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml slave-9g_8b_thinking.toml}"
-fi
+# Both instances (paged and static cache)
+BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-paged-cache-9g_8b_thinking.toml static-cache-9g_8b_thinking.toml}"
 
 # Configurable ports (defaults)
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
@@ -56,21 +50,13 @@ if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
 fi
 
 echo "=========================================="
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  echo "Starting InfiniLM-SVC (Single Instance)"
-else
-  echo "Starting InfiniLM-SVC Master (Cache Routing Validation)"
-fi
+echo "Starting InfiniLM-SVC (Cache Type Routing Validation)"
 echo "=========================================="
 echo "Registry IP: ${REGISTRY_IP}"
 echo "Image: ${IMAGE_NAME}"
 echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  echo "Components: Registry, Router, master-9g_8b_thinking (8100)"
-else
-  echo "Components: Registry, Router, master-9g_8b_thinking (8100), slave-9g_8b_thinking (8200)"
-fi
+echo "Components: Registry, Router, paged-cache-9g_8b_thinking (8100), static-cache-9g_8b_thinking (8200)"
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"
@@ -122,6 +108,11 @@ DOCKER_ARGS=(
   -e BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS}"
 )
 
+# Set routing threshold if configured
+if [ -n "${CACHE_TYPE_ROUTING_THRESHOLD:-}" ]; then
+  DOCKER_ARGS+=(-e "CACHE_TYPE_ROUTING_THRESHOLD=${CACHE_TYPE_ROUTING_THRESHOLD}")
+fi
+
 # Set NO_PROXY to exclude localhost/127.0.0.1 so local registry/router connections bypass proxy
 # This ensures validation scripts and internal services can access the registry directly
 if [ -n "${NO_PROXY:-}" ]; then
@@ -152,18 +143,15 @@ DOCKER_ARGS+=(
 
 DOCKER_ARGS+=("${IMAGE_NAME}")
 
-docker run "${DOCKER_ARGS[@]}"
+# Add entrypoint if image doesn't have one set
+docker run --entrypoint /bin/bash "${DOCKER_ARGS[@]}" /app/docker_entrypoint.sh
 
 echo ""
 echo "✅ Container started: ${CONTAINER_NAME}"
 echo "Registry: http://${REGISTRY_IP}:${REGISTRY_PORT}"
 echo "Router:   http://${REGISTRY_IP}:${ROUTER_PORT}"
 echo ""
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  echo "Instance (master-9g_8b_thinking): port 8100"
-else
-  echo "Instance 1 (master-9g_8b_thinking): port 8100"
-  echo "Instance 2 (slave-9g_8b_thinking): port 8200"
-fi
+echo "Instance 1 (paged-cache-9g_8b_thinking): port 8100"
+echo "Instance 2 (static-cache-9g_8b_thinking): port 8200"
 echo ""
 echo "Logs: docker logs -f ${CONTAINER_NAME}"

@@ -17,9 +17,18 @@ use crate::proxy::session_extractor::generate_session_from_ip;
 use crate::proxy::streaming::handle_streaming_response;
 use crate::router::load_balancer::LoadBalancer;
 
+/// Get proxy timeout from environment variable or use default (30 minutes)
+fn get_proxy_timeout() -> Duration {
+    std::env::var("PROXY_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(1800)) // Default: 30 minutes
+}
+
 lazy_static::lazy_static! {
     static ref HTTP_CLIENT: Client = Client::builder()
-        .timeout(Duration::from_secs(300)) // 5 minutes total timeout
+        .timeout(get_proxy_timeout())
         .connect_timeout(Duration::from_secs(5)) // 5 seconds connection timeout
         .build()
         .expect("Failed to create HTTP client");
@@ -38,6 +47,33 @@ const HOP_BY_HOP_HEADERS: &[&str] = &[
     "host",
     "content-length", // Will be recalculated
 ];
+
+/// Default routing threshold in bytes (50KB)
+const DEFAULT_CACHE_TYPE_ROUTING_THRESHOLD: usize = 51200;
+
+/// Get routing threshold from environment variable or use default
+fn get_routing_threshold() -> usize {
+    std::env::var("CACHE_TYPE_ROUTING_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_CACHE_TYPE_ROUTING_THRESHOLD)
+}
+
+/// Calculate message body size from JSON request
+/// Sums the length of all "content" fields in the "messages" array
+fn calculate_message_body_size(body: &serde_json::Value) -> usize {
+    let mut total_size = 0;
+
+    if let Some(messages) = body.get("messages").and_then(|v| v.as_array()) {
+        for message in messages {
+            if let Some(content) = message.get("content").and_then(|v| v.as_str()) {
+                total_size += content.len();
+            }
+        }
+    }
+
+    total_size
+}
 
 /// Proxy handler - forwards requests to backend services
 pub async fn proxy_handler(
@@ -63,7 +99,7 @@ pub async fn proxy_handler(
 
     // Parse JSON body at most once for POST requests, and extract fields needed for routing.
     // This avoids doing multiple full serde_json parses per request (which is expensive for large prompts).
-    let (model_id, prompt_cache_key) = if method == Method::POST {
+    let (model_id, prompt_cache_key, body_json) = if method == Method::POST {
         match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
             Ok(v) => {
                 let model_id = v
@@ -74,12 +110,12 @@ pub async fn proxy_handler(
                     .get("prompt_cache_key")
                     .and_then(|vv| vv.as_str())
                     .map(|s| s.to_string());
-                (model_id, prompt_cache_key)
+                (model_id, prompt_cache_key, Some(v))
             }
-            Err(_) => (None, None),
+            Err(_) => (None, None, None),
         }
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     // Extract session ID (prompt_cache_key or IP-based)
@@ -113,9 +149,87 @@ pub async fn proxy_handler(
     };
 
     for attempt in 0..max_retries {
-        // Get service: session-aware routing if session_id exists, else round-robin
-        let service = if let Some(ref session_key) = session_id {
-            // Session-aware routing
+        // Get service: size-based routing if enabled, else session-aware routing, else round-robin
+        let service = if let Some(ref body_json_value) = body_json {
+            // Calculate message body size for size-based routing
+            let message_size = calculate_message_body_size(body_json_value);
+            let threshold = get_routing_threshold();
+
+            // Size-based routing: large requests -> static cache, small requests -> paged cache
+            let cache_type = if message_size > threshold {
+                "static"
+            } else {
+                "paged"
+            };
+
+            match load_balancer
+                .get_service_by_cache_type(cache_type, model_id.as_deref())
+                .await
+            {
+                Some(s) => {
+                    if attempt == 0 {
+                        info!(
+                            "Size-based routing: message_size={} bytes, threshold={} bytes, cache_type={}, service={}",
+                            message_size, threshold, cache_type, s.name
+                        );
+                    }
+                    s
+                }
+                None => {
+                    // Fallback to session-aware routing if size-based routing fails
+                    if let Some(ref session_key) = session_id {
+                        match load_balancer
+                            .get_service_by_session(session_key, model_id.as_deref())
+                            .await
+                        {
+                            Some(s) => s,
+                            None => {
+                                // Fallback to round-robin
+                                match load_balancer
+                                    .get_next_healthy_service_by_model(model_id.as_deref())
+                                    .await
+                                {
+                                    Some(s) => s,
+                                    None => {
+                                        let error_msg = if let Some(model) = &model_id {
+                                            format!("No healthy services available for model '{}'", model)
+                                        } else {
+                                            "No healthy services available".to_string()
+                                        };
+                                        return (
+                                            StatusCode::SERVICE_UNAVAILABLE,
+                                            Json(json!({"error": error_msg})),
+                                        )
+                                            .into_response();
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Fallback to round-robin
+                        match load_balancer
+                            .get_next_healthy_service_by_model(model_id.as_deref())
+                            .await
+                        {
+                            Some(s) => s,
+                            None => {
+                                let error_msg = if let Some(model) = &model_id {
+                                    format!("No healthy services available for model '{}'", model)
+                                } else {
+                                    "No healthy services available".to_string()
+                                };
+                                return (
+                                    StatusCode::SERVICE_UNAVAILABLE,
+                                    Json(json!({"error": error_msg})),
+                                )
+                                    .into_response();
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let Some(ref session_key) = session_id {
+            // Session-aware routing (fallback when body_json is not available)
             match load_balancer
                 .get_service_by_session(session_key, model_id.as_deref())
                 .await

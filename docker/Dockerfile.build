@@ -1,0 +1,259 @@
+# Multi-stage Dockerfile for InfiniLM-SVC
+# Phase 1: Install dependencies and cache Rust crates
+# Phase 2: Build from local sources (no network needed)
+#
+# This approach enables:
+# - Dependency caching for faster rebuilds
+# - Offline builds in Phase 2
+# - Reusable intermediate images
+#
+# IMPORTANT: For building Phase 2 separately, use Dockerfile.build-only instead
+# This Dockerfile is for:
+#   - Building Phase 1 only: docker build --target deps -t infinilm-svc:deps .
+#   - Building both phases together: docker build --target build .
+#
+# For Phase 2 only (using existing deps image), use:
+#   docker build -f docker/Dockerfile.build-only \
+#        --build-arg DEPS_IMAGE=infinilm-svc:deps \
+#        --target build -t infinilm-svc:build .
+
+# ============================================================================
+# Stage 1: Phase 1 - Dependencies
+# ============================================================================
+# Base image is configurable via build arg
+# Default: ubuntu:22.04
+# Example: docker build --build-arg BASE_IMAGE=cr.metax-tech.com/.../image:tag
+# Note: This stage is only built when DEPS_IMAGE is not provided or is "deps"
+# When building Phase 2 separately with --build-arg DEPS_IMAGE=infinilm-svc:deps,
+# Docker will skip building this stage and use the provided image instead
+ARG BASE_IMAGE=ubuntu:22.04
+ARG DEPS_IMAGE
+# Only define deps stage if DEPS_IMAGE is not set or is "deps" (stage name)
+# When DEPS_IMAGE is an image tag (e.g., infinilm-svc:deps), Docker will use that image
+# and skip building this stage (though it may still evaluate it)
+FROM ${BASE_IMAGE} AS deps
+
+WORKDIR /app
+
+# Note: System dependencies will be installed by install-deps.sh
+# which includes OS detection and handles different Linux distributions
+# (Ubuntu/Debian, CentOS/RHEL, Alpine, etc.)
+
+# Copy only the install scripts needed for Phase 1
+# This allows Docker to cache this layer if scripts don't change
+COPY scripts/install.sh ./scripts/
+COPY scripts/install-deps.sh ./scripts/
+
+# Make scripts executable
+RUN chmod +x ./scripts/*.sh
+
+# Copy minimal files needed for dependency detection
+# (e.g., deployment case configs, env-set.sh if needed)
+COPY deployment/ ./deployment/
+# Note: env-set.sh is optional and may not exist in all setups
+# Note: requirements-infinicore-infinilm.txt is copied as part of deployment/ directory
+#
+# Note: InfiniCore and InfiniLM will be cloned during Phase 1 installation
+# They will be installed to enable offline Phase 2 builds
+
+# Copy Rust Cargo.toml for cargo fetch
+COPY rust/Cargo.toml ./rust/
+COPY rust/Cargo.lock ./rust/
+
+# Run Phase 1: Install dependencies and cache Rust crates
+# install-deps.sh will:
+#   - Detect the OS (Ubuntu/Debian, CentOS/RHEL, Alpine, etc.)
+#   - Install system dependencies using the appropriate package manager
+#   - Install Rust toolchain
+#   - Install xmake
+#   - Install Python dependencies
+#   - Clone and install InfiniCore/InfiniLM (if enabled via deployment case)
+#   - Download and cache Rust crate dependencies (cargo fetch)
+# This stage can be committed as an intermediate image for reuse
+# All network-required operations (cloning, installing) happen here for offline Phase 2 builds
+ARG DEPLOYMENT_CASE
+RUN ./scripts/install-deps.sh \
+    ${DEPLOYMENT_CASE:+--deployment-case ${DEPLOYMENT_CASE}}
+
+# Tag intermediate image (optional, for explicit reuse)
+# Usage: docker build --target deps -t infinilm-svc:deps .
+
+# ============================================================================
+# Stage 2: Phase 2 - Build from Sources
+# ============================================================================
+# When building Phase 2 separately, use the Phase 1 (deps) image as base
+# This allows Phase 2 to build offline using cached dependencies
+# If DEPS_IMAGE build arg is provided (e.g., infinilm-svc:deps), use that image
+# Otherwise, use the deps stage from this Dockerfile (for full builds)
+ARG DEPS_IMAGE
+# Use the provided deps image if available, otherwise fall back to deps stage
+FROM ${DEPS_IMAGE:-deps} AS build
+
+WORKDIR /app
+
+# Copy full project source (for building)
+COPY . .
+
+# Copy/mount InfiniCore and InfiniLM from external sources
+# In a real scenario, these would be:
+# 1. Mounted as volumes: docker build --build-arg INFINICORE_SRC=/path/to/InfiniCore
+# 2. Copied from another stage: COPY --from=external /workspace/InfiniCore /workspace/InfiniCore
+# 3. Or provided via build context
+ARG INFINICORE_SRC
+ARG INFINILM_SRC
+ARG INFINICORE_BRANCH
+ARG INFINILM_BRANCH
+ARG DEPLOYMENT_CASE
+
+# InfiniCore and InfiniLM should already be in the deps image (cloned during Phase 1)
+# They are located at /app/../InfiniCore and /app/../InfiniLM
+# If external paths are provided via build args, the install script will handle them
+# but they need to be accessible (either in build context or mounted)
+
+# Run Phase 2: Build from local sources (no network needed)
+# This builds:
+#   - InfiniLM-SVC Rust binaries (infini-registry, infini-router, infini-babysitter)
+#   - Optionally rebuilds InfiniCore/InfiniLM if source paths provided
+RUN ./scripts/install-build.sh \
+    --install-path /usr/local/bin \
+    ${DEPLOYMENT_CASE:+--deployment-case ${DEPLOYMENT_CASE}} \
+    ${INFINICORE_SRC:+--infinicore-src ${INFINICORE_SRC}} \
+    ${INFINILM_SRC:+--infinilm-src ${INFINILM_SRC}} \
+    ${INFINICORE_BRANCH:+--infinicore-branch ${INFINICORE_BRANCH}} \
+    ${INFINILM_BRANCH:+--infinilm-branch ${INFINILM_BRANCH}}
+
+# Verify binaries were built
+RUN which infini-registry && \
+    which infini-router && \
+    which infini-babysitter && \
+    infini-registry --help > /dev/null 2>&1 || true
+
+# Copy deployment case specific files to /app for runtime stage
+# These files will be available in the runtime stage via COPY --from=build
+ARG DEPLOYMENT_CASE
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/embeddings_server.py" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/embeddings_server.py" ./embeddings_server.py; \
+    fi || true
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ./env-set.sh; \
+    fi || true
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt" ./requirements-embeddings.txt; \
+    fi || true
+
+# ============================================================================
+# Stage 3: Runtime (Optional - deployment image)
+# ============================================================================
+# Use the build stage as base (already has all binaries and dependencies)
+# This ensures runtime has the same environment as build stage
+FROM build AS runtime
+
+WORKDIR /app
+
+# Runtime stage uses build stage as base, so everything is already here
+# We just need to clean up unnecessary build artifacts and set up runtime environment
+# Binaries, scripts, and configs are already in /usr/local/bin and /app from build stage
+
+# Deployment case specific files are already in /app from build stage
+# (embeddings_server.py, env-set.sh, requirements-embeddings.txt if they exist)
+
+# Make scripts executable
+RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p logs config /workspace/models
+
+# Unset proxy environment variables at runtime to avoid proxy interference
+# Proxy is only needed during build for downloading dependencies
+# At runtime, services should connect directly without proxy routing issues
+# Set NO_PROXY to include localhost/127.0.0.1 to ensure local connections bypass proxy
+ENV HTTP_PROXY=""
+ENV HTTPS_PROXY=""
+ENV http_proxy=""
+ENV https_proxy=""
+ENV ALL_PROXY=""
+ENV all_proxy=""
+ENV NO_PROXY="localhost,127.0.0.1,0.0.0.0"
+ENV no_proxy="localhost,127.0.0.1,0.0.0.0"
+
+# Set deployment case environment variable (if provided)
+ARG DEPLOYMENT_CASE
+ENV DEPLOYMENT_CASE=${DEPLOYMENT_CASE}
+
+# Set working directory
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+# Expose default ports
+# REGISTRY_PORT (default: 18000)
+# ROUTER_PORT (default: 8000)
+# EMBEDDING_PORT (default: 20002)
+EXPOSE 18000 8000 20002
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Phased build (deps + build + runtime)"
+LABEL version="0.1.0"
+ARG BUILD_TIMESTAMP
+LABEL build.timestamp="${BUILD_TIMESTAMP}"
+ARG DEPLOYMENT_CASE
+LABEL deployment-case="${DEPLOYMENT_CASE}"
+
+# Usage Examples:
+#
+# 1. Build Phase 1 only (for caching) with default base image:
+#    docker build --target deps -t infinilm-svc:deps .
+#
+# 2. Build Phase 1 with custom base image (e.g., Metax GPU factory image):
+#    docker build --target deps \
+#        --build-arg BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64 \
+#        --build-arg DEPLOYMENT_CASE=infinilm-metax-deployment \
+#        -t infinilm-svc:deps .
+#
+# 3. Build Phase 2 from cached Phase 1 (use Dockerfile.build-only):
+#    docker build -f docker/Dockerfile.build-only \
+#        --target build \
+#        --build-arg DEPS_IMAGE=infinilm-svc:deps \
+#        -t infinilm-svc:build .
+#
+# 4. Build full image (all phases including runtime) with custom base image:
+#    docker build --target runtime \
+#        --build-arg BASE_IMAGE=cr.metax-tech.com/.../image:tag \
+#        --build-arg DEPLOYMENT_CASE=infinilm-metax-deployment \
+#        --build-arg BUILD_TIMESTAMP=$(date -u +'%Y%m%d%H%M') \
+#        --build-arg INFINICORE_SRC=/workspace/InfiniCore \
+#        --build-arg INFINILM_SRC=/workspace/InfiniLM \
+#        -t infinilm-svc:runtime-$(date -u +'%Y%m%d%H%M') .
+#
+# 5. Build with mounted volumes (InfiniCore/InfiniLM from host):
+#    docker build --target build \
+#        --build-arg BASE_IMAGE=your-base-image:tag \
+#        --build-arg INFINICORE_SRC=/workspace/InfiniCore \
+#        --build-arg INFINILM_SRC=/workspace/InfiniLM \
+#        -t infinilm-svc:build .
+#    (Note: In practice, you may need to use COPY --from or bind mounts)
+#
+# 6. Build runtime stage only (using existing build image):
+#    docker build --target runtime \
+#        --build-arg BASE_IMAGE=cr.metax-tech.com/.../image:tag \
+#        --build-arg BUILD_TIMESTAMP=$(date -u +'%Y%m%d%H%M') \
+#        --build-arg DEPLOYMENT_CASE=infinilm-metax-deployment \
+#        -t infinilm-svc:runtime-$(date -u +'%Y%m%d%H%M') .
+#
+# 7. Run the runtime image:
+#    docker run -d --name infinilm-svc \
+#        -e LAUNCH_COMPONENTS=all \
+#        -e REGISTRY_PORT=18000 \
+#        -e ROUTER_PORT=8000 \
+#        -p 18000:18000 -p 8000:8000 \
+#        infinilm-svc:runtime-202402091430
+#
+# Notes:
+#   - The BASE_IMAGE build arg allows using any base image (Ubuntu, CentOS,
+#     custom GPU factory images, etc.)
+#   - install-deps.sh automatically detects the OS and uses the appropriate
+#     package manager (apt-get, yum, apk, etc.)
+#   - If the base image already has some dependencies installed, install-deps.sh
+#     will detect and skip them

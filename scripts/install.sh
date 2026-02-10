@@ -17,6 +17,7 @@
 #   --infinicore-branch BRANCH  Git branch/tag/commit to checkout in InfiniCore repo before install (env: INFINICORE_BRANCH)
 #   --infinilm-branch BRANCH    Git branch/tag/commit to checkout in InfiniLM repo before install (env: INFINILM_BRANCH)
 #   --deployment-case NAME      Deployment case preset name (loads deployment/cases/NAME; env: DEPLOYMENT_CASE)
+#   --phase MODE            deps|build|all (default: all)
 #   --help                 Show this help message
 
 set -e
@@ -71,6 +72,7 @@ DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-}"          # optional deployment preset nam
 INFINICORE_BUILD_CMD="${INFINICORE_BUILD_CMD:-}" # optional command to run in InfiniCore repo before pip install (e.g. "python3 scripts/install.py --metax-gpu=y --ccl=y")
 INFINICORE_BUILD_CPP="${INFINICORE_BUILD_CPP:-auto}" # auto|true|false - build C++ targets (infiniop, infinirt, infiniccl, infinicore_cpp_api) - takes long time
 INFINICORE_BUILD_PYTHON="${INFINICORE_BUILD_PYTHON:-auto}" # auto|true|false - build Python extension (_infinicore) - quick rebuild
+INSTALL_PHASE="${INSTALL_PHASE:-all}"          # deps|build|all (default: all) - controls which phase to run
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -131,6 +133,10 @@ while [[ $# -gt 0 ]]; do
             INFINILM_BRANCH="$2"
             shift 2
             ;;
+        --infinilm-svc-src)
+            INFINILM_SVC_SRC="$2"
+            shift 2
+            ;;
         --install-xtask)
             # auto|true|false
             INSTALL_XTASK="$2"
@@ -167,6 +173,11 @@ while [[ $# -gt 0 ]]; do
             VERIFY_INSTALL="$2"
             shift 2
             ;;
+        --phase)
+            # deps|build|all
+            INSTALL_PHASE="$2"
+            shift 2
+            ;;
         --help)
             echo "InfiniLM-SVC Installation Script"
             echo ""
@@ -196,6 +207,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --infinicore-build-python MODE auto|true|false (default: auto; env: INFINICORE_BUILD_PYTHON)"
             echo "                              Build Python extension (_infinicore) - quick rebuild"
             echo "  --verify-install MODE       auto|true|false (default: auto; env: VERIFY_INSTALL)"
+            echo "  --phase MODE            deps|build|all (default: all; env: INSTALL_PHASE)"
+            echo "                              deps: Run only Phase 1 (dependency installation)"
+            echo "                              build: Run only Phase 2 (build from sources)"
+            echo "                              all: Run both phases (default behavior)"
             echo "  --help                 Show this help"
             exit 0
             ;;
@@ -1208,6 +1223,13 @@ clone_repo_if_needed() {
 }
 
 install_infinicore_and_infinilm_optional() {
+    # Skip if Phase 1 only (deps phase) - but only when called from install.sh with --phase=deps
+    # When called from install-deps.sh, INSTALL_PHASE is not set, so we proceed with installation
+    if [ "${INSTALL_PHASE:-}" = "deps" ]; then
+        echo -e "${BLUE}Skipping InfiniCore/InfiniLM installation (Phase 1: deps only)${NC}"
+        return 0
+    fi
+
     resolve_optional_repo_paths
 
     # Decide whether to install (auto => install only if repo path exists and we're root/in-container)
@@ -1223,6 +1245,12 @@ install_infinicore_and_infinilm_optional() {
 
     if [ "${do_infinicore}" != "true" ] && [ "${do_infinilm}" != "true" ]; then
         return 0
+    fi
+
+    # In Phase 2 (build phase), skip cloning and assume repos exist
+    local skip_cloning=false
+    if [ "${INSTALL_PHASE}" = "build" ]; then
+        skip_cloning=true
     fi
 
     # These installs require python + pip, and typically require xmake for native modules.
@@ -1351,10 +1379,15 @@ install_infinicore_and_infinilm_optional() {
             echo -e "${RED}Error: Cannot install InfiniCore without INFINICORE_SRC.${NC}"
             return 1
         else
-            # Try to clone if repo doesn't exist
+            # Try to clone if repo doesn't exist (skip in Phase 2)
             # InfiniCore doesn't require --recursive (no submodules mentioned in README)
             # Use branch from INFINICORE_BRANCH if specified
             if [ ! -d "${INFINICORE_SRC}" ] || [ ! -d "${INFINICORE_SRC}/.git" ]; then
+                if [ "${skip_cloning}" = "true" ]; then
+                    echo -e "${RED}✗ InfiniCore repo not found: ${INFINICORE_SRC}${NC}"
+                    echo -e "${RED}Error: In Phase 2 (--phase=build), repos must be mounted/copied. They will not be cloned.${NC}"
+                    return 1
+                fi
                 if clone_repo_if_needed "${INFINICORE_SRC}" "https://github.com/InfiniTensor/InfiniCore.git" "InfiniCore" "false" "${INFINICORE_BRANCH:-}"; then
                     echo -e "${GREEN}✓ InfiniCore repository ready${NC}"
                 else
@@ -1567,10 +1600,15 @@ install_infinicore_and_infinilm_optional() {
             echo -e "${RED}Error: Cannot install InfiniLM without INFINILM_SRC.${NC}"
             return 1
         else
-            # Try to clone if repo doesn't exist
+            # Try to clone if repo doesn't exist (skip in Phase 2)
             # InfiniLM requires --recursive because it has submodules (per README.md)
             # Use branch from INFINILM_BRANCH if specified
             if [ ! -d "${INFINILM_SRC}" ] || [ ! -d "${INFINILM_SRC}/.git" ]; then
+                if [ "${skip_cloning}" = "true" ]; then
+                    echo -e "${RED}✗ InfiniLM repo not found: ${INFINILM_SRC}${NC}"
+                    echo -e "${RED}Error: In Phase 2 (--phase=build), repos must be mounted/copied. They will not be cloned.${NC}"
+                    return 1
+                fi
                 if clone_repo_if_needed "${INFINILM_SRC}" "https://github.com/InfiniTensor/InfiniLM.git" "InfiniLM" "true" "${INFINILM_BRANCH:-}"; then
                     echo -e "${GREEN}✓ InfiniLM repository ready${NC}"
                 else
@@ -2114,6 +2152,12 @@ install_rust() {
 
 # Function to build binaries
 build_binaries() {
+    # Skip if Phase 1 only (deps phase)
+    if [ "${INSTALL_PHASE}" = "deps" ]; then
+        echo -e "${BLUE}Skipping binary build (Phase 1: deps only)${NC}"
+        return 0
+    fi
+
     if [ "${SKIP_BUILD}" = "true" ]; then
         echo -e "${BLUE}[3/5] Skipping build${NC}"
         if [ ! -f "${PROJECT_ROOT}/rust/target/release/infini-registry" ] || \
@@ -2125,6 +2169,12 @@ build_binaries() {
         echo -e "${GREEN}✓ Using existing binaries${NC}"
         echo ""
         return
+    fi
+
+    # Verify Rust is installed before building (especially important for Phase 2)
+    if ! command_exists cargo || ! command_exists rustc; then
+        echo -e "${RED}Error: Rust is not installed. Please run Phase 1 (--phase=deps) first.${NC}"
+        exit 1
     fi
 
     echo -e "${BLUE}[3/5] Building Rust binaries...${NC}"
@@ -2507,28 +2557,91 @@ main() {
     # Load deployment-case defaults early so it can influence installation behavior.
     load_deployment_case_preset
 
-    # Verify proxy accessibility early (before any network operations)
-    verify_proxy
+    # Determine which phase(s) to run
+    local run_phase_deps=false
+    local run_phase_build=false
 
-    # Ensure git is available early (needed for cloning repos)
-    ensure_git || {
-        echo -e "${YELLOW}⚠ git not available, some features may be limited${NC}"
-    }
+    case "${INSTALL_PHASE}" in
+        deps)
+            run_phase_deps=true
+            run_phase_build=false
+            ;;
+        build)
+            run_phase_deps=false
+            run_phase_build=true
+            ;;
+        all)
+            run_phase_deps=true
+            run_phase_build=true
+            ;;
+        *)
+            echo -e "${RED}Error: Invalid --phase value: ${INSTALL_PHASE}${NC}"
+            echo "  Valid values: deps, build, all"
+            exit 1
+            ;;
+    esac
 
-    install_system_deps
+    # Phase 1: Dependencies (requires network)
+    if [ "${run_phase_deps}" = "true" ]; then
+        # Verify proxy accessibility early (before any network operations)
+        verify_proxy
 
-    # Install InfiniCore and InfiniLM FIRST (before Rust/build) for quick validation
-    # This allows early validation of InfiniCore/InfiniLM setup before building InfiniLM-SVC binaries
-    install_infinicore_and_infinilm_optional
-    verify_infinicore_and_infinilm
+        # Ensure git is available early (needed for cloning repos)
+        ensure_git || {
+            echo -e "${YELLOW}⚠ git not available, some features may be limited${NC}"
+        }
 
-    # Then install Rust and build InfiniLM-SVC binaries
-    install_rust
-    build_binaries
-    install_binaries
-    install_python_deps
-    # install_xtask_optional  # Install xtask after Rust is available
-    setup_scripts
+        install_system_deps
+        install_rust
+        install_xmake
+        install_python_deps
+
+        # Download Rust crate dependencies without building
+        echo -e "${BLUE}Downloading Rust crate dependencies (cargo fetch)...${NC}"
+        if [ -d "${PROJECT_ROOT}/rust" ] && [ -f "${PROJECT_ROOT}/rust/Cargo.toml" ]; then
+            # Ensure Cargo is in PATH
+            if [ -f "$HOME/.cargo/env" ]; then
+                source "$HOME/.cargo/env"
+            fi
+
+            # Verify Rust is installed
+            if command_exists cargo; then
+                cd "${PROJECT_ROOT}/rust" || exit 1
+                echo "Running cargo fetch to download all dependencies..."
+                if cargo fetch --manifest-path Cargo.toml; then
+                    echo -e "${GREEN}✓ Rust dependencies downloaded and cached${NC}"
+                    echo "  Dependencies are cached in ~/.cargo/registry and ~/.cargo/git"
+                else
+                    echo -e "${YELLOW}⚠ cargo fetch failed (non-fatal)${NC}"
+                fi
+                cd "${PROJECT_ROOT}" || exit 1
+            else
+                echo -e "${YELLOW}⚠ cargo not found, skipping cargo fetch${NC}"
+            fi
+        else
+            echo -e "${YELLOW}⚠ rust/ directory or Cargo.toml not found, skipping cargo fetch${NC}"
+        fi
+    fi
+
+    # Phase 2: Build from sources (no network needed)
+    if [ "${run_phase_build}" = "true" ]; then
+        # Validate prerequisites for Phase 2
+        if ! command_exists cargo || ! command_exists rustc; then
+            echo -e "${RED}Error: Rust is not installed. Please run Phase 1 (--phase=deps) first.${NC}"
+            exit 1
+        fi
+
+        # Install InfiniCore and InfiniLM FIRST (before Rust/build) for quick validation
+        # This allows early validation of InfiniCore/InfiniLM setup before building InfiniLM-SVC binaries
+        install_infinicore_and_infinilm_optional
+        verify_infinicore_and_infinilm
+
+        # Then build InfiniLM-SVC binaries
+        build_binaries
+        install_binaries
+        # install_xtask_optional  # Install xtask after Rust is available
+        setup_scripts
+    fi
 
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Installation Complete!${NC}"
@@ -2556,5 +2669,7 @@ main() {
     echo ""
 }
 
-# Run main function
-main
+# Run main function only if not being sourced and SKIP_INSTALL_MAIN is not set
+if [ "${0}" = "${BASH_SOURCE[0]}" ] && [ -z "${SKIP_INSTALL_MAIN:-}" ]; then
+    main
+fi

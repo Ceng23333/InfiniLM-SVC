@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install-time defaults for the infinilm-metax-deployment case.
+# Install-time defaults for the cache-type-routing-validation case.
 #
 # This file is sourced by scripts/install.sh when:
-#   --deployment-case infinilm-metax-deployment
+#   --deployment-case cache-type-routing-validation
 #
 # Use it to pin optional installs, branches, and other toggles for reproducible images.
 
@@ -16,25 +16,17 @@ SETUP_APP_ROOT="${SETUP_APP_ROOT:-true}"
 #   - Comma-separated: e.g., "registry,router" or "babysitter"
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
-# Metax deployments commonly require python tooling in the image.
-# Override if still at default "auto" value
-if [ "${INSTALL_PYTHON_DEPS:-auto}" = "auto" ]; then
-    INSTALL_PYTHON_DEPS=true
-fi
+# Cache type routing validation deployments require python tooling in the image.
+INSTALL_PYTHON_DEPS="${INSTALL_PYTHON_DEPS:-true}"
 
 # Optional: enable these if you want the base image to include the python backends too.
 # (Leave as-is if you want a minimal SVC-only base image.)
-# Override if still at default "auto" value
-if [ "${INSTALL_INFINICORE:-auto}" = "auto" ]; then
-    INSTALL_INFINICORE=true
-fi
-if [ "${INSTALL_INFINILM:-auto}" = "auto" ]; then
-    INSTALL_INFINILM=true
-fi
+INSTALL_INFINICORE="${INSTALL_INFINICORE:-true}"
+INSTALL_INFINILM="${INSTALL_INFINILM:-true}"
 
 # Default refs (override via CLI flags if needed)
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-issue/951}"
-INFINILM_BRANCH="${INFINILM_BRANCH:-main}"
+INFINILM_BRANCH="${INFINILM_BRANCH:-issue/216}"
 
 # InfiniCore must be configured for metax + ccl before building.
 # This matches the deployment requirement:

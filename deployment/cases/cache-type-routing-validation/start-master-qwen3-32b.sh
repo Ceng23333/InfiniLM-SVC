@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Start Master: Registry, Router, and babysitter(s)
-# Default: Both instances (master and slave) on one host
-# Set SINGLE_INSTANCE=true to launch only master instance
+# Start Master: Registry, Router, and babysitter(s) for Qwen3-32B
+# Size-based routing: paged cache (GPUs 0-3) + static cache (GPUs 4-7)
 
 set -euo pipefail
 
@@ -16,65 +15,49 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
 fi
 
 # Load deployment case defaults (for LAUNCH_COMPONENTS)
-DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-cache-routing-validation}"
+DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-cache-type-routing-validation}"
 if [ -f "${SCRIPT_DIR}/install.defaults.sh" ]; then
   # shellcheck disable=SC1091
   source "${SCRIPT_DIR}/install.defaults.sh"
 fi
 
 IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:infinilm-demo}"
-CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
+CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master-qwen3-32b}"
 
-# Use LAUNCH_COMPONENTS from deployment case defaults, or allow override via env
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
-# Build BABYSITTER_CONFIGS - single or both instances based on SINGLE_INSTANCE flag
-SINGLE_INSTANCE="${SINGLE_INSTANCE:-false}"
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml}"
-else
-  BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml slave-9g_8b_thinking.toml}"
-fi
+# Qwen3-32B instances: paged cache (GPUs 0-3) and static cache (GPUs 4-7)
+BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-paged-cache-qwen3-32b.toml static-cache-qwen3-32b.toml}"
 
-# Configurable ports (defaults)
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
 
-# Optional directories - use /workspace defaults if not provided
 INFINILM_DIR="${INFINILM_DIR:-}"
 INFINICORE_DIR="${INFINICORE_DIR:-}"
 CONFIG_DIR="${CONFIG_DIR:-${SCRIPT_DIR}/config}"
 
-# Required model paths
-MODEL1_DIR="${MODEL1_DIR:-}"
+# Qwen3-32B model path
+QWEN3_32B_DIR="${QWEN3_32B_DIR:-}"
 
-if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
-  echo "Error: MODEL1_DIR must point to the 9g_8b_thinking_llama model directory on this host."
-  echo "  Current value: MODEL1_DIR=${MODEL1_DIR}"
-  echo "  Example: export MODEL1_DIR=/data-aisoft/zenghua/models/9g_8b_thinking_llama"
+if [ -z "${QWEN3_32B_DIR}" ] || [ ! -d "${QWEN3_32B_DIR}" ]; then
+  echo "Error: QWEN3_32B_DIR must point to the Qwen3-32B model directory on this host."
+  echo "  Current value: QWEN3_32B_DIR=${QWEN3_32B_DIR}"
+  echo "  Example: export QWEN3_32B_DIR=/data-aisoft/zenghua/models/Qwen3-32B"
   exit 1
 fi
 
 echo "=========================================="
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  echo "Starting InfiniLM-SVC (Single Instance)"
-else
-  echo "Starting InfiniLM-SVC Master (Cache Routing Validation)"
-fi
+echo "Starting InfiniLM-SVC (Qwen3-32B Cache Type Routing)"
 echo "=========================================="
 echo "Registry IP: ${REGISTRY_IP}"
 echo "Image: ${IMAGE_NAME}"
 echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  echo "Components: Registry, Router, master-9g_8b_thinking (8100)"
-else
-  echo "Components: Registry, Router, master-9g_8b_thinking (8100), slave-9g_8b_thinking (8200)"
-fi
+echo "Components: Registry, Router, paged-cache-qwen3-32b (8100, GPUs 0-3), static-cache-qwen3-32b (8200, GPUs 4-7)"
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"
-echo "  MODEL1_DIR (9g_8b_thinking_llama): ${MODEL1_DIR}"
+echo "  QWEN3_32B_DIR: ${QWEN3_32B_DIR}"
 echo ""
 if [ -n "${INFINILM_DIR}" ]; then
   echo "INFINILM_DIR: ${INFINILM_DIR} (will mount to /workspace/InfiniLM)"
@@ -93,7 +76,6 @@ else
 fi
 echo ""
 
-# Remove existing container if present
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   echo "Removing existing container ${CONTAINER_NAME} ..."
   docker rm -f "${CONTAINER_NAME}" >/dev/null
@@ -101,7 +83,6 @@ fi
 
 echo "🚀 Starting Docker container..."
 
-# Build docker run command with conditional mounts
 DOCKER_ARGS=(
   -d
   --network host
@@ -120,10 +101,11 @@ DOCKER_ARGS=(
   -e REGISTRY_PORT="${REGISTRY_PORT}"
   -e ROUTER_PORT="${ROUTER_PORT}"
   -e BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS}"
+  -e CACHE_TYPE_ROUTING_THRESHOLD="${CACHE_TYPE_ROUTING_THRESHOLD:-10000}" # Default 10KB (adjusted for proper routing with larger contexts)
+  -e PROXY_TIMEOUT_SECONDS="${PROXY_TIMEOUT_SECONDS:-1800}" # Default 30 minutes
+  --entrypoint "/app/docker_entrypoint.sh"
 )
 
-# Set NO_PROXY to exclude localhost/127.0.0.1 so local registry/router connections bypass proxy
-# This ensures validation scripts and internal services can access the registry directly
 if [ -n "${NO_PROXY:-}" ]; then
   DOCKER_ARGS+=(-e "NO_PROXY=${NO_PROXY},localhost,127.0.0.1,0.0.0.0")
   DOCKER_ARGS+=(-e "no_proxy=${NO_PROXY},localhost,127.0.0.1,0.0.0.0")
@@ -132,22 +114,18 @@ else
   DOCKER_ARGS+=(-e "no_proxy=localhost,127.0.0.1,0.0.0.0")
 fi
 
-# Mount config directory
 DOCKER_ARGS+=(-v "${CONFIG_DIR}:/app/config:ro")
 
-# Mount InfiniLM if provided (override /workspace/InfiniLM at runtime)
 if [ -n "${INFINILM_DIR}" ] && [ -d "${INFINILM_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINILM_DIR}:/workspace/InfiniLM:ro")
 fi
 
-# Mount InfiniCore if provided (override /workspace/InfiniCore at runtime)
 if [ -n "${INFINICORE_DIR}" ] && [ -d "${INFINICORE_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINICORE_DIR}:/workspace/InfiniCore:ro")
 fi
 
-# Mount model
 DOCKER_ARGS+=(
-  -v "${MODEL1_DIR}:/models/9g_8b_thinking:ro"
+  -v "${QWEN3_32B_DIR}:/models/Qwen3-32B:ro"
 )
 
 DOCKER_ARGS+=("${IMAGE_NAME}")
@@ -159,11 +137,7 @@ echo "✅ Container started: ${CONTAINER_NAME}"
 echo "Registry: http://${REGISTRY_IP}:${REGISTRY_PORT}"
 echo "Router:   http://${REGISTRY_IP}:${ROUTER_PORT}"
 echo ""
-if [ "${SINGLE_INSTANCE}" = "true" ]; then
-  echo "Instance (master-9g_8b_thinking): port 8100"
-else
-  echo "Instance 1 (master-9g_8b_thinking): port 8100"
-  echo "Instance 2 (slave-9g_8b_thinking): port 8200"
-fi
+echo "Instance 1 (paged-cache-qwen3-32b): port 8100, GPUs 0-3 (tp=4)"
+echo "Instance 2 (static-cache-qwen3-32b): port 8200, GPUs 4-7 (tp=4)"
 echo ""
 echo "Logs: docker logs -f ${CONTAINER_NAME}"

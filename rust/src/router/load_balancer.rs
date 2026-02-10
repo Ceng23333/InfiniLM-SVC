@@ -264,6 +264,102 @@ impl LoadBalancer {
         Some(selected_service)
     }
 
+    /// Get service by cache type using weighted round-robin
+    /// Filters healthy services by cache_type metadata and optionally by model_id
+    /// Returns None if no matching healthy services are available
+    pub async fn get_service_by_cache_type(
+        &self,
+        cache_type: &str,
+        model_id: Option<&str>,
+    ) -> Option<ServiceInstance> {
+        // Get all healthy services
+        let services = self.services.read().await;
+        let all_services: Vec<_> = services.values().cloned().collect();
+        drop(services);
+
+        // Check health status for all services
+        let health_checks: Vec<bool> =
+            futures::future::join_all(all_services.iter().map(|s| s.is_healthy())).await;
+
+        let mut healthy_services: Vec<_> = all_services
+            .into_iter()
+            .zip(health_checks)
+            .filter(|(_, healthy)| *healthy)
+            .map(|(service, _)| service)
+            .collect();
+
+        // Filter by cache_type metadata
+        let mut filtered_services = Vec::new();
+        for service in &healthy_services {
+            if let Some(metadata_cache_type) = service
+                .metadata
+                .get("cache_type")
+                .and_then(|v| v.as_str())
+            {
+                if metadata_cache_type == cache_type {
+                    filtered_services.push(service.clone());
+                }
+            }
+        }
+        healthy_services = filtered_services;
+
+        if healthy_services.is_empty() {
+            warn!(
+                "No healthy services available with cache_type '{}'",
+                cache_type
+            );
+            return None;
+        }
+
+        // Filter by model if specified
+        if let Some(model_id) = model_id {
+            let mut filtered_services = Vec::new();
+            for service in &healthy_services {
+                let models = service.models.read().await;
+                if models.contains(&model_id.to_string()) {
+                    filtered_services.push(service.clone());
+                }
+            }
+            healthy_services = filtered_services;
+
+            if healthy_services.is_empty() {
+                warn!(
+                    "No healthy services available for model '{}' with cache_type '{}'",
+                    model_id, cache_type
+                );
+                return None;
+            }
+        }
+
+        // Weighted round-robin selection
+        let total_weight: u32 = healthy_services.iter().map(|s| s.weight).sum();
+        if total_weight == 0 {
+            let mut index = self.current_index.write().await;
+            let service = healthy_services[*index % healthy_services.len()].clone();
+            *index += 1;
+            service.increment_request_count().await;
+            return Some(service);
+        }
+
+        let mut current_index = self.current_index.write().await;
+        let target_weight = (*current_index % total_weight as usize) as u32;
+        *current_index += 1;
+        drop(current_index); // Release the lock
+
+        let mut current_weight = 0;
+        for service in &healthy_services {
+            current_weight += service.weight;
+            if current_weight > target_weight {
+                service.increment_request_count().await;
+                return Some(service.clone());
+            }
+        }
+
+        let service = healthy_services[0].clone();
+        service.increment_request_count().await;
+        Some(service)
+    }
+
     /// Start health check background task
     pub async fn start_health_checks(&self) {
         let services = self.services.clone();

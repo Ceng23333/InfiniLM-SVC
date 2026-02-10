@@ -1,0 +1,137 @@
+# Dockerfile for Phase 2 only (build from sources)
+#
+# This file is used when building Phase 2 separately using a pre-built deps image.
+# Unlike Dockerfile.build, this file does NOT define the deps stage, so Docker
+# will use the provided DEPS_IMAGE directly without rebuilding Phase 1 dependencies.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.build-only \
+#        --build-arg DEPS_IMAGE=infinilm-svc:deps \
+#        --target build -t infinilm-svc:build .
+#
+# Why a separate Dockerfile?
+#   - Dockerfile.build defines both deps and build stages
+#   - When using --target build with DEPS_IMAGE, Docker still evaluates the deps stage
+#   - This separate file only defines the build stage, so it uses DEPS_IMAGE directly
+#   - This enables true offline Phase 2 builds without reinstalling dependencies
+
+# ============================================================================
+# Stage: Phase 2 - Build from Sources
+# ============================================================================
+# Use the provided deps image directly (no deps stage definition)
+ARG DEPS_IMAGE
+FROM ${DEPS_IMAGE} AS build
+
+WORKDIR /app
+
+# Copy full project source (for building)
+# If INFINILM_SVC_SRC is provided and different from current directory,
+# it should be copied into build context before this Dockerfile is used
+COPY . .
+
+# Build args for InfiniCore/InfiniLM/InfiniLM-SVC
+ARG INFINICORE_SRC
+ARG INFINILM_SRC
+ARG INFINILM_SVC_SRC
+ARG INFINICORE_BRANCH
+ARG INFINILM_BRANCH
+ARG DEPLOYMENT_CASE
+
+# InfiniCore and InfiniLM should already be in the deps image (cloned during Phase 1)
+# They are located at /app/../InfiniCore and /app/../InfiniLM
+
+# Note: Rust/Cargo PATH is set in env-set.sh (sourced by install-build.sh)
+# The env-set.sh file adds ~/.cargo/bin to PATH for Phase 2 builds
+
+# Run Phase 2: Build from local sources (no network needed)
+# This builds:
+#   - InfiniLM-SVC Rust binaries (infini-registry, infini-router, infini-babysitter)
+#   - Optionally rebuilds InfiniCore/InfiniLM if source paths provided
+#   - Optionally uses external InfiniLM-SVC source if INFINILM_SVC_SRC provided
+RUN ./scripts/install-build.sh \
+    --install-path /usr/local/bin \
+    ${DEPLOYMENT_CASE:+--deployment-case ${DEPLOYMENT_CASE}} \
+    ${INFINICORE_SRC:+--infinicore-src ${INFINICORE_SRC}} \
+    ${INFINILM_SRC:+--infinilm-src ${INFINILM_SRC}} \
+    ${INFINILM_SVC_SRC:+--infinilm-svc-src ${INFINILM_SVC_SRC}} \
+    ${INFINICORE_BRANCH:+--infinicore-branch ${INFINICORE_BRANCH}} \
+    ${INFINILM_BRANCH:+--infinilm-branch ${INFINILM_BRANCH}}
+
+# Verify binaries were built
+RUN which infini-registry && \
+    which infini-router && \
+    which infini-babysitter && \
+    infini-registry --help > /dev/null 2>&1 || true
+
+# Copy deployment case specific files to /app for runtime stage
+# These files will be available in the runtime stage via COPY --from=build
+ARG DEPLOYMENT_CASE
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/embeddings_server.py" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/embeddings_server.py" ./embeddings_server.py; \
+    fi || true
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ./env-set.sh; \
+    fi || true
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt" ./requirements-embeddings.txt; \
+    fi || true
+
+# ============================================================================
+# Stage: Runtime (Optional - deployment image)
+# ============================================================================
+# Use the build stage as base (already has all binaries and dependencies)
+# This ensures runtime has the same environment as build stage
+FROM build AS runtime
+
+WORKDIR /app
+
+# Runtime stage uses build stage as base, so everything is already here
+# We just need to clean up unnecessary build artifacts and set up runtime environment
+# Binaries, scripts, and configs are already in /usr/local/bin and /app from build stage
+
+# Deployment case specific files are already in /app from build stage
+# (embeddings_server.py, env-set.sh, requirements-embeddings.txt if they exist)
+
+# Make scripts executable
+RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p logs config /workspace/models
+
+# Unset proxy environment variables at runtime to avoid proxy interference
+# Proxy is only needed during build for downloading dependencies
+# At runtime, services should connect directly without proxy routing issues
+# Set NO_PROXY to include localhost/127.0.0.1 to ensure local connections bypass proxy
+ENV HTTP_PROXY=""
+ENV HTTPS_PROXY=""
+ENV http_proxy=""
+ENV https_proxy=""
+ENV ALL_PROXY=""
+ENV all_proxy=""
+ENV NO_PROXY="localhost,127.0.0.1,0.0.0.0"
+ENV no_proxy="localhost,127.0.0.1,0.0.0.0"
+
+# Set deployment case environment variable (if provided)
+ARG DEPLOYMENT_CASE
+ENV DEPLOYMENT_CASE=${DEPLOYMENT_CASE}
+
+# Set working directory
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+# Expose default ports
+# REGISTRY_PORT (default: 18000)
+# ROUTER_PORT (default: 8000)
+# EMBEDDING_PORT (default: 20002)
+EXPOSE 18000 8000 20002
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Phased build (build + runtime)"
+LABEL version="0.1.0"
+ARG BUILD_TIMESTAMP
+LABEL build.timestamp="${BUILD_TIMESTAMP}"
+ARG DEPLOYMENT_CASE
+LABEL deployment-case="${DEPLOYMENT_CASE}"
