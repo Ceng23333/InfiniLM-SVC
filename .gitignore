@@ -135,6 +135,6 @@ rust/tests/integration/*.log
 # Cargo.lock
 
 # Benchmark results and generated datasets
-deployment/cases/cache-routing-validation/results/
-deployment/cases/cache-routing-validation/*.jsonl
-deployment/cases/cache-routing-validation/*.tmp.log
+deployment/cases/*/results/
+deployment/cases/*/*.jsonl
+deployment/cases/*/*.tmp.log

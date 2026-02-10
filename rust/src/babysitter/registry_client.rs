@@ -114,6 +114,26 @@ impl BabysitterRegistryClient {
 
             // Register service
             let service_name = self.state.config.service_name();
+
+            // Build base metadata
+            let mut metadata = json!({
+                "type": "openai-api",
+                "parent_service": service_name,
+                "babysitter": "enhanced",
+                "models": models.iter().map(|m| m.get("id").and_then(|v| v.as_str()).unwrap_or("")).collect::<Vec<_>>(),
+                "models_list": models
+            });
+
+            // Merge metadata from config file if available
+            if let Some(ref config_file) = self.state.config_file {
+                if let Some(metadata_obj) = metadata.as_object_mut() {
+                    let config_metadata = config_file.metadata_json();
+                    for (key, value) in config_metadata {
+                        metadata_obj.insert(key, value);
+                    }
+                }
+            }
+
             let service_data = json!({
                 "name": format!("{}-server", service_name),
                 "host": self.state.config.host,
@@ -121,13 +141,7 @@ impl BabysitterRegistryClient {
                 "port": service_port.unwrap(),
                 "url": format!("http://{}:{}", self.state.config.host, service_port.unwrap()),
                 "status": "running",
-                "metadata": {
-                    "type": "openai-api",
-                    "parent_service": service_name,
-                    "babysitter": "enhanced",
-                    "models": models.iter().map(|m| m.get("id").and_then(|v| v.as_str()).unwrap_or("")).collect::<Vec<_>>(),
-                    "models_list": models
-                }
+                "metadata": metadata
             });
 
             match self

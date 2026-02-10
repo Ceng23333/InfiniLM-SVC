@@ -8,6 +8,8 @@ use axum::{
     Json,
 };
 use reqwest::Client;
+use serde::Deserialize;
+use std::borrow::Cow;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,20 +61,98 @@ fn get_routing_threshold() -> usize {
         .unwrap_or(DEFAULT_CACHE_TYPE_ROUTING_THRESHOLD)
 }
 
-/// Calculate message body size from JSON request
-/// Sums the length of all "content" fields in the "messages" array
-fn calculate_message_body_size(body: &serde_json::Value) -> usize {
-    let mut total_size = 0;
+/// Routing-relevant fields extracted from a request body.
+/// We intentionally do NOT deserialize the full JSON into `serde_json::Value` for efficiency.
+#[derive(Debug, Clone)]
+struct RoutingFields {
+    model_id: Option<String>,
+    prompt_cache_key: Option<String>,
+    message_size: Option<usize>,
+}
 
-    if let Some(messages) = body.get("messages").and_then(|v| v.as_array()) {
-        for message in messages {
-            if let Some(content) = message.get("content").and_then(|v| v.as_str()) {
-                total_size += content.len();
-            }
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Content<'a> {
+    Str(#[serde(borrow)] Cow<'a, str>),
+    Parts(Vec<ContentPart<'a>>),
+}
+
+#[derive(Debug, Deserialize)]
+struct ContentPart<'a> {
+    #[serde(default, borrow)]
+    text: Option<Cow<'a, str>>,
+    #[serde(default, borrow)]
+    content: Option<Cow<'a, str>>,
+}
+
+impl<'a> Content<'a> {
+    fn text_len(&self) -> usize {
+        match self {
+            Content::Str(s) => s.len(),
+            Content::Parts(parts) => parts
+                .iter()
+                .map(|p| p.text.as_ref().map(|s| s.len()).unwrap_or(0)
+                    + p.content.as_ref().map(|s| s.len()).unwrap_or(0))
+                .sum(),
         }
     }
+}
 
-    total_size
+#[derive(Debug, Deserialize)]
+struct Message<'a> {
+    #[serde(default, borrow)]
+    content: Option<Content<'a>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Prompt<'a> {
+    Str(#[serde(borrow)] Cow<'a, str>),
+    Arr(Vec<Cow<'a, str>>),
+}
+
+impl<'a> Prompt<'a> {
+    fn text_len(&self) -> usize {
+        match self {
+            Prompt::Str(s) => s.len(),
+            Prompt::Arr(arr) => arr.iter().map(|s| s.len()).sum(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RoutingRequest<'a> {
+    #[serde(default, borrow)]
+    model: Option<Cow<'a, str>>,
+    #[serde(default, borrow)]
+    prompt_cache_key: Option<Cow<'a, str>>,
+    #[serde(default)]
+    messages: Option<Vec<Message<'a>>>,
+    #[serde(default)]
+    prompt: Option<Prompt<'a>>,
+}
+
+fn extract_routing_fields(body_bytes: &[u8]) -> Option<RoutingFields> {
+    let req: RoutingRequest<'_> = serde_json::from_slice(body_bytes).ok()?;
+
+    let message_size = if let Some(messages) = req.messages {
+        Some(
+            messages
+                .iter()
+                .map(|m| m.content.as_ref().map(|c| c.text_len()).unwrap_or(0))
+                .sum(),
+        )
+    } else if let Some(prompt) = req.prompt {
+        Some(prompt.text_len())
+    } else {
+        None
+    };
+
+    Some(RoutingFields {
+        model_id: req.model.map(|c| c.to_string()),
+        prompt_cache_key: req.prompt_cache_key.map(|c| c.to_string()),
+        message_size,
+    })
 }
 
 /// Proxy handler - forwards requests to backend services
@@ -97,26 +177,16 @@ pub async fn proxy_handler(
         }
     };
 
-    // Parse JSON body at most once for POST requests, and extract fields needed for routing.
-    // This avoids doing multiple full serde_json parses per request (which is expensive for large prompts).
-    let (model_id, prompt_cache_key, body_json) = if method == Method::POST {
-        match serde_json::from_slice::<serde_json::Value>(&body_bytes) {
-            Ok(v) => {
-                let model_id = v
-                    .get("model")
-                    .and_then(|vv| vv.as_str())
-                    .map(|s| s.to_string());
-                let prompt_cache_key = v
-                    .get("prompt_cache_key")
-                    .and_then(|vv| vv.as_str())
-                    .map(|s| s.to_string());
-                (model_id, prompt_cache_key, Some(v))
-            }
-            Err(_) => (None, None, None),
-        }
+    // Extract only routing-relevant fields; avoid building full JSON DOM.
+    let routing_fields = if method == Method::POST {
+        extract_routing_fields(&body_bytes)
     } else {
-        (None, None, None)
+        None
     };
+    let model_id = routing_fields.as_ref().and_then(|r| r.model_id.clone());
+    let prompt_cache_key = routing_fields
+        .as_ref()
+        .and_then(|r| r.prompt_cache_key.clone());
 
     // Extract session ID (prompt_cache_key or IP-based)
     // Note: remote_addr is None here since we don't have direct access to it in axum Request.
@@ -150,9 +220,9 @@ pub async fn proxy_handler(
 
     for attempt in 0..max_retries {
         // Get service: size-based routing if enabled, else session-aware routing, else round-robin
-        let service = if let Some(ref body_json_value) = body_json {
+        let service = if let Some(ref rf) = routing_fields {
             // Calculate message body size for size-based routing
-            let message_size = calculate_message_body_size(body_json_value);
+            let message_size = rf.message_size.unwrap_or(0);
             let threshold = get_routing_threshold();
 
             // Size-based routing: large requests -> static cache, small requests -> paged cache

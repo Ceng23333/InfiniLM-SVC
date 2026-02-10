@@ -4,6 +4,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use toml::Value as TomlValue;
 
 /// Babysitter configuration file structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +31,10 @@ pub struct BabysitterConfigFile {
 
     /// Backend configuration
     pub backend: BackendConfig,
+
+    /// Metadata for service registration (optional)
+    #[serde(default)]
+    pub metadata: HashMap<String, TomlValue>,
 }
 
 fn default_host() -> String {
@@ -182,6 +187,55 @@ impl BabysitterConfigFile {
     /// Get environment variables from backend config
     pub fn backend_env(&self) -> HashMap<String, String> {
         self.backend.env()
+    }
+
+    /// Get metadata as serde_json::Value (converts from TOML values)
+    pub fn metadata_json(&self) -> HashMap<String, serde_json::Value> {
+        self.metadata
+            .iter()
+            .filter_map(|(k, v)| {
+                // Convert TOML value to JSON value
+                match toml_to_json_value(v) {
+                    Ok(json_val) => Some((k.clone(), json_val)),
+                    Err(_) => None,
+                }
+            })
+            .collect()
+    }
+}
+
+/// Convert TOML value to JSON value
+fn toml_to_json_value(toml_val: &TomlValue) -> Result<serde_json::Value, serde_json::Error> {
+    // Serialize TOML value to string, then deserialize as JSON
+    // This is a simple conversion approach
+    match toml_val {
+        TomlValue::String(s) => Ok(serde_json::Value::String(s.clone())),
+        TomlValue::Integer(i) => Ok(serde_json::Value::Number(
+            serde_json::Number::from(*i)
+        )),
+        TomlValue::Float(f) => {
+            serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .ok_or_else(|| serde_json::Error::io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Invalid float"
+                )))
+        }
+        TomlValue::Boolean(b) => Ok(serde_json::Value::Bool(*b)),
+        TomlValue::Datetime(dt) => Ok(serde_json::Value::String(dt.to_string())),
+        TomlValue::Array(arr) => {
+            let json_arr: Result<Vec<_>, _> = arr.iter().map(toml_to_json_value).collect();
+            json_arr.map(serde_json::Value::Array)
+        }
+        TomlValue::Table(table) => {
+            let json_obj: Result<HashMap<String, _>, _> = table
+                .iter()
+                .map(|(k, v)| toml_to_json_value(v).map(|val| (k.clone(), val)))
+                .collect();
+            json_obj.map(|map| {
+                serde_json::Value::Object(map.into_iter().collect())
+            })
+        }
     }
 }
 
