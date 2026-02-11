@@ -34,6 +34,10 @@ elif [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${EARLY_SCRIPT_DIR}/../deployment/ca
     # subsequent installs (notably xmake, which may require XMAKE_ROOT=y when running as root).
     # shellcheck disable=SC1091
     source "${EARLY_SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/env-set.sh"
+elif [ -f "${EARLY_SCRIPT_DIR}/../docker/metax/env-set.sh" ]; then
+    # Reusable docker/metax/env-set.sh
+    # shellcheck disable=SC1091
+    source "${EARLY_SCRIPT_DIR}/../docker/metax/env-set.sh"
 elif [ -f "${EARLY_SCRIPT_DIR}/../env-set.sh" ]; then
     # shellcheck disable=SC1091
     source "${EARLY_SCRIPT_DIR}/../env-set.sh"
@@ -1284,10 +1288,19 @@ install_infinicore_and_infinilm_optional() {
 
         # Find requirements file for InfiniCore/InfiniLM dependencies
         local requirements_file=""
+        # Check for requirements file in priority order:
+        # 1. Deployment case specific
+        # 2. docker/metax (reusable default for metax deployments)
+        # 3. Project root
         if [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt" ]; then
             requirements_file="${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt"
         elif [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt" ]; then
             requirements_file="${SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt"
+        elif [ -f "${SCRIPT_DIR}/../docker/metax/requirements-infinicore-infinilm.txt" ]; then
+            # Reusable docker/metax/requirements-infinicore-infinilm.txt
+            requirements_file="${SCRIPT_DIR}/../docker/metax/requirements-infinicore-infinilm.txt"
+        elif [ -f "${PROJECT_ROOT}/docker/metax/requirements-infinicore-infinilm.txt" ]; then
+            requirements_file="${PROJECT_ROOT}/docker/metax/requirements-infinicore-infinilm.txt"
         elif [ -f "${PROJECT_ROOT}/requirements-infinicore-infinilm.txt" ]; then
             requirements_file="${PROJECT_ROOT}/requirements-infinicore-infinilm.txt"
         fi
@@ -1298,6 +1311,7 @@ install_infinicore_and_infinilm_optional() {
             if [ -n "${DEPLOYMENT_CASE:-}" ]; then
                 echo -e "${YELLOW}    - deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt${NC}"
             fi
+            echo -e "${YELLOW}    - docker/metax/requirements-infinicore-infinilm.txt${NC}"
             echo -e "${YELLOW}    - requirements-infinicore-infinilm.txt${NC}"
         else
             echo "Using requirements file: ${requirements_file}"
@@ -2428,6 +2442,10 @@ setup_scripts() {
                 cp "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" "${APP_ROOT}/env-set.sh"
                 chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
                 echo -e "  ${GREEN}✓${NC} Staged env-set.sh (case ${DEPLOYMENT_CASE}): ${APP_ROOT}/env-set.sh"
+            elif [ -f "${PROJECT_ROOT}/docker/metax/env-set.sh" ]; then
+                cp "${PROJECT_ROOT}/docker/metax/env-set.sh" "${APP_ROOT}/env-set.sh"
+                chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
+                echo -e "  ${GREEN}✓${NC} Staged env-set.sh (docker/metax): ${APP_ROOT}/env-set.sh"
             elif [ -f "${PROJECT_ROOT}/env-set.sh" ]; then
                 cp "${PROJECT_ROOT}/env-set.sh" "${APP_ROOT}/env-set.sh"
                 chmod +x "${APP_ROOT}/env-set.sh" 2>/dev/null || true
