@@ -661,9 +661,10 @@ pip_install() {
 
 git_checkout_ref_if_requested() {
     # Usage: git_checkout_ref_if_requested /path/to/repo "ref"
+    # ref may be __USE_SRC_AS_IS__ to skip checkout (use synced/external source as-is, e.g. Phase 2 with --infinicore-src).
     local repo="${1:-}"
     local ref="${2:-}"
-    if [ -z "${ref}" ]; then
+    if [ -z "${ref}" ] || [ "${ref}" = "__USE_SRC_AS_IS__" ]; then
         return 0
     fi
     if [ -z "${repo}" ] || [ ! -d "${repo}" ]; then

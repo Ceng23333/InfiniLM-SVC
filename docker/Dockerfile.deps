@@ -1,0 +1,94 @@
+# Dockerfile for Phase 1 (deps stage)
+#
+# This file is used when building Phase 1 separately to cache dependencies.
+# It installs all dependencies requiring network/proxy and builds base binaries.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.deps \
+#        --build-arg BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64 \
+#        --build-arg DEPLOYMENT_CASE=cache-type-routing-validation \
+#        -t infinilm-svc:deps .
+
+# ============================================================================
+# Stage: Phase 1 - Dependencies
+# ============================================================================
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE} AS deps
+
+WORKDIR /app
+
+# Copy full project source (needed for install scripts and rust/Cargo.toml)
+COPY . .
+
+# Build args
+ARG DEPLOYMENT_CASE
+ARG BUILD_TIMESTAMP
+ARG INFINICORE_BRANCH
+ARG INFINILM_BRANCH
+
+# Set proxy environment variables for Phase 1 (needed for downloading dependencies)
+# These should be passed via --build-arg during docker build
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG ALL_PROXY
+ARG all_proxy
+ARG NO_PROXY
+ARG no_proxy
+
+# Export proxy variables for use in RUN commands
+ENV HTTP_PROXY="${HTTP_PROXY}"
+ENV HTTPS_PROXY="${HTTPS_PROXY}"
+ENV http_proxy="${http_proxy}"
+ENV https_proxy="${https_proxy}"
+ENV ALL_PROXY="${ALL_PROXY}"
+ENV all_proxy="${all_proxy}"
+ENV NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,0.0.0.0}"
+ENV no_proxy="${no_proxy:-localhost,127.0.0.1,0.0.0.0}"
+
+# Run Phase 1: Install dependencies (requires network/proxy)
+# This installs:
+#   - System dependencies
+#   - Rust toolchain
+#   - xmake
+#   - Python dependencies
+#   - InfiniCore/InfiniLM (cloned and installed from remote)
+#   - Rust crate dependencies (cargo fetch)
+#   - InfiniLM-SVC binaries (base version)
+# Source env-set.sh to ensure MACA_PATH/HPCC_PATH are set for xmake builds
+RUN if [ -f /app/env-set.sh ]; then \
+        source /app/env-set.sh; \
+    elif [ -f docker/metax/env-set.sh ]; then \
+        source docker/metax/env-set.sh; \
+    fi && \
+    ./scripts/install-deps.sh \
+    ${DEPLOYMENT_CASE:+--deployment-case ${DEPLOYMENT_CASE}} \
+    ${INFINICORE_BRANCH:+--infinicore-branch ${INFINICORE_BRANCH}} \
+    ${INFINILM_BRANCH:+--infinilm-branch ${INFINILM_BRANCH}}
+
+# Verify installations
+# Source env-set.sh to ensure PATH includes ~/.cargo/bin and other required paths
+RUN if [ -f /app/env-set.sh ]; then \
+        source /app/env-set.sh; \
+    elif [ -f docker/metax/env-set.sh ]; then \
+        source docker/metax/env-set.sh; \
+    fi && \
+    # Ensure cargo bin is in PATH for verification
+    export PATH="${HOME}/.cargo/bin:${PATH}" && \
+    which cargo && \
+    which rustc && \
+    which xmake && \
+    python3 --version && \
+    (which infini-registry || echo "Note: infini-registry will be built in Phase 2") && \
+    (which infini-router || echo "Note: infini-router will be built in Phase 2") && \
+    (which infini-babysitter || echo "Note: infini-babysitter will be built in Phase 2")
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Phase 1 (deps) - Dependencies and base binaries"
+LABEL build.phase="deps"
+ARG BUILD_TIMESTAMP
+LABEL build.timestamp="${BUILD_TIMESTAMP}"
+ARG DEPLOYMENT_CASE
+LABEL build.deployment-case="${DEPLOYMENT_CASE}"

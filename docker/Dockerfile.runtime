@@ -1,0 +1,70 @@
+# Dockerfile for Runtime stage
+#
+# This file is used to build the runtime stage directly from an existing build image.
+# This file does NOT define the build stage, so Docker will use the provided
+# BUILD_IMAGE directly without rebuilding anything.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.runtime \
+#        --build-arg BUILD_IMAGE=infinilm-svc:build-latest \
+#        -t infinilm-svc:runtime .
+
+# ============================================================================
+# Stage: Runtime (deployment image)
+# ============================================================================
+# Use the provided build image directly (no build stage definition)
+ARG BUILD_IMAGE
+FROM ${BUILD_IMAGE} AS runtime
+
+WORKDIR /app
+
+# Runtime stage uses build image as base, so everything is already here
+# We just need to clean up unnecessary build artifacts and set up runtime environment
+# Binaries, scripts, and configs are already in /usr/local/bin and /app from build image
+
+# Deployment case specific files are already in /app from build image
+# (embeddings_server.py, env-set.sh, requirements-embeddings.txt if they exist)
+
+# Make scripts executable
+RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p logs config /workspace/models
+
+# Unset proxy environment variables at runtime to avoid proxy interference
+# Proxy is only needed during build for downloading dependencies
+# At runtime, services should connect directly without proxy routing issues
+# Set NO_PROXY to include localhost/127.0.0.1 to ensure local connections bypass proxy
+ENV HTTP_PROXY=""
+ENV HTTPS_PROXY=""
+ENV http_proxy=""
+ENV https_proxy=""
+ENV ALL_PROXY=""
+ENV all_proxy=""
+ENV NO_PROXY="localhost,127.0.0.1,0.0.0.0"
+ENV no_proxy="localhost,127.0.0.1,0.0.0.0"
+
+# Set deployment case environment variable (if provided)
+ARG DEPLOYMENT_CASE
+ENV DEPLOYMENT_CASE=${DEPLOYMENT_CASE}
+
+# Set working directory
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+# Expose default ports
+# REGISTRY_PORT (default: 18000)
+# ROUTER_PORT (default: 8000)
+# EMBEDDING_PORT (default: 20002)
+EXPOSE 18000 8000 20002
+
+# Labels
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: Runtime stage (from build image)"
+LABEL version="0.1.0"
+ARG BUILD_TIMESTAMP
+LABEL build.timestamp="${BUILD_TIMESTAMP}"
+ARG DEPLOYMENT_CASE
+LABEL deployment-case="${DEPLOYMENT_CASE}"

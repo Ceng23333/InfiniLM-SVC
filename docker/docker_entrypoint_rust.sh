@@ -70,6 +70,30 @@ fi
 
 cd "${PROJECT_ROOT}" || exit 1
 
+# Ensure /workspace paths expected by babysitter configs exist.
+# Many deployment-case babysitter TOMLs reference:
+#   - /workspace/InfiniLM
+#   - /workspace/InfiniCore
+# But Phase-2 images typically have repos at /InfiniLM and /InfiniCore (or /app/../...).
+mkdir -p /workspace
+
+# Create symlinks if the expected paths are missing.
+if [ ! -e "/workspace/InfiniLM" ]; then
+  if [ -d "/InfiniLM" ]; then
+    ln -s "/InfiniLM" "/workspace/InfiniLM"
+  elif [ -d "/app/../InfiniLM" ]; then
+    ln -s "/app/../InfiniLM" "/workspace/InfiniLM"
+  fi
+fi
+
+if [ ! -e "/workspace/InfiniCore" ]; then
+  if [ -d "/InfiniCore" ]; then
+    ln -s "/InfiniCore" "/workspace/InfiniCore"
+  elif [ -d "/app/../InfiniCore" ]; then
+    ln -s "/app/../InfiniCore" "/workspace/InfiniCore"
+  fi
+fi
+
 # Function to verify proxy accessibility
 verify_proxy() {
     local proxy="${1}"

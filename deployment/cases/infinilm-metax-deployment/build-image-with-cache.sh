@@ -23,19 +23,10 @@ echo ""
 # a different approach - either use BuildKit cache mounts (requires Docker 19.03+)
 # or use a wrapper that runs the build in a container with volumes
 
-# For now, document the manual approach
-echo "To use cache mounts with Docker BuildKit (Docker 19.03+):"
-echo "  DOCKER_BUILDKIT=1 docker build \\"
-echo "    --mount=type=cache,target=/root/.cargo \\"
-echo "    --mount=type=cache,target=/root/.cache/pip \\"
-echo "    --mount=type=cache,target=/root/.cache \\"
-echo "    --mount=type=cache,target=/tmp \\"
-echo "    -f Dockerfile.gpu-factory -t infinilm-svc:demo ."
-echo ""
-echo "For Docker 18.09 (current version), cache directories are prepared at:"
+# Note: BuildKit is disabled in this project. Cache directories are prepared at:
 echo "  ${CACHE_BASE_DIR}"
 echo "  You can manually copy cache contents before/after build if needed."
 echo ""
 
 # Fall back to regular build
-exec "${SCRIPT_DIR}/build-image.sh" "$@"
+exec "${PROJECT_ROOT}/docker/metax/build-image.sh" "$@"

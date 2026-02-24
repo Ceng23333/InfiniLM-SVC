@@ -183,7 +183,21 @@ main() {
     # This builds InfiniLM-SVC (infini-registry, infini-router, infini-babysitter)
     # build_binaries() will use the updated PROJECT_ROOT if INFINILM_SVC_SRC was provided
     echo -e "${BLUE}Building from PROJECT_ROOT: ${PROJECT_ROOT}${NC}"
-    build_binaries
+
+    # Check if binaries already exist from Phase 1 (deps image) - if so, skip building
+    if [ -f "${PROJECT_ROOT}/rust/target/release/infini-registry" ] && \
+       [ -f "${PROJECT_ROOT}/rust/target/release/infini-router" ] && \
+       [ -f "${PROJECT_ROOT}/rust/target/release/infini-babysitter" ]; then
+        echo -e "${BLUE}InfiniLM-SVC binaries already exist from Phase 1 (deps image)${NC}"
+        echo -e "${BLUE}Skipping binary build (using existing binaries)${NC}"
+        echo ""
+        echo "Existing binaries:"
+        ls -lh "${PROJECT_ROOT}"/rust/target/release/infini-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}' || true
+        echo ""
+    else
+        # Binaries don't exist, build them
+        build_binaries
+    fi
 
     # Verify binaries were built from the correct location
     if [ "${using_external_source}" = "true" ]; then
@@ -277,6 +291,18 @@ main() {
 
         # Now install/rebuild using the overridden repos
         echo -e "${BLUE}Installing/rebuilding InfiniCore/InfiniLM with overridden repos...${NC}"
+
+        # Remove old InfiniCore libraries from Phase 1 to avoid linking against stale versions
+        # The old libraries may not have the new symbols (e.g., hcdnn/hcblas gemm) that the new source includes
+        if [ -n "${INFINICORE_SRC:-}" ] && [ -d "${INFINICORE_SRC}" ]; then
+            echo -e "${BLUE}  Removing old InfiniCore libraries from /root/.infini/lib/ to force rebuild...${NC}"
+            rm -f /root/.infini/lib/libinfiniop.so \
+                  /root/.infini/lib/libinfinirt.so \
+                  /root/.infini/lib/libinfiniccl.so \
+                  /root/.infini/lib/libinfinicore_cpp_api.so 2>/dev/null || true
+            echo -e "${GREEN}✓ Old InfiniCore libraries removed${NC}"
+        fi
+
         # Set INSTALL_PHASE to "build" to skip cloning (repos should exist from Phase 1 or override)
         INSTALL_PHASE=build
         install_infinicore_and_infinilm_optional

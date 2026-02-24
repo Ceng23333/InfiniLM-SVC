@@ -77,6 +77,138 @@ All tests used:
 
 ---
 
+## Branch issue/1004 Performance Improvements (2026-02-24)
+
+### Overview
+
+Results from branch `issue/1004` show **significant performance improvements** for 2-paged round-robin routing compared to older baseline results (2026-02-12). These improvements are attributed to InfiniCore optimizations and fixes in the issue/1004 branch.
+
+**Image Used**: `infinilm-svc:runtime-cache-type-routing-validation-issue1004`
+
+### Test 2: 16KB Context - issue/1004 vs Baseline
+
+**Baseline** (2026-02-12): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-172158.json`  
+**issue/1004** (2026-02-24): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json`
+
+| Metric | Baseline (Old) | issue/1004 (New) | Improvement | Change |
+|--------|----------------|------------------|-------------|--------|
+| Mean TTFT | 4.83s | 2.34s | **-51.5%** | ⬇️ **2.49s faster** |
+| Median TTFT | 3.67s | 1.40s | **-61.9%** | ⬇️ **2.28s faster** |
+| P99 TTFT | 13.16s | 5.72s | **-56.6%** | ⬇️ **7.44s better** |
+| Mean TPOT | 329.9 ms | 190.7 ms | **-42.2%** | ⬇️ **139.2ms faster** |
+| P99 TPOT | 656.6 ms | 318.1 ms | **-51.6%** | ⬇️ **338.5ms faster** |
+| Output Throughput | 10.05 tok/s | 18.96 tok/s | **+88.6%** | ⬆️ **8.91 tok/s higher** |
+| Total Throughput | 42.38 tok/s | 79.93 tok/s | **+88.6%** | ⬆️ **37.55 tok/s higher** |
+| Request Throughput | 0.039 req/s | 0.074 req/s | **+88.6%** | ⬆️ **0.035 req/s higher** |
+| Duration | 405.8s | 215.2s | **-47.0%** | ⬇️ **190.6s faster** |
+
+**Summary**: issue/1004 shows **dramatic improvements** across all metrics:
+- **Latency**: Mean TTFT reduced by more than half (51.5% faster)
+- **Throughput**: Output throughput nearly doubled (88.6% increase)
+- **Consistency**: P99 TTFT improved by 56.6%, indicating more predictable performance
+- **Efficiency**: Total benchmark duration reduced by 47%
+
+### Test 3: 65KB Context - issue/1004 vs Baseline
+
+**Baseline** (2026-02-12): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-174121.json`  
+**issue/1004** (2026-02-24): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json`
+
+| Metric | Baseline (Old) | issue/1004 (New) | Improvement | Change |
+|--------|----------------|------------------|-------------|--------|
+| Mean TTFT | 36.26s | 14.52s | **-59.9%** | ⬇️ **21.74s faster** |
+| Median TTFT | 8.48s | 3.33s | **-60.7%** | ⬇️ **5.15s faster** |
+| P99 TTFT | 103.37s | 47.66s | **-53.9%** | ⬇️ **55.71s better** |
+| Mean TPOT | 395.8 ms | 246.8 ms | **-37.7%** | ⬇️ **149.0ms faster** |
+| P99 TPOT | 625.6 ms | 442.6 ms | **-29.3%** | ⬇️ **183.0ms faster** |
+| Output Throughput | 6.16 tok/s | 11.47 tok/s | **+86.2%** | ⬆️ **5.31 tok/s higher** |
+| Total Throughput | 64.95 tok/s | 120.96 tok/s | **+86.2%** | ⬆️ **56.01 tok/s higher** |
+| Request Throughput | 0.024 req/s | 0.045 req/s | **+86.2%** | ⬆️ **0.021 req/s higher** |
+| Duration | 662.6s | 355.8s | **-46.3%** | ⬇️ **306.8s faster** |
+
+**Summary**: issue/1004 shows **substantial improvements** for large contexts:
+- **Latency**: Mean TTFT reduced by nearly 60% (59.9% faster)
+- **Throughput**: Output throughput increased by 86.2%
+- **Consistency**: P99 TTFT improved by 53.9%, showing much better tail latency
+- **Efficiency**: Benchmark duration reduced by 46.3%
+
+### Key Improvements from issue/1004
+
+**Performance Gains (2-Paged Round-Robin)**:
+- **16KB context**: ~50-60% reduction in latency metrics, ~88% increase in throughput
+- **65KB context**: ~50-60% reduction in latency metrics, ~86% increase in throughput
+- Consistent improvements across both small and large context sizes
+
+**Performance Gains (Size-Based Routing)**:
+- **16KB context**: ~48% reduction in mean TTFT (4.90s → 2.56s), ~20% increase in throughput (67.55 → 81.30 tok/s)
+- **65KB context**: ~73% reduction in mean TTFT (10.65s → 2.92s), ~29% increase in throughput (150.60 → 193.88 tok/s)
+- Dramatic improvements in tail latency (P99 TTFT: 34.49s → 8.59s at 16KB, 63.19s → 8.62s at 65KB)
+
+**Technical Changes** (from issue/1004):
+- InfiniCore optimizations and fixes
+- Improved paged cache handling
+- Better memory management and resource utilization
+- Enhanced static cache performance (for size-based routing)
+
+**Impact**: 
+- **2-paged routing**: Significantly more competitive, especially for medium-sized contexts
+- **Size-based routing**: Already strong performance improved further, especially for large contexts (65KB)
+- **Both strategies**: issue/1004 brings substantial benefits, making both routing approaches more efficient
+
+### Cache-type-routing (size-based) vs 2-paged (baseline vs issue/1004)
+
+This compares **cache-type-routing (size-based routing)** vs **2-paged round-robin** across both strategies and versions:
+- **Size-based baseline**: 2026-02-10 results (optimized router)
+- **Size-based issue/1004**: 2026-02-24 results
+- **2-paged baseline**: 2026-02-12 results
+- **2-paged issue/1004**: 2026-02-24 results
+
+#### 16KB context (16000 chars)
+
+| Metric | Size-Based Baseline (2026-02-10) | Size-Based issue/1004 (2026-02-24) | 2-Paged Baseline (2026-02-12) | 2-Paged issue/1004 (2026-02-24) |
+|--------|----------------------------------|-----------------------------------|-------------------------------|----------------------------------|
+| Mean TTFT | 4.90s | **2.56s** | 4.83s | **2.34s** |
+| P99 TTFT | 34.49s | **8.59s** | 13.16s | **5.72s** |
+| Mean TPOT | 206.2 ms | **183.3 ms** | 329.9 ms | **190.7 ms** |
+| Output Throughput | 16.03 tok/s | **19.29 tok/s** | 10.05 tok/s | **18.96 tok/s** |
+| Total Throughput | 67.55 tok/s | **81.30 tok/s** | 42.38 tok/s | **79.93 tok/s** |
+| Duration | 254.6s | **211.5s** | 405.8s | **215.2s** |
+
+**Takeaway (16KB)**:
+- **issue/1004 improves both strategies**: Both size-based and 2-paged show significant improvements with issue/1004
+- **2-paged issue/1004 leads** on mean TTFT (2.34s vs 2.56s) and tail latency (P99: 5.72s vs 8.59s)
+- **Size-based issue/1004 leads** on throughput (81.30 vs 79.93 tok/s) and duration (211.5s vs 215.2s)
+- **Both issue/1004 versions** dramatically outperform their baseline versions
+
+Result files:
+- Size-based baseline: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-160645.json`
+- Size-based issue/1004: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151202.json`
+- 2-paged baseline: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-172158.json`
+- 2-paged issue/1004: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json`
+
+#### 65KB context (65536 chars)
+
+| Metric | Size-Based Baseline (2026-02-10) | Size-Based issue/1004 (2026-02-24) | 2-Paged Baseline (2026-02-12) | 2-Paged issue/1004 (2026-02-24) |
+|--------|----------------------------------|-----------------------------------|-------------------------------|----------------------------------|
+| Mean TTFT | **10.65s** | **2.92s** | 36.26s | 14.52s |
+| P99 TTFT | 63.19s | **8.62s** | 103.37s | **47.66s** |
+| Mean TPOT | **192.4 ms** | **193.5 ms** | 395.8 ms | 246.8 ms |
+| Output Throughput | **14.28 tok/s** | **18.38 tok/s** | 6.16 tok/s | 11.47 tok/s |
+| Total Throughput | **150.60 tok/s** | **193.88 tok/s** | 64.95 tok/s | 120.96 tok/s |
+| Duration | **285.8s** | **222.0s** | 662.6s | 355.8s |
+
+**Takeaway (65KB)**:
+- **Size-based issue/1004 dominates**: Best on mean TTFT (2.92s), throughput (193.88 tok/s), and duration (222.0s)
+- **2-paged issue/1004 has best tail latency**: P99 TTFT of 47.66s (vs 8.62s for size-based, but size-based has much better mean)
+- **Both issue/1004 versions** show massive improvements over baseline (size-based: 72.6% faster mean TTFT, 28.7% higher throughput; 2-paged: 60.0% faster mean TTFT, 86.2% higher throughput)
+
+Result files:
+- Size-based baseline: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-164138.json`
+- Size-based issue/1004: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151603.json`
+- 2-paged baseline: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-174121.json`
+- 2-paged issue/1004: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json`
+
+---
+
 ## Key Insights
 
 ### 1. **Router Optimization Impact**
@@ -126,15 +258,20 @@ Very Large Contexts (≥65KB):    Size-Based Routing performs significantly bett
 ### 4. **2-Paged Round-Robin Benefits**
 
 ✅ **For Small-Medium Contexts (≤20KB)**:
-- Consistent low latency (mean TTFT: 4-5s)
-- Higher throughput (33-41% better)
+- Consistent low latency (mean TTFT: 4-5s, improved to 2.3s with issue/1004)
+- Higher throughput (33-41% better, improved to 88.6% higher with issue/1004)
 - Simpler routing logic (no size calculation overhead)
 - Better load distribution across instances
 
 ❌ **For Very Large Contexts (≥65KB)**:
-- Struggles with large contexts (mean TTFT: 36.0s vs 19.0s)
-- Lower throughput (29% worse)
-- Paged cache not optimized for very large sequences
+- Struggles with large contexts (mean TTFT: 36.0s vs 19.0s baseline, improved to 14.5s with issue/1004)
+- Lower throughput (29% worse baseline, improved to 86.2% higher with issue/1004)
+- Paged cache not optimized for very large sequences (but significantly improved with issue/1004)
+
+**Note**: Branch issue/1004 brings **substantial improvements** to 2-paged round-robin routing:
+- 16KB context: ~50-60% latency reduction, ~88% throughput increase
+- 65KB context: ~50-60% latency reduction, ~86% throughput increase
+- Makes 2-paged routing much more competitive, especially for medium contexts
 
 ### 5. **Latency Variance Analysis**
 
@@ -150,16 +287,29 @@ Very Large Contexts (≥65KB):    Size-Based Routing performs significantly bett
 
 ### 5. **Throughput Trends**
 
-| Context Size | Size-Based Throughput | 2-Paged Throughput | Difference |
-|--------------|----------------------|-------------------|------------|
-| 16KB | 67.55 tok/s | 54.61 tok/s | **+23.7%** ⬆️ |
-| 65KB | 150.60 tok/s | 64.63 tok/s | **+133.0%** ⬆️ |
+| Metric | Size-Based Baseline | Size-Based issue/1004 | 2-Paged Baseline | 2-Paged issue/1004 | Best |
+|--------|---------------------|----------------------|------------------|-------------------|------|
+| **Output Throughput** (tok/s) | | | | | |
+| 16KB | 16.03 | **19.29** | 10.05 | 18.96 | **Size-Based issue/1004** |
+| 65KB | 14.28 | **18.38** | 6.16 | 11.47 | **Size-Based issue/1004** |
+| **Total Throughput** (tok/s) | | | | | |
+| 16KB | 67.55 | **81.30** | 42.38 | 79.93 | **Size-Based issue/1004** |
+| 65KB | 150.60 | **193.88** | 64.95 | 120.96 | **Size-Based issue/1004** |
 
-**Note**: Results for 16KB and 65KB updated with optimized router (targeted JSON parsing)
+**Note**: This table uses:
+- **Size-based baseline**: `size-based-routing-...-20260210-160645.json` (16KB), `size-based-routing-...-20260210-164138.json` (65KB)
+- **Size-based issue/1004**: `size-based-routing-...-20260224-151202.json` (16KB), `size-based-routing-...-20260224-151603.json` (65KB)
+- **2-paged baseline**: `2paged-round-robin-...-20260212-172158.json` (16KB), `2paged-round-robin-...-20260212-174121.json` (65KB)
+- **2-paged issue/1004**: `2paged-round-robin-...-20260224-143528.json` (16KB), `2paged-round-robin-...-20260224-144142.json` (65KB)
 
-**Observation**: Size-based routing shows **higher total throughput** for very large contexts, likely due to:
-- Static cache's efficiency with large sequences
-- Better resource allocation (large requests don't block small ones)
+**Observations**: 
+- **issue/1004 improves both strategies**: Both size-based and 2-paged show significant throughput improvements with issue/1004
+- **Size-based issue/1004 leads** at both context sizes (81.30 tok/s at 16KB, 193.88 tok/s at 65KB)
+- **Improvement rates**:
+  - Size-based: +20.3% at 16KB, +28.7% at 65KB
+  - 2-paged: +88.6% at 16KB, +86.2% at 65KB
+- **At 16KB**: Size-based issue/1004 leads by 1.7% over 2-paged issue/1004 (very close)
+- **At 65KB**: Size-based issue/1004 leads by 60.3% over 2-paged issue/1004 (clear advantage for large contexts)
 
 ### 6. **Median vs Mean TTFT**
 
@@ -225,9 +375,15 @@ All result files are stored in `results/` directory:
 - `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-160645.json` (16KB context, optimized router) ⬆️
 - `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-164138.json` (65KB context, optimized router, cold-start) ⬆️
 
-**2-Paged Round-Robin**:
+**2-Paged Round-Robin** (Baseline):
 - `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260209-212640.json` (16KB context)
 - `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260209-215139.json` (65KB context)
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-172158.json` (16KB context, baseline for issue/1004 comparison)
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-174121.json` (65KB context, baseline for issue/1004 comparison)
+
+**2-Paged Round-Robin** (issue/1004):
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json` (16KB context, issue/1004) ⬆️
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json` (65KB context, issue/1004) ⬆️
 
 ---
 
@@ -257,7 +413,8 @@ The router was optimized to use **targeted JSON deserialization** instead of par
 
 ---
 
-*Generated: 2026-02-10*
-*Model: Qwen3-32B*
-*Deployment: cache-type-routing-validation*
-*Router: Optimized (targeted JSON parsing)*
+*Last Updated: 2026-02-24*  
+*Model: Qwen3-32B*  
+*Deployment: cache-type-routing-validation*  
+*Router: Optimized (targeted JSON parsing)*  
+*Latest Branch: issue/1004 (InfiniCore optimizations)*

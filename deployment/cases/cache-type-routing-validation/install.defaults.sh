@@ -6,6 +6,30 @@
 #
 # Use it to pin optional installs, branches, and other toggles for reproducible images.
 
+# Base image for Docker builds (GPU factory image with HPCC, PyTorch, Python 3.10, Kylin Linux ARM64)
+# This is used by build-image.sh when building Docker images
+DEFAULT_BASE_IMAGE="${DEFAULT_BASE_IMAGE:-cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64}"
+BASE_IMAGE="${BASE_IMAGE:-${DEFAULT_BASE_IMAGE}}"
+
+# Docker image tag formats for this deployment case
+# These are used by build-image.sh when building Docker images
+# Format: <repository>:<prefix>-<deployment-case>[-<suffix>]
+# Examples:
+#   DEPS_IMAGE_TAG="infinilm-svc:deps-cache-type-routing-validation"
+#   IMAGE_TAG="infinilm-svc:build-cache-type-routing-validation"
+#   RUNTIME_TAG="infinilm-svc:runtime-cache-type-routing-validation"
+DEFAULT_IMAGE_REPO="${DEFAULT_IMAGE_REPO:-infinilm-svc}"
+IMAGE_REPO="${IMAGE_REPO:-${DEFAULT_IMAGE_REPO}}"
+DEFAULT_DEPS_IMAGE_TAG="${DEFAULT_DEPS_IMAGE_TAG:-${IMAGE_REPO}:deps-cache-type-routing-validation}"
+DEFAULT_IMAGE_TAG="${DEFAULT_IMAGE_TAG:-${IMAGE_REPO}:build-cache-type-routing-validation}"
+DEFAULT_RUNTIME_TAG_FORMAT="${DEFAULT_RUNTIME_TAG_FORMAT:-${IMAGE_REPO}:runtime-cache-type-routing-validation}"
+# These can be overridden via CLI arguments or environment variables
+DEPS_IMAGE_TAG="${DEPS_IMAGE_TAG:-${DEFAULT_DEPS_IMAGE_TAG}}"
+IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_IMAGE_TAG}}"
+# RUNTIME_TAG is auto-generated with timestamp, but can be overridden
+# Format: <repo>:runtime-<deployment-case>-<timestamp> or custom
+RUNTIME_TAG="${RUNTIME_TAG:-}"
+
 # Make sure /app layout is staged (needed for docker_entrypoint_rust.sh)
 SETUP_APP_ROOT="${SETUP_APP_ROOT:-true}"
 
@@ -26,7 +50,7 @@ INSTALL_INFINILM="${INSTALL_INFINILM:-true}"
 
 # Default refs (override via CLI flags if needed)
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-issue/951}"
-INFINILM_BRANCH="${INFINILM_BRANCH:-issue/216}"
+INFINILM_BRANCH="${INFINILM_BRANCH:-issue/216-1}"
 
 # InfiniCore must be configured for metax + ccl before building.
 # This matches the deployment requirement:

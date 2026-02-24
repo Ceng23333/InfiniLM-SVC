@@ -4,8 +4,7 @@
 #
 # Usage:
 #   docker build --progress=plain -f Dockerfile.gpu-factory.debug -t infinilm-svc:debug .
-# Note: BuildKit cache mounts removed for compatibility with Docker versions that don't support BuildKit
-# To enable cache mounts, set DOCKER_BUILDKIT=1 before building
+# Note: BuildKit is disabled in this project. All builds use the legacy Docker builder.
 
 ARG BASE_IMAGE=cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64
 # Proxy settings (optional, can be set via --build-arg)

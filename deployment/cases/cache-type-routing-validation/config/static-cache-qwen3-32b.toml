@@ -20,7 +20,7 @@ heartbeat_interval = 30
 type = "command"
 command = "/opt/conda/bin/python"
 args = [
-  "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
+  "/InfiniLM/python/infinilm/server/inference_server.py",
   "--metax",
   "--model_path", "/models/Qwen3-32B",
   "--max_batch_size", "8",
@@ -33,11 +33,11 @@ args = [
   "--cache_type", "static",
   "--max_cache_len", "16384",  # Increased to handle larger contexts and reduce memory pressure
 ]
-work_dir = "/workspace/InfiniLM"
+work_dir = "/InfiniLM"
 
 [backend.env]
 PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
+PYTHONPATH = "/InfiniLM/python:/InfiniCore/python"
 INFINI_ROOT = "/root/.infini"
 LD_LIBRARY_PATH = "/opt/conda/lib:/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib:/opt/hpcc/ompi/lib"
 MACA_HOME = "/opt/hpcc"

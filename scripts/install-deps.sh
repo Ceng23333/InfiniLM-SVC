@@ -69,6 +69,18 @@ main() {
     # This ensures Phase 2 can build offline without needing network access
     echo -e "${BLUE}Cloning and installing InfiniCore/InfiniLM (for offline Phase 2 build)...${NC}"
 
+    # Remove old InfiniCore libraries before rebuilding to avoid linking against stale versions
+    # The old libraries may not have the new symbols (e.g., hcdnn/hcblas gemm) that the new source includes
+    local infini_root="${INFINI_ROOT:-${HOME}/.infini}"
+    if [ -d "${infini_root}/lib" ]; then
+        echo -e "${BLUE}Removing old InfiniCore libraries from ${infini_root}/lib to ensure clean rebuild...${NC}"
+        rm -f "${infini_root}/lib/libinfiniop.so" \
+              "${infini_root}/lib/libinfinirt.so" \
+              "${infini_root}/lib/libinfiniccl.so" \
+              "${infini_root}/lib/libinfinicore_cpp_api.so" 2>/dev/null || true
+        echo -e "${GREEN}✓ Old InfiniCore libraries removed${NC}"
+    fi
+
     # Temporarily clear INSTALL_PHASE to allow installation
     # install_infinicore_and_infinilm_optional skips if INSTALL_PHASE="deps"
     # We want to install in Phase 1, so we clear it to allow the function to proceed
@@ -88,7 +100,7 @@ main() {
     # Verify installations
     verify_infinicore_and_infinilm
 
-    # Download Rust crate dependencies without building
+    # Download Rust crate dependencies and build binaries
     echo -e "${BLUE}Downloading Rust crate dependencies (cargo fetch)...${NC}"
     if [ ! -d "${PROJECT_ROOT}/rust" ]; then
         echo -e "${RED}Error: rust/ directory not found at ${PROJECT_ROOT}/rust${NC}"
@@ -125,6 +137,25 @@ main() {
 
     cd "${PROJECT_ROOT}" || exit 1
 
+    # Build InfiniLM-SVC binaries in Phase 1 so they're ready in the deps image
+    # This allows Phase 2 to skip building if binaries already exist
+    echo -e "${BLUE}Building InfiniLM-SVC binaries (for base version in deps image)...${NC}"
+
+    # Temporarily clear INSTALL_PHASE so build_binaries() will run
+    # build_binaries() skips if INSTALL_PHASE="deps", so we clear it
+    local saved_install_phase="${INSTALL_PHASE:-}"
+    unset INSTALL_PHASE
+
+    # Build binaries (this will create a base version in the deps image)
+    build_binaries
+
+    # Restore INSTALL_PHASE if it was set
+    if [ -n "${saved_install_phase}" ]; then
+        INSTALL_PHASE="${saved_install_phase}"
+    else
+        unset INSTALL_PHASE
+    fi
+
     echo ""
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Phase 1 Complete!${NC}"
@@ -137,10 +168,12 @@ main() {
     echo "  ✓ Python dependencies"
     echo "  ✓ InfiniCore/InfiniLM (cloned and installed)"
     echo "  ✓ Rust crate dependencies (cached)"
+    echo "  ✓ InfiniLM-SVC binaries (base version built)"
     echo ""
     echo "Next steps:"
     echo "  1. Commit this intermediate image for reuse"
-    echo "  2. Run Phase 2 (install-build.sh) to build from local sources"
+    echo "  2. Run Phase 2 (install-build.sh) to rebuild/update binaries from local sources"
+    echo "     (Phase 2 will skip building if binaries already exist)"
     echo ""
 }
 

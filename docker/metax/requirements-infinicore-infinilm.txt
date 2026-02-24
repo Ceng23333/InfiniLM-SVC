@@ -14,4 +14,3 @@ janus>=2.0.0
 # tokenizers>=0.13.0
 # torch is typically provided by the base image, but listed for reference
 # torch>=2.0.0
-

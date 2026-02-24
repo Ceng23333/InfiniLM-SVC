@@ -6,7 +6,7 @@
 #
 # This Dockerfile uses install.sh script to build and install InfiniLM-SVC
 # (simplified single-stage build using the installation script)
-# Uses BuildKit cache mounts for faster rebuilds
+# Note: BuildKit is disabled in this project. All builds use the legacy Docker builder.
 
 # Base image: GPU factory image with HPCC, PyTorch, Python, etc.
 # Default can be overridden via --build-arg BASE_IMAGE
@@ -63,8 +63,8 @@ RUN if [ -x /opt/conda/bin/git ]; then \
 # - Install binaries to /usr/local/bin
 # - Install Python dependencies (if INSTALL_PYTHON_DEPS=true)
 # - Clone and install InfiniCore and InfiniLM if not present
-# Note: For cache mounts, use Docker BuildKit with --build-arg CACHE_DIR=/path/to/cache
-#       or mount host directories: -v /host/cache/cargo:/root/.cargo -v /host/cache/pip:/root/.cache/pip
+# Note: For caching, mount host directories: -v /host/cache/cargo:/root/.cargo -v /host/cache/pip:/root/.cache/pip
+#       (BuildKit is disabled in this project)
 RUN mkdir -p /workspace && \
     ./scripts/install.sh \
     --install-path /usr/local/bin \

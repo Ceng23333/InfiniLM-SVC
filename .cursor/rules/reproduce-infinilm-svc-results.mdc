@@ -1,0 +1,117 @@
+---
+description: |
+  Use this skill when the user asks to reproduce, re-run, or validate benchmark/deployment
+  results for an InfiniLM-SVC deployment case (e.g. cache-type-routing-validation,
+  cache-routing-validation). Covers finding the case, setting env vars, running
+  reproduce/bench scripts, and comparing results.
+globs: ["deployment/cases/**/*.md", "deployment/cases/**/reproduce*.sh", "deployment/cases/**/REPRODUCE.md", "deployment/cases/**/install.defaults.sh"]
+alwaysApply: false
+---
+
+# Reproduce InfiniLM-SVC Deployment Case Results
+
+When the user wants to **reproduce results** for an InfiniLM-SVC deployment case, follow this workflow.
+
+## 1. Identify the deployment case
+
+- Cases live under `InfiniLM-SVC/deployment/cases/`.
+- **cache-type-routing-validation**: size-based routing (paged vs static cache), Qwen3-32B, has `reproduce-results.sh` and `REPRODUCE.md`.
+- **cache-routing-validation**: prompt_cache_key routing, 9g_8b_thinking, has bench scripts and README (no single `reproduce-results.sh`).
+- **infinilm-metax-deployment**: Metax deployment, different setup.
+
+If the user names a case (e.g. "cache-type-routing-validation"), use that. Otherwise infer from "reproduce results" + context (e.g. "cache type routing" → cache-type-routing-validation).
+
+## 2. Case-specific reproduction path
+
+### If the case has `reproduce-results.sh` (e.g. cache-type-routing-validation)
+
+1. **Read** `deployment/cases/<case>/REPRODUCE.md` and `deployment/cases/<case>/install.defaults.sh` for:
+   - Required env vars (e.g. `QWEN3_32B_DIR`, `IMAGE_NAME`, `MODEL`, `VLLM_DIR`).
+   - Default image tag (e.g. `infinilm-svc:runtime-cache-type-routing-validation`).
+
+2. **Prerequisites** (ensure before running):
+   - Docker image present: `docker images | grep <image_tag>`.
+   - Model dir set and existing: e.g. `QWEN3_32B_DIR=/path/to/Qwen3-32B` (or `MODEL1_DIR` for 9g_8b_thinking).
+   - vLLM repo path: `VLLM_DIR` (optional default e.g. `/home/zenghua/repos/vllm`).
+
+3. **Run reproduction** from the case directory:
+   ```bash
+   cd InfiniLM-SVC/deployment/cases/<case>
+   export QWEN3_32B_DIR=/path/to/Qwen3-32B   # or MODEL1_DIR for 9g_8b_thinking
+   export IMAGE_NAME=infinilm-svc:runtime-cache-type-routing-validation  # if needed
+   ./reproduce-results.sh [REGISTRY_IP]
+   ```
+   - The script starts deployments, waits for model readiness, runs benchmarks, then compares results.
+   - Do **not** run benchmarks until the model-ready check passes (script handles this).
+
+4. **Results**:
+   - Output and logs: script stdout and case-specific logs (e.g. `bench-size-based-routing.log`, `bench-2paged.log`).
+   - Result files: `deployment/cases/<case>/results/*.json`.
+   - Comparison: script runs `compare-routing-strategies.py --auto-detect` (or equivalent); you can also run it manually with explicit JSON paths.
+
+### If the case has no single `reproduce-results.sh` (e.g. cache-routing-validation)
+
+1. **Read** the case `README.md` and any `install.defaults.sh` for:
+   - Required env vars (`MODEL1_DIR`, `IMAGE_NAME`, `VLLM_DIR`, etc.).
+   - Start script (e.g. `start-master.sh`) and bench scripts (e.g. `bench-cache-routing.sh`, `bench-roundrobin.sh`).
+
+2. **Start deployment**, then run benchmarks in the order described in the README. Wait for services/model to be ready before running benches (check router/registry health or use a small test request).
+
+3. **Compare** using any comparison script or instructions in the case README.
+
+## 3. Environment variables quick reference
+
+| Case                         | Typical required env                     | Optional / defaults                          |
+|-----------------------------|------------------------------------------|---------------------------------------------|
+| cache-type-routing-validation | `QWEN3_32B_DIR`, `IMAGE_NAME`           | `VLLM_DIR`, `CACHE_TYPE_ROUTING_THRESHOLD`  |
+| cache-routing-validation    | `MODEL1_DIR`, `IMAGE_NAME`               | `VLLM_DIR`, `CONDA_ENV_NAME`                |
+
+Always confirm the model path exists and the Docker image is present before running.
+
+## 4. When reproduction fails
+
+- **"No healthy services" / all requests failed**: Model instances not ready yet. The reproduce script should wait for model readiness; if running manually, wait longer or add a readiness check (e.g. POST to `/v1/chat/completions` until response is not "No healthy services").
+- **Missing image**: User must build the image (see below) or set `IMAGE_NAME` to an existing tag.
+
+## 5. Building the Docker image (when needed)
+
+When the image must be built (e.g. for a specific InfiniCore branch like `issue/1004`), use `docker/metax/build-image.sh` from the project root.
+
+**InfiniCore-only update (no deps phase)**: If only InfiniCore changes (e.g. branch `issue/1004`), **Phase 1 (deps) is not required**. Use an existing deps image and build only Phase 2 with a local InfiniCore checkout:
+
+```bash
+cd InfiniLM-SVC
+# Checkout InfiniCore at desired branch (e.g. in a sibling repo or InfiniLM-SVC/InfiniCore)
+# git -C /path/to/InfiniCore fetch && git -C /path/to/InfiniCore checkout issue/1004
+
+export RUNTIME_TAG=infinilm-svc:runtime-cache-type-routing-validation-issue1004
+./docker/metax/build-image.sh --deployment-case cache-type-routing-validation \
+  --phase build \
+  --deps-image infinilm-svc:deps-cache-type-routing-validation \
+  --infinicore-src /path/to/InfiniCore
+# Then: export IMAGE_NAME=infinilm-svc:runtime-cache-type-routing-validation-issue1004
+```
+
+**Full build (deps + build + runtime)**: Only needed when base image, InfiniLM, or toolchain changes. Use `--phase all` and optionally `--infinicore-branch issue/1004` (Phase 1 will clone that branch).
+
+**Proxy (for Phase 1 only, when running `--phase all` or `--phase deps`)**: Phase 1 pulls the base image and clones InfiniCore/InfiniLM; use a proxy to speed up downloads. Not needed for `--phase build` only.
+
+- **Option A – environment variables** (recommended):
+  ```bash
+  export HTTP_PROXY=http://127.0.0.1:7890
+  export HTTPS_PROXY=http://127.0.0.1:7890
+  ```
+- **Option B – CLI**: `--proxy http://127.0.0.1:7890`
+- Optional: `--no-proxy "localhost,127.0.0.1"` if needed.
+
+For cache-type-routing-validation, the case’s `install.defaults.sh` sets `DEPS_IMAGE_TAG`, `IMAGE_TAG`, and `DEFAULT_RUNTIME_TAG_FORMAT`; override `RUNTIME_TAG` for a fixed tag (e.g. branch suffix).
+
+- **Missing model dir**: User must set `QWEN3_32B_DIR` or `MODEL1_DIR` to the correct path.
+- **vLLM / tokenizer errors**: Set `VLLM_DIR` and ensure tokenizer path (often same as model dir) is correct and `HF_HUB_OFFLINE=1` if offline.
+
+## 6. Summary for the agent
+
+- Prefer the case’s **REPRODUCE.md** and **reproduce-results.sh** when present.
+- Always **set and validate prerequisites** (image, model path, vLLM) before running.
+- **Do not start benchmarks until the model is ready**; use the script’s built-in wait or an explicit readiness check when running manually.
+- **Results** live in the case’s `results/` directory; use the case’s comparison script or README to interpret them.

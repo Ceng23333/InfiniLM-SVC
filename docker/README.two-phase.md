@@ -78,13 +78,9 @@ Builds from local sources (no network needed):
 
 There are two Dockerfiles for phased builds:
 
-1. **`Dockerfile.build`**: For building Phase 1 only or both phases together
-   - Defines both `deps` and `build` stages
-   - Use for: `docker build --target deps` or `docker build --target build` (full build)
-
-2. **`Dockerfile.build-only`**: For building Phase 2 separately using an existing deps image
+1. **`Dockerfile.build`**: For building Phase 2 separately using an existing deps image
    - Only defines the `build` stage
-   - Use for: `docker build -f docker/Dockerfile.build-only --target build` with `--build-arg DEPS_IMAGE=infinilm-svc:deps`
+   - Use for: `docker build -f docker/Dockerfile.build` with `--build-arg DEPS_IMAGE=infinilm-svc:deps`
    - Prevents Docker from rebuilding Phase 1 dependencies
 
 ### Build Phase 1 Only
@@ -99,15 +95,11 @@ This image contains all dependencies and cached Rust crates. You can commit this
 
 ### Build Phase 2 from Cached Phase 1
 
-**IMPORTANT**: When building Phase 2 separately, you must use `Dockerfile.build-only` instead of `Dockerfile.build`.
-
-**Why?** `Dockerfile.build` defines both `deps` and `build` stages. Even when using `--target build` with `--build-arg DEPS_IMAGE=infinilm-svc:deps`, Docker will still evaluate and potentially rebuild the `deps` stage. `Dockerfile.build-only` only defines the `build` stage, so it uses the provided `DEPS_IMAGE` directly without rebuilding Phase 1.
-
 Build Phase 2 using the cached Phase 1 image:
 
 ```bash
-# Use the build-only Dockerfile for Phase 2
-docker build -f docker/Dockerfile.build-only \
+# Use Dockerfile.build for Phase 2
+docker build -f docker/Dockerfile.build \
     --target build \
     --build-arg DEPS_IMAGE=infinilm-svc:deps \
     --build-arg DEPLOYMENT_CASE=my-case \

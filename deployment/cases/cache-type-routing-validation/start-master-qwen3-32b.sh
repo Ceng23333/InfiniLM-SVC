@@ -60,12 +60,12 @@ echo "Model paths:"
 echo "  QWEN3_32B_DIR: ${QWEN3_32B_DIR}"
 echo ""
 if [ -n "${INFINILM_DIR}" ]; then
-  echo "INFINILM_DIR: ${INFINILM_DIR} (will mount to /workspace/InfiniLM)"
+  echo "INFINILM_DIR: ${INFINILM_DIR} (will mount to /workspace/InfiniLM and /InfiniLM)"
 else
   echo "INFINILM_DIR: not set (using /workspace/InfiniLM in container)"
 fi
 if [ -n "${INFINICORE_DIR}" ]; then
-  echo "INFINICORE_DIR: ${INFINICORE_DIR} (will mount to /workspace/InfiniCore)"
+  echo "INFINICORE_DIR: ${INFINICORE_DIR} (will mount to /workspace/InfiniCore and /InfiniCore)"
 else
   echo "INFINICORE_DIR: not set (using /workspace/InfiniCore in container)"
 fi
@@ -118,10 +118,12 @@ DOCKER_ARGS+=(-v "${CONFIG_DIR}:/app/config:ro")
 
 if [ -n "${INFINILM_DIR}" ] && [ -d "${INFINILM_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINILM_DIR}:/workspace/InfiniLM:ro")
+  DOCKER_ARGS+=(-v "${INFINILM_DIR}:/InfiniLM:ro")
 fi
 
 if [ -n "${INFINICORE_DIR}" ] && [ -d "${INFINICORE_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINICORE_DIR}:/workspace/InfiniCore:ro")
+  DOCKER_ARGS+=(-v "${INFINICORE_DIR}:/InfiniCore:ro")
 fi
 
 DOCKER_ARGS+=(

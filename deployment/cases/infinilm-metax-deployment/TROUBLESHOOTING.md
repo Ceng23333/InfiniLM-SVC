@@ -158,7 +158,7 @@ This is typically a non-critical issue. If models are responding, the deployment
 
 1. **Set proxy for Docker build**:
    ```bash
-   ./build-image.sh --proxy http://127.0.0.1:7890
+   ../../docker/metax/build-image.sh --proxy http://127.0.0.1:7890 --deployment-case infinilm-metax-deployment
    ```
 
 2. **Use host network for localhost proxy**:
@@ -189,22 +189,14 @@ These are set as environment variables in the container.
 
 ### Solutions
 
-1. **Use BuildKit cache mounts** (Docker 19.03+):
-   ```bash
-   DOCKER_BUILDKIT=1 docker build \
-     --mount=type=cache,target=/root/.cargo \
-     --mount=type=cache,target=/root/.cache/pip \
-     -f Dockerfile.gpu-factory -t infinilm-svc:demo .
-   ```
-
-2. **Cache directories prepared**:
+1. **Cache directories prepared** (BuildKit is disabled in this project):
    Cache directories are created at `~/.docker-build-cache/infinilm-svc/`:
    - `cargo/`: Rust crate cache
    - `pip/`: Python package cache
    - `cache/`: General cache
    - `tmp/`: Temporary files
 
-3. **For Docker 18.09**: Cache directories are prepared but require manual management or BuildKit upgrade.
+2. **Cache management**: Cache directories are prepared but require manual management.
 
 ### Performance Tips
 
@@ -219,7 +211,7 @@ These are set as environment variables in the container.
 
 - [InfiniCore README](https://github.com/InfiniTensor/InfiniCore)
 - [InfiniLM README](https://github.com/InfiniTensor/InfiniLM)
-- [Docker BuildKit Documentation](https://docs.docker.com/build/buildkit/)
+- Note: BuildKit is disabled in this project. All builds use the legacy Docker builder.
 
 ---
 
