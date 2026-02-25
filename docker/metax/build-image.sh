@@ -606,7 +606,6 @@ if [ "${BUILD_PHASE}" = "build" ] || [ "${BUILD_PHASE}" = "all" ]; then
         # Trailing slashes mean: copy contents of source into dest
         if command -v rsync >/dev/null 2>&1; then
             rsync -a --delete \
-                --exclude='.git' \
                 --exclude='.xmake' \
                 --exclude='build' \
                 --exclude='target' \

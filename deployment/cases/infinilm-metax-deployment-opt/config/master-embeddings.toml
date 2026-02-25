@@ -1,0 +1,27 @@
+# Master - Embeddings Server
+# Manages the embeddings/reranking server via babysitter
+
+name = "master-embeddings"
+host = "0.0.0.0"
+port = 20002
+
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+# Backend: Embeddings server (Flask)
+[backend]
+type = "command"
+command = "/opt/conda/bin/python"
+args = ["/app/embeddings_server.py"]
+work_dir = "/app"
+
+[backend.env]
+PATH = "/opt/conda/bin:/root/.infini/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
+INFINI_ROOT = "/root/.infini"
+LD_LIBRARY_PATH = "/opt/conda/lib:/root/.infini/lib:/opt/hpcc/lib:/opt/hpcc/htgpu_llvm/lib:/opt/hpcc/ompi/lib"
