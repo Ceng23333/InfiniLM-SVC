@@ -1,0 +1,13 @@
+# Python dependencies for embedding server
+# Required by embeddings_server.py (used when EMBEDDING_MODEL_DIR is set)
+
+# Web framework
+flask>=2.0.0
+blinker
+werkzeug
+itsdangerous
+
+# Transformers and ML libraries already installed in the base image
+# transformers>=4.30.0
+# torch>=2.0.0
+# numpy>=1.24.0

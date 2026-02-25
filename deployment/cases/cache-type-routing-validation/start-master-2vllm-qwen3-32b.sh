@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# Start Master: Registry, Router, and 2 vLLM instances for Qwen3-32B
+# vLLM runs under babysitter (native vLLM backend type)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REGISTRY_IP="${1:-localhost}"
+LOCALHOST_IP="${REGISTRY_IP}"
+
+# Load environment file if it exists (allows easy configuration)
+if [ -f "${SCRIPT_DIR}/.env" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/.env"
+fi
+
+# Load deployment case defaults (for LAUNCH_COMPONENTS)
+DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-cache-type-routing-validation}"
+if [ -f "${SCRIPT_DIR}/install.defaults.sh" ]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/install.defaults.sh"
+fi
+
+IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:infinilm-demo}"
+CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master-2vllm-qwen3-32b}"
+
+LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
+
+# Two vLLM instances (babysitter launches vLLM as child process)
+BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-vllm-qwen3-32b-1.toml vllm-qwen3-32b-2.toml}"
+
+REGISTRY_PORT="${REGISTRY_PORT:-18000}"
+ROUTER_PORT="${ROUTER_PORT:-8000}"
+
+INFINILM_DIR="${INFINILM_DIR:-}"
+INFINICORE_DIR="${INFINICORE_DIR:-}"
+CONFIG_DIR="${CONFIG_DIR:-${SCRIPT_DIR}/config}"
+
+# Qwen3-32B model path
+QWEN3_32B_DIR="${QWEN3_32B_DIR:-}"
+
+if [ -z "${QWEN3_32B_DIR}" ] || [ ! -d "${QWEN3_32B_DIR}" ]; then
+  echo "Error: QWEN3_32B_DIR must point to the Qwen3-32B model directory on this host."
+  echo "  Current value: QWEN3_32B_DIR=${QWEN3_32B_DIR}"
+  echo "  Example: export QWEN3_32B_DIR=/data-aisoft/zenghua/models/Qwen3-32B"
+  exit 1
+fi
+
+echo "=========================================="
+echo "Starting InfiniLM-SVC (2 vLLM Qwen3-32B)"
+echo "=========================================="
+echo "Registry IP: ${REGISTRY_IP}"
+echo "Image: ${IMAGE_NAME}"
+echo "Registry Port: ${REGISTRY_PORT}"
+echo "Router Port: ${ROUTER_PORT}"
+echo "Components: Registry, Router, vllm-qwen3-32b-1 (8400, GPUs 0-3), vllm-qwen3-32b-2 (8500, GPUs 4-7)"
+echo "Container: ${CONTAINER_NAME}"
+echo ""
+echo "Model paths:"
+echo "  QWEN3_32B_DIR: ${QWEN3_32B_DIR}"
+echo ""
+if [ -n "${INFINILM_DIR}" ]; then
+  echo "INFINILM_DIR: ${INFINILM_DIR} (will mount to /workspace/InfiniLM)"
+else
+  echo "INFINILM_DIR: not set (optional for vLLM-only)"
+fi
+if [ -n "${INFINICORE_DIR}" ]; then
+  echo "INFINICORE_DIR: ${INFINICORE_DIR} (will mount to /workspace/InfiniCore)"
+else
+  echo "INFINICORE_DIR: not set (optional for vLLM-only)"
+fi
+if [ "${CONFIG_DIR}" != "${SCRIPT_DIR}/config" ]; then
+  echo "CONFIG_DIR: ${CONFIG_DIR} (will mount to /app/config)"
+else
+  echo "CONFIG_DIR: using default ${CONFIG_DIR}"
+fi
+echo ""
+
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+  echo "Removing existing container ${CONTAINER_NAME} ..."
+  docker rm -f "${CONTAINER_NAME}" >/dev/null
+fi
+
+echo "🚀 Starting Docker container..."
+
+DOCKER_ARGS=(
+  -d
+  --network host
+  --uts host
+  --ipc host
+  --device /dev/dri
+  --device /dev/htcd
+  --device /dev/infiniband
+  --group-add video
+  --privileged=true
+  --security-opt apparmor=unconfined
+  --shm-size 100gb
+  --ulimit memlock=-1
+  --name "${CONTAINER_NAME}"
+  -e LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS}"
+  -e REGISTRY_PORT="${REGISTRY_PORT}"
+  -e ROUTER_PORT="${ROUTER_PORT}"
+  -e BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS}"
+  --entrypoint "/app/docker_entrypoint.sh"
+)
+
+if [ -n "${NO_PROXY:-}" ]; then
+  DOCKER_ARGS+=(-e "NO_PROXY=${NO_PROXY},localhost,127.0.0.1,0.0.0.0")
+  DOCKER_ARGS+=(-e "no_proxy=${NO_PROXY},localhost,127.0.0.1,0.0.0.0")
+else
+  DOCKER_ARGS+=(-e "NO_PROXY=localhost,127.0.0.1,0.0.0.0")
+  DOCKER_ARGS+=(-e "no_proxy=localhost,127.0.0.1,0.0.0.0")
+fi
+
+DOCKER_ARGS+=(-v "${CONFIG_DIR}:/app/config:ro")
+
+if [ -n "${INFINILM_DIR}" ] && [ -d "${INFINILM_DIR}" ]; then
+  DOCKER_ARGS+=(-v "${INFINILM_DIR}:/workspace/InfiniLM:ro")
+fi
+
+if [ -n "${INFINICORE_DIR}" ] && [ -d "${INFINICORE_DIR}" ]; then
+  DOCKER_ARGS+=(-v "${INFINICORE_DIR}:/workspace/InfiniCore:ro")
+fi
+
+DOCKER_ARGS+=(
+  -v "${QWEN3_32B_DIR}:/models/Qwen3-32B:ro"
+)
+
+DOCKER_ARGS+=("${IMAGE_NAME}")
+
+docker run "${DOCKER_ARGS[@]}"
+
+echo ""
+echo "✅ Container started: ${CONTAINER_NAME}"
+echo "Registry: http://${REGISTRY_IP}:${REGISTRY_PORT}"
+echo "Router:   http://${REGISTRY_IP}:${ROUTER_PORT}"
+echo ""
+echo "Instance 1 (vllm-qwen3-32b-1): port 8400, GPUs 0-3 (tp=4)"
+echo "Instance 2 (vllm-qwen3-32b-2): port 8500, GPUs 4-7 (tp=4)"
+echo ""
+echo "Validate with: ./validate-vllm.sh ${REGISTRY_IP}"
+echo "Logs: docker logs -f ${CONTAINER_NAME}"

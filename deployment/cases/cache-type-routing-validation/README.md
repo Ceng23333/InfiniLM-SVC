@@ -86,6 +86,21 @@ This script validates:
 - Instance health checks
 - Size-based routing (small vs large requests)
 
+### vLLM Instance Group (Alternative Deployment)
+
+To run 2 vLLM-backed instances instead of InfiniLM (paged/static):
+
+```bash
+export QWEN3_32B_DIR=/path/to/Qwen3-32B
+./start-master-2vllm-qwen3-32b.sh [REGISTRY_IP]
+```
+
+This deploys Registry, Router, and:
+- vllm-qwen3-32b-1 on port 8400 (GPUs 0-3)
+- vllm-qwen3-32b-2 on port 8500 (GPUs 4-7)
+
+vLLM runs under babysitter as a child process (native `type = "vllm"` backend). Validate with `./validate-vllm.sh [REGISTRY_IP]` after model loading completes (several minutes). Debug with `./check-container.sh 2vllm`.
+
 ## Running Benchmarks
 
 ### Generate Large Context Test Cases
@@ -176,14 +191,19 @@ cache-type-routing-validation/
 ├── README.md                          # This file
 ├── install.defaults.sh                # Deployment defaults
 ├── start-master.sh                    # Start script for both instances
+├── start-master-2vllm-qwen3-32b.sh    # Start script for 2 vLLM instances (8400, 8500)
 ├── validate.sh                        # Validation script
+├── validate-vllm.sh                   # Validation script for vLLM backend
+├── check-container.sh                 # Container status/logs (qwen3-32b|2paged|2vllm)
 ├── setup-vllm-env.sh                  # vLLM environment setup
 ├── bench-size-based-routing.sh        # Size-based routing benchmark
 ├── compare-cache-types.py             # Cache type comparison script
 ├── gen-large-context.py               # Test case generator
 ├── config/
 │   ├── paged-cache-9g_8b_thinking.toml    # Paged cache instance config (port 8100)
-│   └── static-cache-9g_8b_thinking.toml   # Static cache instance config (port 8200)
+│   ├── static-cache-9g_8b_thinking.toml   # Static cache instance config (port 8200)
+│   ├── vllm-qwen3-32b-1.toml             # vLLM instance 1 (port 8400)
+│   └── vllm-qwen3-32b-2.toml             # vLLM instance 2 (port 8500)
 └── results/                           # Benchmark results directory
 ```
 

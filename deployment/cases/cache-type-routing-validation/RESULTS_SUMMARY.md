@@ -164,14 +164,14 @@ This compares **cache-type-routing (size-based routing)** vs **2-paged round-rob
 
 #### 16KB context (16000 chars)
 
-| Metric | Size-Based Baseline (2026-02-10) | Size-Based issue/1004 (2026-02-24) | 2-Paged Baseline (2026-02-12) | 2-Paged issue/1004 (2026-02-24) |
-|--------|----------------------------------|-----------------------------------|-------------------------------|----------------------------------|
-| Mean TTFT | 4.90s | **2.56s** | 4.83s | **2.34s** |
-| P99 TTFT | 34.49s | **8.59s** | 13.16s | **5.72s** |
-| Mean TPOT | 206.2 ms | **183.3 ms** | 329.9 ms | **190.7 ms** |
-| Output Throughput | 16.03 tok/s | **19.29 tok/s** | 10.05 tok/s | **18.96 tok/s** |
-| Total Throughput | 67.55 tok/s | **81.30 tok/s** | 42.38 tok/s | **79.93 tok/s** |
-| Duration | 254.6s | **211.5s** | 405.8s | **215.2s** |
+| Metric | Size-Based Baseline (2026-02-10) | Size-Based issue/1004 (2026-02-24) | Size-Based issue/1004 (2026-02-25) | 2-Paged Baseline (2026-02-12) | 2-Paged issue/1004 (2026-02-24) | 2-Paged issue/1004 (2026-02-25) |
+|--------|----------------------------------|-----------------------------------|-----------------------------------|-------------------------------|----------------------------------|----------------------------------|
+| Mean TTFT | 4.90s | **2.56s** | 9.94s | 4.83s | **2.34s** | 2.73s |
+| P99 TTFT | 34.49s | **8.59s** | 57.81s | 13.16s | **5.72s** | 6.40s |
+| Mean TPOT | 206.2 ms | **183.3 ms** | 186.3 ms | 329.9 ms | **190.7 ms** | 206.3 ms |
+| Output Throughput | 16.03 tok/s | **19.29 tok/s** | 15.09 tok/s | 10.05 tok/s | **18.96 tok/s** | 17.70 tok/s |
+| Total Throughput | 67.55 tok/s | **81.30 tok/s** | 63.59 tok/s | 42.38 tok/s | **79.93 tok/s** | 74.59 tok/s |
+| Duration | 254.6s | **211.5s** | 270.4s | 405.8s | **215.2s** | 230.5s |
 
 **Takeaway (16KB)**:
 - **issue/1004 improves both strategies**: Both size-based and 2-paged show significant improvements with issue/1004
@@ -181,20 +181,22 @@ This compares **cache-type-routing (size-based routing)** vs **2-paged round-rob
 
 Result files:
 - Size-based baseline: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-160645.json`
-- Size-based issue/1004: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151202.json`
+- Size-based issue/1004 (0224): `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151202.json`
+- Size-based issue/1004 (0225): `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-213839.json`
 - 2-paged baseline: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-172158.json`
-- 2-paged issue/1004: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json`
+- 2-paged issue/1004 (0224): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json`
+- 2-paged issue/1004 (0225): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-214344.json`
 
 #### 65KB context (65536 chars)
 
-| Metric | Size-Based Baseline (2026-02-10) | Size-Based issue/1004 (2026-02-24) | 2-Paged Baseline (2026-02-12) | 2-Paged issue/1004 (2026-02-24) |
-|--------|----------------------------------|-----------------------------------|-------------------------------|----------------------------------|
-| Mean TTFT | **10.65s** | **2.92s** | 36.26s | 14.52s |
-| P99 TTFT | 63.19s | **8.62s** | 103.37s | **47.66s** |
-| Mean TPOT | **192.4 ms** | **193.5 ms** | 395.8 ms | 246.8 ms |
-| Output Throughput | **14.28 tok/s** | **18.38 tok/s** | 6.16 tok/s | 11.47 tok/s |
-| Total Throughput | **150.60 tok/s** | **193.88 tok/s** | 64.95 tok/s | 120.96 tok/s |
-| Duration | **285.8s** | **222.0s** | 662.6s | 355.8s |
+| Metric | Size-Based Baseline (2026-02-10) | Size-Based issue/1004 (2026-02-24) | Size-Based issue/1004 (2026-02-25) | 2-Paged Baseline (2026-02-12) | 2-Paged issue/1004 (2026-02-24) | 2-Paged issue/1004 (2026-02-25) |
+|--------|----------------------------------|-----------------------------------|-----------------------------------|-------------------------------|----------------------------------|----------------------------------|
+| Mean TTFT | **10.65s** | **2.92s** | 10.78s | 36.26s | 14.52s | 14.44s |
+| P99 TTFT | 63.19s | **8.62s** | 62.81s | 103.37s | **47.66s** | 49.19s |
+| Mean TPOT | **192.4 ms** | **193.5 ms** | 176.4 ms | 395.8 ms | 246.8 ms | 248.7 ms |
+| Output Throughput | **14.28 tok/s** | **18.38 tok/s** | 15.49 tok/s | 6.16 tok/s | 11.47 tok/s | 11.44 tok/s |
+| Total Throughput | **150.60 tok/s** | **193.88 tok/s** | 163.34 tok/s | 64.95 tok/s | 120.96 tok/s | 120.71 tok/s |
+| Duration | **285.8s** | **222.0s** | 263.5s | 662.6s | 355.8s | 356.5s |
 
 **Takeaway (65KB)**:
 - **Size-based issue/1004 dominates**: Best on mean TTFT (2.92s), throughput (193.88 tok/s), and duration (222.0s)
@@ -203,9 +205,80 @@ Result files:
 
 Result files:
 - Size-based baseline: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-164138.json`
-- Size-based issue/1004: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151603.json`
+- Size-based issue/1004 (0224): `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151603.json`
+- Size-based issue/1004 (0225): `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-214919.json`
 - 2-paged baseline: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-174121.json`
-- 2-paged issue/1004: `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json`
+- 2-paged issue/1004 (0224): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json`
+- 2-paged issue/1004 (0225): `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-215629.json`
+
+**Reproducibility note**: Both 0224 and 0225 use image `infinilm-svc:runtime-cache-type-routing-validation-issue1004`. 2-paged aligns well (65KB: ~0.2% diff). Size-based shows run-to-run variance (TTFT, throughput).
+
+### Bar Charts (All Groups)
+
+*Groups: SB-Baseline, SB-1004-0224, SB-1004-0225, 2P-Baseline, 2P-1004-0224, 2P-1004-0225, SB-218, 2P-218, **2vLLM***
+
+#### Mean TTFT (seconds, lower is better)
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+xychart-beta
+    title "Mean TTFT by Group (16KB vs 65KB context)"
+    x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
+    y-axis "Mean TTFT (s)" 0 --> 110
+    bar [4.9, 2.56, 9.94, 4.83, 2.34, 2.73, 9.9, 3.8, 1.0]
+    bar [10.65, 2.92, 10.78, 36.26, 14.52, 14.44, 9.32, 36.34, 1.63]
+```
+
+#### P99 TTFT (seconds, lower is better)
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+xychart-beta
+    title "P99 TTFT by Group (16KB vs 65KB context)"
+    x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
+    y-axis "P99 TTFT (s)" 0 --> 110
+    bar [34.49, 8.59, 57.81, 13.16, 5.72, 6.4, 60.78, 10.35, 1.4]
+    bar [63.19, 8.62, 62.81, 103.37, 47.66, 49.19, 58.4, 102.6, 4.0]
+```
+
+#### Mean TPOT (ms, lower is better)
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+xychart-beta
+    title "Mean TPOT by Group (16KB vs 65KB context)"
+    x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
+    y-axis "Mean TPOT (ms)" 0 --> 650
+    bar [206.2, 183.3, 186.3, 329.9, 190.7, 206.3, 182, 300.1, 621.9]
+    bar [192.4, 193.5, 176.4, 395.8, 246.8, 248.7, 178.7, 399.5, 599.8]
+```
+
+#### Output Throughput (tok/s, higher is better)
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+xychart-beta
+    title "Output Throughput by Group (16KB vs 65KB context)"
+    x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
+    y-axis "Output Throughput (tok/s)" 0 --> 25
+    bar [16.03, 19.29, 15.09, 10.05, 18.96, 17.7, 15.47, 11.62, 6.30]
+    bar [14.28, 18.38, 15.49, 6.16, 11.47, 11.44, 15.67, 6.14, 6.40]
+```
+
+**Legend:** First bar = 16KB context, Second bar = 65KB context
+
+**Group key:** SB-Base = Size-Based Baseline | SB-1004-24/25 = Size-Based issue/1004 (0224/0225) | 2P-Base = 2-Paged Baseline | 2P-1004-24/25 = 2-Paged issue/1004 | SB-218 / 2P-218 = issue/218 | **2vLLM** = raw vLLM (no InfiniCore)
+
+| Metric | SB-Base | SB-1004-24 | SB-1004-25 | 2P-Base | 2P-1004-24 | 2P-1004-25 | SB-218 | 2P-218 | 2vLLM |
+|--------|---------|------------|------------|---------|------------|------------|--------|--------|-------|
+| **Mean TTFT (s)** 16KB | 4.90 | 2.56 | 9.94 | 4.83 | 2.34 | 2.73 | 9.90 | 3.80 | **1.0** |
+| **Mean TTFT (s)** 65KB | 10.65 | 2.92 | 10.78 | 36.26 | 14.52 | 14.44 | 9.32 | 36.34 | **1.63** |
+| **P99 TTFT (s)** 16KB | 34.49 | 8.59 | 57.81 | 13.16 | 5.72 | 6.40 | 60.78 | 10.35 | **1.4** |
+| **P99 TTFT (s)** 65KB | 63.19 | 8.62 | 62.81 | 103.37 | 47.66 | 49.19 | 58.40 | 102.60 | **4.0** |
+| **Mean TPOT (ms)** 16KB | 206 | 183 | 186 | 330 | 191 | 206 | 182 | 300 | 622 |
+| **Mean TPOT (ms)** 65KB | 192 | 194 | 176 | 396 | 247 | 249 | 179 | 400 | 600 |
+| **Output (tok/s)** 16KB | 16.03 | 19.29 | 15.09 | 10.05 | 18.96 | 17.70 | 15.47 | 11.62 | 6.30 |
+| **Output (tok/s)** 65KB | 14.28 | 18.38 | 15.49 | 6.16 | 11.47 | 11.44 | 15.67 | 6.14 | 6.40 |
 
 ---
 
@@ -287,20 +360,22 @@ Very Large Contexts (≥65KB):    Size-Based Routing performs significantly bett
 
 ### 5. **Throughput Trends**
 
-| Metric | Size-Based Baseline | Size-Based issue/1004 | 2-Paged Baseline | 2-Paged issue/1004 | Best |
-|--------|---------------------|----------------------|------------------|-------------------|------|
-| **Output Throughput** (tok/s) | | | | | |
-| 16KB | 16.03 | **19.29** | 10.05 | 18.96 | **Size-Based issue/1004** |
-| 65KB | 14.28 | **18.38** | 6.16 | 11.47 | **Size-Based issue/1004** |
-| **Total Throughput** (tok/s) | | | | | |
-| 16KB | 67.55 | **81.30** | 42.38 | 79.93 | **Size-Based issue/1004** |
-| 65KB | 150.60 | **193.88** | 64.95 | 120.96 | **Size-Based issue/1004** |
+| Metric | Size-Based Baseline | Size-Based issue/1004 (0224) | Size-Based issue/1004 (0225) | 2-Paged Baseline | 2-Paged issue/1004 (0224) | 2-Paged issue/1004 (0225) | Best |
+|--------|---------------------|------------------------------|------------------------------|------------------|---------------------------|---------------------------|------|
+| **Output Throughput** (tok/s) | | | | | | | |
+| 16KB | 16.03 | **19.29** | 15.09 | 10.05 | **18.96** | 17.70 | **Size-Based 0224** |
+| 65KB | 14.28 | **18.38** | 15.49 | 6.16 | **11.47** | 11.44 | **Size-Based 0224** |
+| **Total Throughput** (tok/s) | | | | | | | |
+| 16KB | 67.55 | **81.30** | 63.59 | 42.38 | **79.93** | 74.59 | **Size-Based 0224** |
+| 65KB | 150.60 | **193.88** | 163.34 | 64.95 | 120.96 | 120.71 | **Size-Based 0224** |
 
 **Note**: This table uses:
 - **Size-based baseline**: `size-based-routing-...-20260210-160645.json` (16KB), `size-based-routing-...-20260210-164138.json` (65KB)
-- **Size-based issue/1004**: `size-based-routing-...-20260224-151202.json` (16KB), `size-based-routing-...-20260224-151603.json` (65KB)
+- **Size-based issue/1004 (0224)**: `size-based-routing-...-20260224-151202.json` (16KB), `size-based-routing-...-20260224-151603.json` (65KB)
+- **Size-based issue/1004 (0225)**: `size-based-routing-...-20260225-213839.json` (16KB), `size-based-routing-...-20260225-214919.json` (65KB)
 - **2-paged baseline**: `2paged-round-robin-...-20260212-172158.json` (16KB), `2paged-round-robin-...-20260212-174121.json` (65KB)
-- **2-paged issue/1004**: `2paged-round-robin-...-20260224-143528.json` (16KB), `2paged-round-robin-...-20260224-144142.json` (65KB)
+- **2-paged issue/1004 (0224)**: `2paged-round-robin-...-20260224-143528.json` (16KB), `2paged-round-robin-...-20260224-144142.json` (65KB)
+- **2-paged issue/1004 (0225)**: `2paged-round-robin-...-20260225-214344.json` (16KB), `2paged-round-robin-...-20260225-215629.json` (65KB)
 
 **Observations**: 
 - **issue/1004 improves both strategies**: Both size-based and 2-paged show significant throughput improvements with issue/1004
@@ -367,13 +442,142 @@ The **optimal strategy depends on the workload characteristics**, particularly t
 
 ---
 
+## Latest Results (2026-02-25) - issue/218-cache-type-fix
+
+**Image**: `infinilm-svc:runtime-cache-type-routing-validation-202602251235`  
+**InfiniLM**: issue/218-cache-type-fix (cherry-picked static kv cache support from 90035d9)
+
+### Size-Based vs 2-Paged Comparison
+
+#### 16KB context
+
+| Metric | Size-Based Routing | 2-Paged Round-Robin | Winner | Improvement |
+|--------|-------------------|---------------------|--------|-------------|
+| Mean TTFT | 9.90s | 3.80s | **2-Paged RR** | 61.6% faster |
+| Median TTFT | 2.43s | 2.79s | **Size-Based** | 12.9% faster |
+| P99 TTFT | 60.78s | 10.35s | **2-Paged RR** | 83.0% better |
+| Mean TPOT | 182.0 ms | 300.1 ms | **Size-Based** | 39.4% faster |
+| Output Throughput | 15.47 tok/s | 11.62 tok/s | **Size-Based** | 33.1% higher |
+| Total Throughput | 65.21 tok/s | 48.99 tok/s | **Size-Based** | 33.1% higher |
+| Duration | 263.7s | 351.0s | **Size-Based** | 24.9% faster |
+
+**Result Files**: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-205729.json` vs `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-210500.json`
+
+#### 65KB context
+
+| Metric | Size-Based Routing | 2-Paged Round-Robin | Winner | Improvement |
+|--------|-------------------|---------------------|--------|-------------|
+| Mean TTFT | 9.32s | 36.34s | **Size-Based** | 74.4% faster |
+| Median TTFT | 2.87s | 9.71s | **Size-Based** | 70.4% faster |
+| P99 TTFT | 58.40s | 102.60s | **Size-Based** | 43.1% better |
+| Mean TPOT | 178.7 ms | 399.5 ms | **Size-Based** | 55.3% faster |
+| Output Throughput | 15.67 tok/s | 6.14 tok/s | **Size-Based** | 155.2% higher |
+| Total Throughput | 165.31 tok/s | 64.77 tok/s | **Size-Based** | 155.2% higher |
+| Duration | 260.3s | 664.5s | **Size-Based** | 60.8% faster |
+
+**Result Files**: `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-211049.json` vs `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-212323.json`
+
+**Summary**: Size-based routing dominates at 65KB (all 7 metrics). At 16KB, 2-paged wins on TTFT (mean, P99) while size-based wins on TPOT, throughput, and duration.
+
+### Comparison: 2026-02-25 (issue/218) vs 2026-02-24 (issue/1004)
+
+**Note**: 2026-02-24 used InfiniCore from issue/1004 (optimizations). 2026-02-25 used InfiniLM issue/218-cache-type-fix with base InfiniCore (no issue/1004). The regression reflects the absence of issue/1004 InfiniCore optimizations.
+
+#### Size-Based Routing
+
+| Metric | 2026-02-24 (issue/1004) | 2026-02-25 (issue/218) | Δ | Regress/Improve |
+|--------|-------------------------|------------------------|---|-----------------|
+| **16KB context** | | | | |
+| Mean TTFT | 2.56s | 9.90s | +7.34s | ⬇️ 287% slower |
+| P99 TTFT | 8.59s | 60.78s | +52.2s | ⬇️ 608% worse |
+| Mean TPOT | 183.3 ms | 182.0 ms | -1.3 ms | ➖ ~same |
+| Output Throughput | 19.29 tok/s | 15.47 tok/s | -3.82 | ⬇️ 19.8% lower |
+| Total Throughput | 81.30 tok/s | 65.21 tok/s | -16.09 | ⬇️ 19.8% lower |
+| Duration | 211.5s | 263.7s | +52.2s | ⬇️ 24.7% slower |
+| **65KB context** | | | | |
+| Mean TTFT | 2.92s | 9.32s | +6.40s | ⬇️ 219% slower |
+| P99 TTFT | 8.62s | 58.40s | +49.8s | ⬇️ 577% worse |
+| Mean TPOT | 193.5 ms | 178.7 ms | -14.8 ms | ⬆️ 7.6% faster |
+| Output Throughput | 18.38 tok/s | 15.67 tok/s | -2.71 | ⬇️ 14.7% lower |
+| Total Throughput | 193.88 tok/s | 165.31 tok/s | -28.57 | ⬇️ 14.7% lower |
+| Duration | 222.0s | 260.3s | +38.3s | ⬇️ 17.2% slower |
+
+#### 2-Paged Round-Robin
+
+| Metric | 2026-02-24 (issue/1004) | 2026-02-25 (issue/218) | Δ | Regress/Improve |
+|--------|-------------------------|------------------------|---|-----------------|
+| **16KB context** | | | | |
+| Mean TTFT | 2.34s | 3.80s | +1.46s | ⬇️ 62% slower |
+| P99 TTFT | 5.72s | 10.35s | +4.63s | ⬇️ 81% worse |
+| Mean TPOT | 190.7 ms | 300.1 ms | +109.4 ms | ⬇️ 57% slower |
+| Output Throughput | 18.96 tok/s | 11.62 tok/s | -7.34 | ⬇️ 38.7% lower |
+| Total Throughput | 79.93 tok/s | 48.99 tok/s | -30.94 | ⬇️ 38.7% lower |
+| Duration | 215.2s | 351.0s | +135.8s | ⬇️ 63.1% slower |
+| **65KB context** | | | | |
+| Mean TTFT | 14.52s | 36.34s | +21.82s | ⬇️ 150% slower |
+| P99 TTFT | 47.66s | 102.60s | +54.94s | ⬇️ 115% worse |
+| Mean TPOT | 246.8 ms | 399.5 ms | +152.7 ms | ⬇️ 62% slower |
+| Output Throughput | 11.47 tok/s | 6.14 tok/s | -5.33 | ⬇️ 46.5% lower |
+| Total Throughput | 120.96 tok/s | 64.77 tok/s | -56.19 | ⬇️ 46.5% lower |
+| Duration | 355.8s | 664.5s | +308.7s | ⬇️ 86.7% slower |
+
+**Takeaway**: 2026-02-25 (issue/218) shows substantial regression vs 2026-02-24 (issue/1004) across both strategies. The main cause is the missing InfiniCore issue/1004 optimizations. To recover parity, rebuild with InfiniCore from issue/1004 alongside InfiniLM issue/218-cache-type-fix.
+
+---
+
+## 2vLLM Round-Robin (2026-02-25)
+
+**Deployment**: 2 standalone vLLM instances (round-robin via router), run under babysitter.  
+**Image**: `cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.11-torch2.4-py310-kylin2309a-arm64`  
+**Note**: 2vLLM uses raw vLLM (no InfiniCore/paged cache). 2-paged uses InfiniLM with optimizations.
+
+### 2vLLM 16KB vs 2-Paged issue/1004 16KB
+
+| Metric | 2vLLM (2026-02-25) | 2-Paged issue/1004 (2026-02-24) | Winner | Difference |
+|--------|--------------------|---------------------------------|--------|------------|
+| Mean TTFT | **1.0s** | 2.34s | **2vLLM** | 57% faster |
+| Median TTFT | **1.0s** | 1.40s | **2vLLM** | 29% faster |
+| P99 TTFT | **1.4s** | 5.72s | **2vLLM** | 75% better |
+| Mean TPOT | 621.9 ms | **190.7 ms** | **2-Paged** | 3.3× faster |
+| Output Throughput | 6.30 tok/s | **18.96 tok/s** | **2-Paged** | 3.0× higher |
+| Total Throughput | 26.47 tok/s | **79.93 tok/s** | **2-Paged** | 3.0× higher |
+| Duration | 650.1s | **215.2s** | **2-Paged** | 3.0× faster |
+
+**Result File**: `2vllm-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-193407.json`
+
+**Summary**: 2vLLM has **much lower TTFT** (1.0s vs 2.34s) but **~3× slower token generation** (TPOT 622ms vs 191ms). Overall throughput and duration favor 2-paged InfiniLM by ~3×. The difference is mainly from InfiniCore optimizations and paged cache in 2-paged; raw vLLM in 2vLLM shows faster first-token latency but slower per-token generation.
+
+### 2vLLM 65KB vs 2-Paged issue/1004 65KB
+
+| Metric | 2vLLM (2026-02-25) | 2-Paged issue/1004 (2026-02-24) | Winner | Difference |
+|--------|--------------------|---------------------------------|--------|------------|
+| Mean TTFT | **1.63s** | 14.52s | **2vLLM** | 88.8% faster |
+| Median TTFT | **1.26s** | 3.33s | **2vLLM** | 62% faster |
+| P99 TTFT | **4.00s** | 47.66s | **2vLLM** | 91.6% better |
+| Mean TPOT | 599.8 ms | **246.8 ms** | **2-Paged** | 2.4× faster |
+| Output Throughput | 6.40 tok/s | **11.47 tok/s** | **2-Paged** | 1.8× higher |
+| Total Throughput | 67.35 tok/s | **120.96 tok/s** | **2-Paged** | 1.8× higher |
+| Duration | 639.2s | **355.8s** | **2-Paged** | 1.8× faster |
+
+**Result File**: `2vllm-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-195236.json`
+
+**Summary**: 2vLLM has **much lower TTFT** at 65KB (1.63s vs 14.52s) but **~2.4× slower per-token generation** (TPOT 600ms vs 247ms). Overall throughput and duration favor 2-paged by ~1.8×. Same pattern as 16KB: 2vLLM excels at first-token latency; 2-paged excels at sustained generation.
+
+---
+
 ## Result Files Reference
 
 All result files are stored in `results/` directory:
 
 **Size-Based Routing**:
-- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-160645.json` (16KB context, optimized router) ⬆️
-- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-164138.json` (65KB context, optimized router, cold-start) ⬆️
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-160645.json` (16KB context, optimized router)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260210-164138.json` (65KB context, optimized router, cold-start)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151202.json` (16KB context, issue/1004)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260224-151603.json` (65KB context, issue/1004)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-213839.json` (16KB context, issue/1004 reproduction)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-214919.json` (65KB context, issue/1004 reproduction)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-205729.json` (16KB context, issue/218-cache-type-fix)
+- `size-based-routing-1.0qps-concurrency4-Qwen3-32B-20260225-211049.json` (65KB context, issue/218-cache-type-fix)
 
 **2-Paged Round-Robin** (Baseline):
 - `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260209-212640.json` (16KB context)
@@ -382,8 +586,18 @@ All result files are stored in `results/` directory:
 - `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260212-174121.json` (65KB context, baseline for issue/1004 comparison)
 
 **2-Paged Round-Robin** (issue/1004):
-- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json` (16KB context, issue/1004) ⬆️
-- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json` (65KB context, issue/1004) ⬆️
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-143528.json` (16KB context, issue/1004)
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260224-144142.json` (65KB context, issue/1004)
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-214344.json` (16KB context, issue/1004 reproduction)
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-215629.json` (65KB context, issue/1004 reproduction)
+
+**2-Paged Round-Robin** (issue/218-cache-type-fix):
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-210500.json` (16KB context, issue/218-cache-type-fix) ⬆️
+- `2paged-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-212323.json` (65KB context, issue/218-cache-type-fix) ⬆️
+
+**2vLLM Round-Robin** (standalone vLLM):
+- `2vllm-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-193407.json` (16KB context, 2026-02-25) ⬆️
+- `2vllm-round-robin-1.0qps-concurrency4-Qwen3-32B-20260225-195236.json` (65KB context, 2026-02-25) ⬆️
 
 ---
 
@@ -413,8 +627,9 @@ The router was optimized to use **targeted JSON deserialization** instead of par
 
 ---
 
-*Last Updated: 2026-02-24*  
+*Last Updated: 2026-02-25*  
 *Model: Qwen3-32B*  
 *Deployment: cache-type-routing-validation*  
 *Router: Optimized (targeted JSON parsing)*  
-*Latest Branch: issue/1004 (InfiniCore optimizations)*
+*Latest Run: issue/218-cache-type-fix (InfiniLM static kv cache support)*  
+*Previous: issue/1004 (InfiniCore optimizations)*

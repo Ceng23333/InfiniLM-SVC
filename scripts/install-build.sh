@@ -223,7 +223,12 @@ main() {
     # InfiniCore and InfiniLM should already be installed from Phase 1
     # If external source paths are provided, copy/mount them to override the Phase 1 repos
     # This allows using external repos instead of the ones cloned in Phase 1
-    if [ -n "${INFINICORE_SRC:-}" ] || [ -n "${INFINILM_SRC:-}" ]; then
+    # Save which were explicitly provided (before resolve_optional_repo_paths fills defaults)
+    local infinicore_src_explicit="${INFINICORE_SRC:-}"
+    local infinilm_src_explicit="${INFINILM_SRC:-}"
+    local saved_install_infinicore=""
+
+    if [ -n "${infinicore_src_explicit}" ] || [ -n "${infinilm_src_explicit}" ]; then
         echo -e "${BLUE}InfiniCore/InfiniLM external source paths provided - overriding Phase 1 repos...${NC}"
 
         # Resolve default paths to find where Phase 1 cloned the repos
@@ -292,21 +297,26 @@ main() {
         # Now install/rebuild using the overridden repos
         echo -e "${BLUE}Installing/rebuilding InfiniCore/InfiniLM with overridden repos...${NC}"
 
-        # Remove old InfiniCore libraries from Phase 1 to avoid linking against stale versions
-        # The old libraries may not have the new symbols (e.g., hcdnn/hcblas gemm) that the new source includes
-        if [ -n "${INFINICORE_SRC:-}" ] && [ -d "${INFINICORE_SRC}" ]; then
+        # Only remove InfiniCore libs and rebuild InfiniCore when --infinicore-src was explicitly provided.
+        # When only --infinilm-src is set, keep InfiniCore from deps image (no rebuild).
+        if [ -n "${infinicore_src_explicit}" ] && [ -n "${INFINICORE_SRC:-}" ] && [ -d "${INFINICORE_SRC}" ]; then
             echo -e "${BLUE}  Removing old InfiniCore libraries from /root/.infini/lib/ to force rebuild...${NC}"
             rm -f /root/.infini/lib/libinfiniop.so \
                   /root/.infini/lib/libinfinirt.so \
                   /root/.infini/lib/libinfiniccl.so \
                   /root/.infini/lib/libinfinicore_cpp_api.so 2>/dev/null || true
             echo -e "${GREEN}✓ Old InfiniCore libraries removed${NC}"
+        elif [ -z "${infinicore_src_explicit}" ] && [ -n "${infinilm_src_explicit}" ]; then
+            echo -e "${BLUE}  InfiniCore: Using from deps image (only InfiniLM source was provided)${NC}"
+            saved_install_infinicore="${INSTALL_INFINICORE:-}"
+            INSTALL_INFINICORE=false
         fi
 
         # Set INSTALL_PHASE to "build" to skip cloning (repos should exist from Phase 1 or override)
         INSTALL_PHASE=build
         install_infinicore_and_infinilm_optional
         unset INSTALL_PHASE
+        [ -n "${saved_install_infinicore}" ] && INSTALL_INFINICORE="${saved_install_infinicore}" || true
     else
         echo -e "${BLUE}InfiniCore/InfiniLM should be installed from Phase 1 - verifying...${NC}"
     fi

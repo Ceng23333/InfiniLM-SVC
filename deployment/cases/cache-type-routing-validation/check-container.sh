@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Quick check of container status and recent logs (for size-based or 2paged master).
-# Usage: ./check-container.sh [qwen3-32b|2paged]
-# With no arg, shows both containers (whichever exist).
+# Quick check of container status and recent logs (for size-based, 2paged, or 2vllm master).
+# Usage: ./check-container.sh [qwen3-32b|2paged|2vllm]
+# With no arg, shows both size-based and 2paged containers (whichever exist).
 
 set -euo pipefail
 
@@ -10,6 +10,7 @@ cd "${SCRIPT_DIR}"
 
 SIZE_BASED_CONTAINER="${SIZE_BASED_CONTAINER:-infinilm-svc-master-qwen3-32b}"
 PAGED_2_CONTAINER="${PAGED_2_CONTAINER:-infinilm-svc-master-2paged-qwen3-32b}"
+VLLM_2_CONTAINER="${VLLM_2_CONTAINER:-infinilm-svc-master-2vllm-qwen3-32b}"
 
 show_one() {
   local name="$1"
@@ -34,6 +35,9 @@ case "${1:-}" in
     ;;
   2paged|2paged-qwen3-32b)
     show_one "${PAGED_2_CONTAINER}"
+    ;;
+  2vllm|2vllm-qwen3-32b)
+    show_one "${VLLM_2_CONTAINER}"
     ;;
   *)
     show_one "${SIZE_BASED_CONTAINER}"

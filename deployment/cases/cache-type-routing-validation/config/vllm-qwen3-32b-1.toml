@@ -1,0 +1,30 @@
+# vLLM Instance 1 - Qwen3-32B model
+# Port 8400
+# Backend: vLLM (launched by babysitter)
+# Tensor Parallelism: 4 GPUs (0,1,2,3)
+
+name = "vllm-qwen3-32b-1"
+host = "0.0.0.0"
+port = 8400
+
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+# Backend: vLLM (native babysitter type)
+[backend]
+type = "vllm"
+model = "/models/Qwen3-32B"
+args = ["--tensor-parallel-size", "4", "--gpu-memory-utilization", "0.9"]
+
+[backend.env]
+CUDA_VISIBLE_DEVICES = "0,1,2,3"
+
+# Metadata for routing
+[metadata]
+backend_type = "vllm"
+static = true
