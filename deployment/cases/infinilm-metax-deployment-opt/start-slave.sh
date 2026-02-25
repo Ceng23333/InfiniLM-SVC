@@ -29,7 +29,7 @@ usage() {
   echo "Usage: $0 <MASTER_IP> <SLAVE_IP>"
   echo ""
   echo "Examples:"
-  echo "  $0 172.22.162.17 172.22.162.18"
+  echo "  $0 192.168.163.151 192.168.163.152"
 }
 
 if [ $# -lt 2 ]; then
@@ -74,7 +74,7 @@ echo ""
 
 # Check connection to master registry
 echo "Checking connection to Master registry..."
-if ! curl -s -f --connect-timeout 5 "http://${REGISTRY_IP}:${REGISTRY_PORT}/health" > /dev/null 2>&1; then
+if ! curl -s -f --connect-timeout 5 --noproxy "*" "http://${REGISTRY_IP}:${REGISTRY_PORT}/health" > /dev/null 2>&1; then
   echo "Error: Cannot reach Master registry at http://${REGISTRY_IP}:${REGISTRY_PORT}"
   exit 1
 fi
@@ -120,10 +120,10 @@ fi
 DOCKER_ARGS+=(-v "${CONFIG_DIR}:/app/config:ro")
 
 # Mount InfiniLM / InfiniCore if provided
-if [ -n "${INFINILM_DIR}" ] && [ -d "${INFINILM_DIR}" ]; then
+if [ -n "${INFINILM_DIR:-}" ] && [ -d "${INFINILM_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINILM_DIR}:/workspace/InfiniLM:ro")
 fi
-if [ -n "${INFINICORE_DIR}" ] && [ -d "${INFINICORE_DIR}" ]; then
+if [ -n "${INFINICORE_DIR:-}" ] && [ -d "${INFINICORE_DIR}" ]; then
   DOCKER_ARGS+=(-v "${INFINICORE_DIR}:/workspace/InfiniCore:ro")
 fi
 

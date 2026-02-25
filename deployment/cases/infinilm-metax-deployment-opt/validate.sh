@@ -8,8 +8,8 @@ usage() {
   echo "  $0 <REGISTRY_IP> [SLAVE_IP]"
   echo ""
   echo "Examples:"
-  echo "  $0 localhost"
-  echo "  $0 172.22.162.17 172.22.162.18"
+  echo "  $0 192.168.163.151"
+  echo "  $0 192.168.163.151 192.168.163.152"
 }
 
 if [ $# -lt 1 ]; then
@@ -51,7 +51,7 @@ check() {
   local url=$1
   local name=$2
   echo -n "  Checking ${name}... "
-  if curl -s -f --connect-timeout 3 "${url}" > /dev/null 2>&1; then
+  if curl -s -f --connect-timeout 3 --noproxy "*" "${url}" > /dev/null 2>&1; then
     echo -e "${GREEN}OK${NC}"
     PASSED=$((PASSED + 1))
     return 0
@@ -69,9 +69,9 @@ echo ""
 
 echo -e "${BLUE}[2] Service discovery${NC}"
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-  services_json="$(docker exec "${CONTAINER_NAME}" curl -s --noproxy "*" "http://127.0.0.1:${REGISTRY_PORT}/services" 2>/dev/null || curl -s "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
+  services_json="$(docker exec "${CONTAINER_NAME}" curl -s --noproxy "*" "http://127.0.0.1:${REGISTRY_PORT}/services" 2>/dev/null || curl -s --noproxy "*" "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
 else
-  services_json="$(curl -s "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
+  services_json="$(curl -s --noproxy "*" "${REGISTRY_URL}/services" 2>/dev/null || echo '{}')"
 fi
 service_count="$(echo "${services_json}" | grep -o '"name"' | wc -l || echo "0")"
 echo "  Found ${service_count} services"
@@ -91,7 +91,7 @@ done
 echo ""
 
 echo -e "${BLUE}[3] Model aggregation${NC}"
-models_json="$(curl -s "${ROUTER_URL}/models" 2>/dev/null || echo '{}')"
+models_json="$(curl -s --noproxy "*" "${ROUTER_URL}/models" 2>/dev/null || echo '{}')"
 model_ids="$(echo "${models_json}" | grep -o '"id":"[^"]*"' | sed 's/"id":"\([^"]*\)"/\1/' | tr '\n' ' ' || echo '')"
 if [ -z "${model_ids}" ] || [ "${model_ids}" = " " ]; then
   echo -e "  ${RED}No models found${NC}"
@@ -109,7 +109,7 @@ if [ -n "${model_ids}" ] && [ "${model_ids}" != " " ]; then
 fi
 echo "  Testing model: ${test_model}"
 request_data="{\"model\": \"${test_model}\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"stream\": false}"
-resp="$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" -H "Content-Type: application/json" -d "${request_data}" 2>/dev/null || echo '{}')"
+resp="$(curl -s -X POST --noproxy "*" "${ROUTER_URL}/v1/chat/completions" -H "Content-Type: application/json" -d "${request_data}" 2>/dev/null || echo '{}')"
 if echo "${resp}" | grep -q '"object"'; then
   echo -e "  ${GREEN}OK${NC} Router returned response"
 else

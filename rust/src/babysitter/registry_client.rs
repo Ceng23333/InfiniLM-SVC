@@ -40,7 +40,11 @@ impl BabysitterRegistryClient {
 
             // Send heartbeat for babysitter
             let service_name = self.state.config.service_name();
-            self.send_heartbeat(&service_name).await;
+            if self.send_heartbeat(&service_name).await {
+                // 404: registry lost our registration (e.g. master restarted) - re-register
+                info!("Registry returned 404 for babysitter, re-registering...");
+                self.register_babysitter().await;
+            }
 
             // Send heartbeat for managed service if registered
             let service_port = {
@@ -48,9 +52,13 @@ impl BabysitterRegistryClient {
                 *port
             };
 
-            if service_port.is_some() {
+            if let Some(port) = service_port {
                 let server_name = format!("{}-server", self.state.config.service_name());
-                self.send_heartbeat(&server_name).await;
+                if self.send_heartbeat(&server_name).await {
+                    // 404: registry lost our registration - re-register managed service
+                    info!("Registry returned 404 for managed service, re-registering...");
+                    self.do_register_managed_service(port).await;
+                }
             }
         }
     }
@@ -91,7 +99,7 @@ impl BabysitterRegistryClient {
     }
 
     async fn register_managed_service(&self) {
-        // Wait for service to be ready
+        // Wait for service to be ready and register
         loop {
             let service_port = {
                 let port = self.state.service_port.read().await;
@@ -103,76 +111,12 @@ impl BabysitterRegistryClient {
                 continue;
             }
 
-            // Fetch models from service
-            let models = self.fetch_models(service_port.unwrap()).await;
-
-            if models.is_empty() {
-                warn!("No models fetched from service, retrying registration...");
-                sleep(Duration::from_secs(2)).await;
-                continue;
+            let port = service_port.unwrap();
+            if self.do_register_managed_service(port).await {
+                break;
             }
 
-            // Register service
-            let service_name = self.state.config.service_name();
-
-            // Build base metadata
-            let mut metadata = json!({
-                "type": "openai-api",
-                "parent_service": service_name,
-                "babysitter": "enhanced",
-                "models": models.iter().map(|m| m.get("id").and_then(|v| v.as_str()).unwrap_or("")).collect::<Vec<_>>(),
-                "models_list": models
-            });
-
-            // Merge metadata from config file if available
-            if let Some(ref config_file) = self.state.config_file {
-                if let Some(metadata_obj) = metadata.as_object_mut() {
-                    let config_metadata = config_file.metadata_json();
-                    for (key, value) in config_metadata {
-                        metadata_obj.insert(key, value);
-                    }
-                }
-            }
-
-            let service_data = json!({
-                "name": format!("{}-server", service_name),
-                "host": self.state.config.host,
-                "hostname": self.state.config.host,
-                "port": service_port.unwrap(),
-                "url": format!("http://{}:{}", self.state.config.host, service_port.unwrap()),
-                "status": "running",
-                "metadata": metadata
-            });
-
-            match self
-                .client
-                .post(format!("{}/services", self.registry_url))
-                .json(&service_data)
-                .send()
-                .await
-            {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        info!(
-                            "✅ Managed service registered with registry ({} models)",
-                            models.len()
-                        );
-                        break;
-                    } else {
-                        let status_text = response.status().to_string();
-                        let body = response.text().await.unwrap_or_default();
-                        warn!(
-                            "Failed to register managed service: {} - {}",
-                            status_text, body
-                        );
-                    }
-                }
-                Err(e) => {
-                    error!("Error registering managed service: {}", e);
-                }
-            }
-
-            sleep(Duration::from_secs(2)).await; // Reduced from 5s to 2s
+            sleep(Duration::from_secs(2)).await;
         }
     }
 
@@ -252,7 +196,8 @@ impl BabysitterRegistryClient {
         vec![]
     }
 
-    async fn send_heartbeat(&self, service_name: &str) {
+    /// Send heartbeat. Returns true if 404 (service not in registry - re-registration needed).
+    async fn send_heartbeat(&self, service_name: &str) -> bool {
         match self
             .client
             .post(format!(
@@ -263,6 +208,14 @@ impl BabysitterRegistryClient {
             .await
         {
             Ok(response) => {
+                if response.status().as_u16() == 404 {
+                    warn!(
+                        "Heartbeat failed for {}: {} (registry may have restarted)",
+                        service_name,
+                        response.status()
+                    );
+                    return true;
+                }
                 if !response.status().is_success() {
                     warn!(
                         "Heartbeat failed for {}: {}",
@@ -270,9 +223,81 @@ impl BabysitterRegistryClient {
                         response.status()
                     );
                 }
+                false
             }
             Err(e) => {
                 warn!("Heartbeat error for {}: {}", service_name, e);
+                false
+            }
+        }
+    }
+
+    /// Register managed service at given port. Used for initial registration and re-registration after registry restart.
+    /// Returns true if registration succeeded.
+    async fn do_register_managed_service(&self, service_port: u16) -> bool {
+        let models = self.fetch_models(service_port).await;
+
+        if models.is_empty() {
+            warn!("No models fetched from service, cannot register");
+            return false;
+        }
+
+        let service_name = self.state.config.service_name();
+
+        let mut metadata = json!({
+            "type": "openai-api",
+            "parent_service": service_name,
+            "babysitter": "enhanced",
+            "models": models.iter().map(|m| m.get("id").and_then(|v| v.as_str()).unwrap_or("")).collect::<Vec<_>>(),
+            "models_list": models
+        });
+
+        if let Some(ref config_file) = self.state.config_file {
+            if let Some(metadata_obj) = metadata.as_object_mut() {
+                let config_metadata = config_file.metadata_json();
+                for (key, value) in config_metadata {
+                    metadata_obj.insert(key, value);
+                }
+            }
+        }
+
+        let service_data = json!({
+            "name": format!("{}-server", service_name),
+            "host": self.state.config.host,
+            "hostname": self.state.config.host,
+            "port": service_port,
+            "url": format!("http://{}:{}", self.state.config.host, service_port),
+            "status": "running",
+            "metadata": metadata
+        });
+
+        match self
+            .client
+            .post(format!("{}/services", self.registry_url))
+            .json(&service_data)
+            .send()
+            .await
+        {
+            Ok(response) => {
+                if response.status().is_success() {
+                    info!(
+                        "✅ Managed service registered with registry ({} models)",
+                        models.len()
+                    );
+                    true
+                } else {
+                    let status_text = response.status().to_string();
+                    let body = response.text().await.unwrap_or_default();
+                    warn!(
+                        "Failed to register managed service: {} - {}",
+                        status_text, body
+                    );
+                    false
+                }
+            }
+            Err(e) => {
+                error!("Error registering managed service: {}", e);
+                false
             }
         }
     }

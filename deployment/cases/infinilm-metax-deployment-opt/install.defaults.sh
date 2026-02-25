@@ -33,8 +33,8 @@ if [ "${INSTALL_INFINILM:-auto}" = "auto" ]; then
 fi
 
 # Default refs (override via CLI flags if needed)
-INFINICORE_BRANCH="${INFINICORE_BRANCH:-issue/951}"
-INFINILM_BRANCH="${INFINILM_BRANCH:-main}"
+INFINICORE_BRANCH="${INFINICORE_BRANCH:-issue/1004}"
+INFINILM_BRANCH="${INFINILM_BRANCH:-issue/218}"
 
 # InfiniCore must be configured for metax + ccl before building.
 # This matches the deployment requirement:

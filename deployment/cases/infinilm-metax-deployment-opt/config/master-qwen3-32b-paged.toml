@@ -1,7 +1,7 @@
 # Master (Server 1) - Qwen3-32B model with paged cache
 # Port 8200
 # Cache type: paged (for smaller, frequently changing contexts)
-# Tensor Parallelism: 4 GPUs (1,2,3,4) - GPU 0 used by 9g_8b_thinking
+# Tensor Parallelism: 4 GPUs (4,5,6,7) - GPU 0 used by 9g_8b_thinking; 1,2,3 occupied by other processes
 
 name = "master-qwen3-32b-paged"
 host = "0.0.0.0"
@@ -44,7 +44,7 @@ MACA_PATH = "/opt/hpcc"
 HPCC_PATH = "/opt/hpcc"
 C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
 XMAKE_ROOT = "y"
-HPCC_VISIBLE_DEVICES = "1,2,3,4"
+HPCC_VISIBLE_DEVICES = "4,5,6,7"
 
 # Metadata for routing (if size-based routing is used)
 [metadata]

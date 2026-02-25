@@ -83,6 +83,30 @@ export QWEN3_32B_DIR=/path/to/Qwen3-32B
 
 (Containers `infinilm-svc-master-opt` and `infinilm-svc-slave-opt` must be reachable from the host where you run `stop-all.sh`; otherwise stop/remove them manually on each host.)
 
+### Benchmark (reproduce cache-type-routing-validation workload)
+
+Run the same benchmark as cache-type-routing-validation (16KB and 65KB context) against the existing deployment:
+
+```bash
+export QWEN3_32B_DIR=/path/to/Qwen3-32B
+export VLLM_DIR=/path/to/vllm  # optional, defaults to /home/zenghua/repos/vllm
+
+# Default: 192.168.163.151:8000
+./run-benchmark.sh
+
+# Custom host/port
+ROUTER_HOST=10.0.0.1 ROUTER_PORT=8000 ./run-benchmark.sh
+```
+
+Results are saved to `results/metax-opt-*.json`. To compare with cache-type-routing-validation:
+
+```bash
+cd ../cache-type-routing-validation
+python compare-routing-strategies.py \
+  --size-based results/size-based-routing-*.json \
+  --2paged ../infinilm-metax-deployment-opt/results/metax-opt-*.json
+```
+
 ## Embedding server (optional)
 
 To enable the embedding service on the master:
