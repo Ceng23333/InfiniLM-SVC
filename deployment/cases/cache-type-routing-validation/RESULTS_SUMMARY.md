@@ -220,52 +220,52 @@ Result files:
 #### Mean TTFT (seconds, lower is better)
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333', 'xyChart': {'plotColorPalette': "#ea580c, #2563eb"}}}}%%
 xychart-beta
-    title "Mean TTFT by Group (16KB vs 65KB context)"
+    title "Mean TTFT by Group (65K=orange back, 16K=blue front)"
     x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
     y-axis "Mean TTFT (s)" 0 --> 110
-    bar [4.9, 2.56, 9.94, 4.83, 2.34, 2.73, 9.9, 3.8, 1.0]
     bar [10.65, 2.92, 10.78, 36.26, 14.52, 14.44, 9.32, 36.34, 1.63]
+    bar [4.9, 2.56, 9.94, 4.83, 2.34, 2.73, 9.9, 3.8, 1.0]
 ```
 
 #### P99 TTFT (seconds, lower is better)
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333', 'xyChart': {'plotColorPalette': "#ea580c, #2563eb"}}}}%%
 xychart-beta
-    title "P99 TTFT by Group (16KB vs 65KB context)"
+    title "P99 TTFT by Group (65K=orange back, 16K=blue front)"
     x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
     y-axis "P99 TTFT (s)" 0 --> 110
-    bar [34.49, 8.59, 57.81, 13.16, 5.72, 6.4, 60.78, 10.35, 1.4]
     bar [63.19, 8.62, 62.81, 103.37, 47.66, 49.19, 58.4, 102.6, 4.0]
+    bar [34.49, 8.59, 57.81, 13.16, 5.72, 6.4, 60.78, 10.35, 1.4]
 ```
 
 #### Mean TPOT (ms, lower is better)
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333', 'xyChart': {'plotColorPalette': "#ea580c, #2563eb"}}}}%%
 xychart-beta
-    title "Mean TPOT by Group (16KB vs 65KB context)"
+    title "Mean TPOT by Group (65K=orange back, 16K=blue front)"
     x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
     y-axis "Mean TPOT (ms)" 0 --> 650
-    bar [206.2, 183.3, 186.3, 329.9, 190.7, 206.3, 182, 300.1, 621.9]
     bar [192.4, 193.5, 176.4, 395.8, 246.8, 248.7, 178.7, 399.5, 599.8]
+    bar [206.2, 183.3, 186.3, 329.9, 190.7, 206.3, 182, 300.1, 621.9]
 ```
 
 #### Output Throughput (tok/s, higher is better)
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333'}}}%%
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333', 'xyChart': {'plotColorPalette': "#2563eb, #ea580c"}}}}%%
 xychart-beta
-    title "Output Throughput by Group (16KB vs 65KB context)"
+    title "Output Throughput by Group (16K=blue back, 65K=orange front)"
     x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
     y-axis "Output Throughput (tok/s)" 0 --> 25
     bar [16.03, 19.29, 15.09, 10.05, 18.96, 17.7, 15.47, 11.62, 6.30]
     bar [14.28, 18.38, 15.49, 6.16, 11.47, 11.44, 15.67, 6.14, 6.40]
 ```
 
-**Legend:** First bar = 16KB context, Second bar = 65KB context
+**Legend:** Each x-axis group has two bars: **16K** (blue) | **65K** (orange). TTFT/TPOT: 65K back, 16K front. Output Throughput: 16K back, 65K front.
 
 **Group key:** SB-Base = Size-Based Baseline | SB-1004-24/25 = Size-Based issue/1004 (0224/0225) | 2P-Base = 2-Paged Baseline | 2P-1004-24/25 = 2-Paged issue/1004 | SB-218 / 2P-218 = issue/218 | **2vLLM** = raw vLLM (no InfiniCore)
 
