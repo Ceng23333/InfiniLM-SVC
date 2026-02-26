@@ -17,6 +17,48 @@ All tests used:
 - **Request Rate**: 1.0 req/s
 - **Routing Threshold**: 10KB (for size-based routing)
 
+## Dataset Generator
+
+Benchmark datasets are produced by `gen-large-context.py`, which generates synthetic multi-turn chat prompts with configurable mix of small and large initial contexts. This models workloads where:
+- **Large-context conversations** (→ static cache in size-based routing): first user message is padded to `large_context_len` chars (~4 chars/token)
+- **Small-context conversations** (→ paged cache): first message uses `context_len_per_message` chars
+- **Message body size** drives routing to paged vs static cache instances
+
+### Parameters (from `reproduce-results.sh`)
+
+| Parameter | 16KB dataset | 65KB dataset |
+|-----------|--------------|--------------|
+| `--num-conversations` | 4 | 4 |
+| `--messages-per-conv` | 4 | 4 |
+| `--context-len` | 512 chars | 512 chars |
+| `--new-msg-len` | 64 chars | 64 chars |
+| `--num-large-context` | 1 | 1 |
+| `--large-context-len` | 16000 chars (~4k tokens) | 65536 chars (~16k tokens) |
+
+### Output format
+
+JSONL with one prompt per line. Each record includes:
+- `prompt`: full conversation text (for CustomDataset)
+- `messages`: list of `{role, content}` (for chat completions API)
+- `conversation_id`, `message_index`, `has_large_context`
+
+### Structure
+
+- 4 conversations × 4 messages → **16 requests**
+- 1 conversation uses large initial context (4 requests with large body)
+- 3 conversations use small context (12 requests with small body)
+- Conversations are shuffled to simulate interleaved traffic; message order within each conversation is preserved
+
+### Generation command (example)
+
+```bash
+python gen-large-context.py \
+  --output large_context_16000.jsonl \
+  --num-conversations 4 --messages-per-conv 4 \
+  --context-len 512 --new-msg-len 64 \
+  --num-large-context 1 --large-context-len 16000
+```
+
 ## Results by Context Size
 
 ### Test 2: Large Context = 16KB (16000 chars, ~4000 tokens)
