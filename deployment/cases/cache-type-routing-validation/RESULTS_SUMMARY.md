@@ -17,6 +17,8 @@ All tests used:
 - **Request Rate**: 1.0 req/s
 - **Routing Threshold**: 10KB (for size-based routing)
 
+**Metrics**: TTFT = Time to First Token | TPOT = Time Per Output Token | **ITL = Inter-Token Latency** (time between consecutive output tokens; captures generation smoothness) | Throughput = output tokens/s
+
 ## Dataset Generator
 
 Benchmark datasets are produced by `gen-large-context.py`, which generates synthetic multi-turn chat prompts with configurable mix of small and large initial contexts. This models workloads where:
@@ -295,6 +297,32 @@ xychart-beta
     bar [206.2, 183.3, 186.3, 329.9, 190.7, 206.3, 182, 300.1, 621.9]
 ```
 
+#### Mean ITL (ms, lower is better)
+
+*ITL = Inter-Token Latency: time between consecutive output tokens. Captures generation smoothness and scheduling gaps.*
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333', 'xyChart': {'plotColorPalette': "#ea580c, #2563eb"}}}}%%
+xychart-beta
+    title "Mean ITL by Group (65K=orange back, 16K=blue front)"
+    x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
+    y-axis "Mean ITL (ms)" 0 --> 650
+    bar [191.6, 192.7, 175.7, 394.3, 245.8, 247.7, 178, 398, 597.4]
+    bar [205.4, 182.6, 185.6, 328.6, 190, 205.5, 181.3, 298.9, 619.5]
+```
+
+#### P99 ITL (ms, lower is better)
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryTextColor': '#1a1a1a', 'titleColor': '#1a1a1a', 'lineColor': '#333', 'xyChart': {'plotColorPalette': "#ea580c, #2563eb"}}}}%%
+xychart-beta
+    title "P99 ITL by Group (65K=orange back, 16K=blue front)"
+    x-axis [SB-Base, SB-1004-24, SB-1004-25, 2P-Base, 2P-1004-24, 2P-1004-25, SB-218, 2P-218, 2vLLM]
+    y-axis "P99 ITL (ms)" 0 --> 6500
+    bar [1627, 1350, 1294, 6039, 2090, 1983, 1354, 4276, 703]
+    bar [1378, 1139, 1215, 2948, 1061, 1265, 1424, 1845, 721]
+```
+
 #### Output Throughput (tok/s, higher is better)
 
 ```mermaid
@@ -307,7 +335,7 @@ xychart-beta
     bar [14.28, 18.38, 15.49, 6.16, 11.47, 11.44, 15.67, 6.14, 6.40]
 ```
 
-**Legend:** Each x-axis group has two bars: **16K** (blue) | **65K** (orange). TTFT/TPOT: 65K back, 16K front. Output Throughput: 16K back, 65K front.
+**Legend:** Each x-axis group has two bars: **16K** (blue) | **65K** (orange). TTFT/TPOT/ITL: 65K back, 16K front. Output Throughput: 16K back, 65K front.
 
 **Group key:** SB-Base = Size-Based Baseline | SB-1004-24/25 = Size-Based issue/1004 (0224/0225) | 2P-Base = 2-Paged Baseline | 2P-1004-24/25 = 2-Paged issue/1004 | SB-218 / 2P-218 = issue/218 | **2vLLM** = raw vLLM (no InfiniCore)
 
@@ -321,6 +349,10 @@ xychart-beta
 | **Mean TPOT (ms)** 65KB | 192 | 194 | 176 | 396 | 247 | 249 | 179 | 400 | 600 |
 | **Output (tok/s)** 16KB | 16.03 | 19.29 | 15.09 | 10.05 | 18.96 | 17.70 | 15.47 | 11.62 | 6.30 |
 | **Output (tok/s)** 65KB | 14.28 | 18.38 | 15.49 | 6.16 | 11.47 | 11.44 | 15.67 | 6.14 | 6.40 |
+| **Mean ITL (ms)** 16KB | 205 | 183 | 186 | 329 | 190 | 206 | 181 | 299 | 620 |
+| **Mean ITL (ms)** 65KB | 192 | 193 | 176 | 394 | 246 | 248 | 178 | 398 | 597 |
+| **P99 ITL (ms)** 16KB | 1378 | 1139 | 1215 | 2948 | 1061 | 1265 | 1424 | 1845 | 721 |
+| **P99 ITL (ms)** 65KB | 1627 | 1350 | 1294 | 6039 | 2090 | 1983 | 1354 | 4276 | 703 |
 
 ---
 
