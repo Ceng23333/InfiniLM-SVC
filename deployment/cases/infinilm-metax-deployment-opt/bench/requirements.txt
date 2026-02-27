@@ -1,0 +1,5 @@
+# Dependencies for RAG benchmark dataset generator
+# Install: pip install -r requirements.txt
+# With proxy and Tsinghua mirror: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --proxy http://127.0.0.1:7890
+
+PyYAML>=6.0
