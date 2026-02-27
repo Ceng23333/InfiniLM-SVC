@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Slave: 2x Qwen3-32B static cache (InfiniLM Python backend) registering to Master
+# Start Slave: Optional presets - 4 static cache (2 GPU each) or 2 static + 1 vLLM, registering to Master
 # Deployment case: infinilm-metax-deployment-opt
 
 set -euo pipefail
@@ -28,8 +28,13 @@ LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-babysitter}"
 usage() {
   echo "Usage: $0 <MASTER_IP> <SLAVE_IP>"
   echo ""
+  echo "Slave presets (set SLAVE_PRESET in .env.slave or export):"
+  echo "  4static     - 4x static cache, 2 GPU each (ports 8200-8500) [default]"
+  echo "  2static1vllm - 2x static cache (2 GPU each) + 1x vLLM (4 GPU)"
+  echo ""
   echo "Examples:"
   echo "  $0 192.168.163.151 192.168.163.152"
+  echo "  SLAVE_PRESET=2static1vllm $0 192.168.163.151 192.168.163.152"
 }
 
 if [ $# -lt 2 ]; then
@@ -45,8 +50,22 @@ REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
 CONFIG_DIR="${CONFIG_DIR:-${SCRIPT_DIR}/config}"
 
-# Fixed configs: 2x Qwen3-32B static cache
-BABYSITTER_CONFIGS="slave-static-qwen3-32b.toml slave-static-qwen3-32b-2.toml"
+# Slave preset: 4static (default) or 2static1vllm
+SLAVE_PRESET="${SLAVE_PRESET:-4static}"
+case "${SLAVE_PRESET}" in
+  4static)
+    BABYSITTER_CONFIGS="slave-4static-1.toml slave-4static-2.toml slave-4static-3.toml slave-4static-4.toml"
+    PRESET_DESC="4x static cache (2 GPU each, ports 8200-8500)"
+    ;;
+  2static1vllm)
+    BABYSITTER_CONFIGS="slave-2static1vllm-static-1.toml slave-2static1vllm-static-2.toml slave-2static1vllm-vllm-1.toml"
+    PRESET_DESC="2x static (2 GPU each) + 1x vLLM (4 GPU)"
+    ;;
+  *)
+    echo "Error: SLAVE_PRESET must be '4static' or '2static1vllm' (got: ${SLAVE_PRESET})"
+    exit 1
+    ;;
+esac
 
 # Model path: MODEL2_GGUF or QWEN3_32B_DIR
 MODEL2_GGUF="${MODEL2_GGUF:-${QWEN3_32B_DIR:-}}"
@@ -66,7 +85,8 @@ echo "Slave IP: ${LOCALHOST_IP}"
 echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
 echo "Image: ${IMAGE_NAME}"
-echo "Components: slave-static-qwen3-32b, slave-static-qwen3-32b-2"
+echo "Preset: ${SLAVE_PRESET} (${PRESET_DESC})"
+echo "Components: ${BABYSITTER_CONFIGS}"
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model path: ${MODEL2_GGUF} (mounted to ${MODEL2_CONTAINER_PATH})"

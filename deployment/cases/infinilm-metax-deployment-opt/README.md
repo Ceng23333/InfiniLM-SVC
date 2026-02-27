@@ -11,8 +11,9 @@ Deployment case: **2 hosts (1 master, 1 slave)** using the latest **infinilm-dem
   - 1x 9g_8b_thinking model service (port 8100)
   - 1x Qwen3-32B model service with **paged** cache (port 8200)
 
-- **Slave (Server 2)**:
-  - 2x Qwen3-32B model services with **static** cache (ports 8200 and 8300)
+- **Slave (Server 2)** - optional presets:
+  - **Preset 4static** (default): 4x Qwen3-32B static cache, 2 GPU each (ports 8200-8500)
+  - **Preset 2static1vllm**: 2x Qwen3-32B static cache (2 GPU each) + 1x vLLM (4 GPU)
 
 ## Prerequisites
 
@@ -26,15 +27,41 @@ Deployment case: **2 hosts (1 master, 1 slave)** using the latest **infinilm-dem
 
 ## Port and GPU summary
 
+### Master (fixed)
+
 | Role   | Service               | Port  | GPUs (example)   |
 |--------|------------------------|-------|------------------|
 | Master | 9g_8b_thinking         | 8100  | 0                |
 | Master | Qwen3-32B paged        | 8200  | 1,2,3,4          |
 | Master | Embeddings             | 20002 | -                |
-| Slave  | Qwen3-32B static #1    | 8200  | 0,1,2,3          |
-| Slave  | Qwen3-32B static #2    | 8300  | 4,5,6,7          |
+
+### Slave Preset 1 (4static) - default
+
+| Role  | Service              | Port  | GPUs   |
+|-------|----------------------|-------|--------|
+| Slave | slave-4static-1      | 8200  | 0,1    |
+| Slave | slave-4static-2      | 8300  | 2,3    |
+| Slave | slave-4static-3      | 8400  | 4,5    |
+| Slave | slave-4static-4      | 8500  | 6,7    |
+
+### Slave Preset 2 (2static1vllm)
+
+| Role  | Service                        | Port  | GPUs      |
+|-------|--------------------------------|-------|-----------|
+| Slave | slave-2static1vllm-static-1    | 8200  | 0,1       |
+| Slave | slave-2static1vllm-static-2    | 8300  | 2,3       |
+| Slave | slave-2static1vllm-vllm-1      | 8400  | 4,5,6,7   |
 
 Registry: 18000; Router: 8000.
+
+## Load balancer (size-based routing)
+
+The router routes requests by message body size:
+
+- **Large requests** (bytes > `CACHE_TYPE_ROUTING_THRESHOLD`): forward to static cache and vLLM instances (`cache_type = "static"`)
+- **Small requests** (≤ threshold): forward to paged cache instance (`cache_type = "paged"`)
+
+Set `CACHE_TYPE_ROUTING_THRESHOLD` in `.env` on the master (default 51200 = 50KB). For RAG workloads with document-heavy prompts (e.g. jg_rag_benchmark), use a lower threshold such as 15000 so messages with docs route to static/vLLM.
 
 ## Quick start
 
@@ -62,17 +89,24 @@ cd deployment/cases/infinilm-metax-deployment-opt
 # Copy and edit env
 cp .env.slave.example .env.slave
 # Set QWEN3_32B_DIR (or MODEL2_GGUF) in .env.slave
+# Optionally set SLAVE_PRESET: 4static (default) or 2static1vllm
 
 export QWEN3_32B_DIR=/path/to/Qwen3-32B
 
+# Default: 4 static cache instances (2 GPU each)
 ./start-slave.sh <MASTER_IP> <SLAVE_IP>
+
+# Or use 2static1vllm preset: 2 static + 1 vLLM
+SLAVE_PRESET=2static1vllm ./start-slave.sh <MASTER_IP> <SLAVE_IP>
 ```
 
 ### Validate
 
 ```bash
 ./validate.sh <MASTER_IP>
-# With slave: ./validate.sh <MASTER_IP> <SLAVE_IP>
+# With slave (match SLAVE_PRESET used by start-slave.sh):
+./validate.sh <MASTER_IP> <SLAVE_IP>
+./validate.sh <MASTER_IP> <SLAVE_IP> 2static1vllm
 ```
 
 ### Stop all
