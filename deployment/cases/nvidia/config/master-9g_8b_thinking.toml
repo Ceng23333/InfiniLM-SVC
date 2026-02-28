@@ -1,0 +1,36 @@
+# Master - 9g_8b_thinking model (InfiniLM with --nvidia, NVIDIA CUDA)
+# Single instance for nvidia deployment case
+
+name = "master-9g_8b_thinking"
+host = "0.0.0.0"
+port = 8100
+
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+[backend]
+type = "command"
+command = "python3"
+args = [
+  "/workspace/InfiniLM/python/infinilm/server/inference_server.py",
+  "--nvidia",
+  "--model_path", "/models/9g_8b_thinking",
+  "--max_batch_size", "8",
+  "--tp", "1",
+  "--temperature", "1.0",
+  "--top_p", "0.8",
+  "--top_k", "1",
+  "--host", "0.0.0.0",
+  "--port", "8100",
+]
+work_dir = "/workspace/InfiniLM"
+
+[backend.env]
+PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONPATH = "/workspace/InfiniLM/python:/workspace/InfiniCore/python"
+CUDA_VISIBLE_DEVICES = "0"

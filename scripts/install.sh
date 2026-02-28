@@ -1290,10 +1290,13 @@ install_infinicore_and_infinilm_optional() {
         # Find requirements file for InfiniCore/InfiniLM dependencies
         local requirements_file=""
         # Check for requirements file in priority order:
-        # 1. Deployment case specific
-        # 2. docker/metax (reusable default for metax deployments)
-        # 3. Project root
-        if [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt" ]; then
+        # 1. docker/nvidia for nvidia deployment case
+        # 2. Deployment case specific (deployment/cases/<case>/)
+        # 3. docker/metax (reusable default for metax deployments)
+        # 4. Project root
+        if [ "${DEPLOYMENT_CASE:-}" = "nvidia" ] && [ -f "${PROJECT_ROOT}/docker/nvidia/requirements-infinicore-infinilm.txt" ]; then
+            requirements_file="${PROJECT_ROOT}/docker/nvidia/requirements-infinicore-infinilm.txt"
+        elif [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt" ]; then
             requirements_file="${PROJECT_ROOT}/deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt"
         elif [ -n "${DEPLOYMENT_CASE:-}" ] && [ -f "${SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt" ]; then
             requirements_file="${SCRIPT_DIR}/../deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt"
@@ -1309,6 +1312,9 @@ install_infinicore_and_infinilm_optional() {
         if [ -z "${requirements_file}" ] || [ ! -f "${requirements_file}" ]; then
             echo -e "${YELLOW}⚠ requirements-infinicore-infinilm.txt not found, skipping Python dependencies install${NC}"
             echo -e "${YELLOW}  Expected locations:${NC}"
+            if [ "${DEPLOYMENT_CASE:-}" = "nvidia" ]; then
+                echo -e "${YELLOW}    - docker/nvidia/requirements-infinicore-infinilm.txt${NC}"
+            fi
             if [ -n "${DEPLOYMENT_CASE:-}" ]; then
                 echo -e "${YELLOW}    - deployment/cases/${DEPLOYMENT_CASE}/requirements-infinicore-infinilm.txt${NC}"
             fi

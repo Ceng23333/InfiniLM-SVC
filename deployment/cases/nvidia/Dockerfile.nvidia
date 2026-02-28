@@ -1,0 +1,92 @@
+# Dockerfile for InfiniLM-SVC deployment on NVIDIA GPU
+# Builds InfiniLM-SVC on top of NVIDIA PyTorch base image
+#
+# Base image: nvcr.io/nvidia/pytorch:25.12-py3 (NVIDIA CUDA, standard PyTorch)
+#
+# This Dockerfile uses install.sh script to build and install InfiniLM-SVC
+# with InfiniCore (--nv-gpu) and InfiniLM for 9g_8b_thinking via --nvidia backend.
+
+# Base image: NVIDIA PyTorch with CUDA
+# Default can be overridden via --build-arg BASE_IMAGE
+ARG BASE_IMAGE=nvcr.io/nvidia/pytorch:25.12-py3
+# Proxy settings (optional, can be set via --build-arg for faster downloads)
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+ARG http_proxy=""
+ARG https_proxy=""
+ARG ALL_PROXY=""
+ARG all_proxy=""
+ARG NO_PROXY=""
+ARG no_proxy=""
+
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+
+# Set proxy environment variables if provided (for pip/conda/git during build)
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV ALL_PROXY=${ALL_PROXY}
+ENV all_proxy=${all_proxy}
+ENV NO_PROXY=${NO_PROXY}
+ENV no_proxy=${no_proxy}
+
+# Copy all project files (needed for install.sh to work)
+COPY . .
+
+# Use docker/nvidia/env-set.sh for NVIDIA-specific build environment
+RUN cp docker/nvidia/env-set.sh /app/env-set.sh
+
+# Set deployment case environment variable for install.sh
+ENV DEPLOYMENT_CASE=nvidia
+
+# Use the base conda environment from the base image
+ENV PATH="/opt/conda/bin:/usr/bin:/usr/local/bin:${PATH}"
+
+# Run install script to build and install InfiniLM-SVC with InfiniCore (--nv-gpu) and InfiniLM
+RUN mkdir -p /workspace && \
+    ./scripts/install.sh \
+    --install-path /usr/local/bin \
+    --deployment-case nvidia \
+    --install-infinicore true \
+    --install-infinilm true \
+    --infinicore-src /workspace/InfiniCore \
+    --infinilm-src /workspace/InfiniLM
+
+# Verify installation
+RUN which infini-registry && \
+    which infini-router && \
+    which infini-babysitter && \
+    infini-registry --help > /dev/null 2>&1 || true
+
+# Copy docker entrypoint script
+COPY docker/docker_entrypoint_rust.sh ./docker_entrypoint.sh
+
+# Make scripts executable
+RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+
+# Create necessary directories
+RUN mkdir -p logs config /workspace/models
+
+# Unset proxy environment variables at the end of build (runtime should not use proxy)
+ENV HTTP_PROXY=""
+ENV HTTPS_PROXY=""
+ENV http_proxy=""
+ENV https_proxy=""
+ENV ALL_PROXY=""
+ENV all_proxy=""
+ENV NO_PROXY="localhost,127.0.0.1,0.0.0.0"
+ENV no_proxy="localhost,127.0.0.1,0.0.0.0"
+
+WORKDIR /app
+
+ENTRYPOINT ["/bin/bash", "/app/docker_entrypoint.sh"]
+
+EXPOSE 18000 8000 20002
+
+LABEL maintainer="InfiniLM Team"
+LABEL description="InfiniLM-SVC: NVIDIA GPU deployment with registry, router, 9g_8b_thinking"
+LABEL deployment-case="nvidia"
+LABEL base-image="${BASE_IMAGE}"

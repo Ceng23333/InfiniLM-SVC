@@ -1,0 +1,19 @@
+# Python dependencies for InfiniCore and InfiniLM
+# These are required for building and running InfiniCore/InfiniLM Python packages
+# This file is reusable for metax deployments and can be overridden by deployment case-specific files
+
+# Common dependencies (required by both InfiniCore and InfiniLM)
+ml_dtypes>=0.5.0
+numpy>=1.24.0
+
+# InfiniLM-specific dependencies
+# Note: torch is typically provided by the base image (e.g. nvidia/pytorch)
+transformers>=4.40.0
+tokenizers>=0.19.0
+safetensors>=0.4.0
+tqdm>=4.65.0
+
+# Inference server (FastAPI)
+fastapi>=0.100.0
+uvicorn>=0.20.0
+janus>=2.0.0
