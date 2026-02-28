@@ -1,11 +1,11 @@
-# Slave (Server 2) - Qwen3-32B model with static cache (instance 2)
-# Port 8300
+# Slave Preset 2static - Qwen3-32B static cache instance 1
+# Port 8200, 4 GPUs (0,1,2,3)
 # Note: registry_url/router_url/host are overridden at runtime by start-slave.sh env:
 #   REGISTRY_URL, ROUTER_URL, BABYSITTER_HOST
 
-name = "slave-static-qwen3-32b-2"
+name = "slave-2static-1"
 host = "0.0.0.0"
-port = 8300
+port = 8200
 
 registry_url = "http://localhost:18000"
 router_url = "http://localhost:8000"
@@ -29,9 +29,9 @@ args = [
   "--top_p", "0.8",
   "--top_k", "1",
   "--host", "0.0.0.0",
-  "--port", "8300",
+  "--port", "8200",
   "--cache_type", "static",
-  "--max_cache_len", "16384",
+  "--max_cache_len", "32768",
 ]
 work_dir = "/workspace/InfiniLM"
 
@@ -45,9 +45,9 @@ MACA_PATH = "/opt/hpcc"
 HPCC_PATH = "/opt/hpcc"
 C_INCLUDE_PATH = "/opt/hpcc/include/hcr:/opt/hpcc/tools/cu-bridge/include"
 XMAKE_ROOT = "y"
-HPCC_VISIBLE_DEVICES = "4,5,6,7"
+HPCC_VISIBLE_DEVICES = "0,1,2,3"
 
-# Metadata for routing
+# Metadata for routing (large requests -> static)
 [metadata]
 cache_type = "static"
 static = true

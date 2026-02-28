@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Slave: Optional presets - 4 static cache (2 GPU each) or 2 static + 1 vLLM, registering to Master
+# Start Slave: Optional presets - 2 static (4 GPU each) or 1 static + 1 vLLM (4 GPU each), registering to Master
 # Deployment case: infinilm-metax-deployment-opt
 
 set -euo pipefail
@@ -29,12 +29,12 @@ usage() {
   echo "Usage: $0 <MASTER_IP> <SLAVE_IP>"
   echo ""
   echo "Slave presets (set SLAVE_PRESET in .env.slave or export):"
-  echo "  4static     - 4x static cache, 2 GPU each (ports 8200-8500) [default]"
-  echo "  2static1vllm - 2x static cache (2 GPU each) + 1x vLLM (4 GPU)"
+  echo "  2static     - 2x static cache, 4 GPU each (ports 8200, 8300) [default]"
+  echo "  1static1vllm - 1x static cache (4 GPU) + 1x vLLM (4 GPU)"
   echo ""
   echo "Examples:"
   echo "  $0 192.168.163.151 192.168.163.152"
-  echo "  SLAVE_PRESET=2static1vllm $0 192.168.163.151 192.168.163.152"
+  echo "  SLAVE_PRESET=1static1vllm $0 192.168.163.151 192.168.163.152"
 }
 
 if [ $# -lt 2 ]; then
@@ -50,19 +50,19 @@ REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
 CONFIG_DIR="${CONFIG_DIR:-${SCRIPT_DIR}/config}"
 
-# Slave preset: 4static (default) or 2static1vllm
-SLAVE_PRESET="${SLAVE_PRESET:-4static}"
+# Slave preset: 2static (default) or 1static1vllm
+SLAVE_PRESET="${SLAVE_PRESET:-2static}"
 case "${SLAVE_PRESET}" in
-  4static)
-    BABYSITTER_CONFIGS="slave-4static-1.toml slave-4static-2.toml slave-4static-3.toml slave-4static-4.toml"
-    PRESET_DESC="4x static cache (2 GPU each, ports 8200-8500)"
+  2static)
+    BABYSITTER_CONFIGS="slave-2static-1.toml slave-2static-2.toml"
+    PRESET_DESC="2x static cache (4 GPU each, ports 8200, 8300)"
     ;;
-  2static1vllm)
-    BABYSITTER_CONFIGS="slave-2static1vllm-static-1.toml slave-2static1vllm-static-2.toml slave-2static1vllm-vllm-1.toml"
-    PRESET_DESC="2x static (2 GPU each) + 1x vLLM (4 GPU)"
+  1static1vllm)
+    BABYSITTER_CONFIGS="slave-1static1vllm-static-1.toml slave-1static1vllm-vllm-1.toml"
+    PRESET_DESC="1x static (4 GPU) + 1x vLLM (4 GPU)"
     ;;
   *)
-    echo "Error: SLAVE_PRESET must be '4static' or '2static1vllm' (got: ${SLAVE_PRESET})"
+    echo "Error: SLAVE_PRESET must be '2static' or '1static1vllm' (got: ${SLAVE_PRESET})"
     exit 1
     ;;
 esac

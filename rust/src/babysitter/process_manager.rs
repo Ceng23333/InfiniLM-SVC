@@ -251,6 +251,11 @@ impl ProcessManager {
             .arg("--host")
             .arg(&self.state.config.host);
 
+        // Align model ID with InfiniLM (base name) so load balancer can route to both static and vLLM
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            cmd.arg("--served-model-name").arg(name);
+        }
+
         // Add optional vLLM arguments if provided
         if let Some(args_str) = &self.state.config.args {
             for arg in args_str.split_whitespace() {

@@ -7,12 +7,12 @@ usage() {
   echo "Usage:"
   echo "  $0 <REGISTRY_IP> [SLAVE_IP] [SLAVE_PRESET]"
   echo ""
-  echo "SLAVE_PRESET (when SLAVE_IP given): 4static (default) or 2static1vllm"
+  echo "SLAVE_PRESET (when SLAVE_IP given): 2static (default) or 1static1vllm"
   echo ""
   echo "Examples:"
   echo "  $0 192.168.163.151"
   echo "  $0 192.168.163.151 192.168.163.152"
-  echo "  $0 192.168.163.151 192.168.163.152 2static1vllm"
+  echo "  $0 192.168.163.151 192.168.163.152 1static1vllm"
 }
 
 if [ $# -lt 1 ]; then
@@ -22,7 +22,7 @@ fi
 
 REGISTRY_IP="${1:-localhost}"
 SLAVE_IP="${2:-}"
-SLAVE_PRESET="${3:-${SLAVE_PRESET:-4static}}"
+SLAVE_PRESET="${3:-${SLAVE_PRESET:-2static}}"
 
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
@@ -85,14 +85,14 @@ echo "  Found ${service_count} services"
 expected_services=("master-9g_8b_thinking-server" "master-qwen3-32b-paged-server")
 if [ -n "${SLAVE_IP}" ]; then
   case "${SLAVE_PRESET}" in
-    4static)
-      expected_services+=("slave-4static-1-server" "slave-4static-2-server" "slave-4static-3-server" "slave-4static-4-server")
+    2static)
+      expected_services+=("slave-2static-1-server" "slave-2static-2-server")
       ;;
-    2static1vllm)
-      expected_services+=("slave-2static1vllm-static-1-server" "slave-2static1vllm-static-2-server" "slave-2static1vllm-vllm-1-server")
+    1static1vllm)
+      expected_services+=("slave-1static1vllm-static-1-server" "slave-1static1vllm-vllm-1-server")
       ;;
     *)
-      echo "  Warning: Unknown SLAVE_PRESET '${SLAVE_PRESET}'; expecting 4static or 2static1vllm"
+      echo "  Warning: Unknown SLAVE_PRESET '${SLAVE_PRESET}'; expecting 2static or 1static1vllm"
       ;;
   esac
 fi
