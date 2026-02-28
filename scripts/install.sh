@@ -1492,7 +1492,7 @@ install_infinicore_and_infinilm_optional() {
                                 fi
                             fi
                             cd "${INFINICORE_SRC}" && bash -lc "${build_cmd}"
-                        ) || echo -e "${YELLOW}⚠ InfiniCore C++ build failed; continuing anyway.${NC}"
+                        ) || { echo -e "${RED}✗ InfiniCore C++ build failed${NC}"; return 1; }
                     else
                         # Fallback: build C++ targets directly if no build command specified
                         echo "No INFINICORE_BUILD_CMD specified, building C++ targets directly..."
@@ -1508,7 +1508,7 @@ install_infinicore_and_infinilm_optional() {
                                 xmake f -y -cv && \
                                 xmake -y && \
                                 xmake install -y
-                        ) || echo -e "${YELLOW}⚠ InfiniCore C++ build failed; continuing anyway.${NC}"
+                        ) || { echo -e "${RED}✗ InfiniCore C++ build failed${NC}"; return 1; }
                     fi
                 else
                     echo -e "${GREEN}✓ InfiniCore C++ libraries already built, skipping C++ build${NC}"
@@ -1550,19 +1550,15 @@ install_infinicore_and_infinilm_optional() {
                                 sed -i 's/run_cmd("xmake build/run_cmd("xmake build -y/g' "${INFINICORE_SRC}/scripts/install.py"
                                 sed -i 's/run_cmd("xmake install/run_cmd("xmake install -y/g' "${INFINICORE_SRC}/scripts/install.py"
                             fi
-                            bash -c "${INFINICORE_BUILD_CMD}" || echo -e "${YELLOW}  ⚠ C++ build command failed, continuing...${NC}"
+                            bash -c "${INFINICORE_BUILD_CMD}" || { echo -e "${RED}  ✗ C++ build command failed${NC}"; exit 1; }
                         fi
                         # Build and install _infinicore explicitly
                         echo "  Building _infinicore target..."
-                        xmake build -y _infinicore || {
-                            echo -e "${YELLOW}  ⚠ xmake build _infinicore failed, trying pip install...${NC}"
-                        }
+                        xmake build -y _infinicore || { echo -e "${RED}  ✗ xmake build _infinicore failed${NC}"; exit 1; }
                         # Install _infinicore to INFINI_ROOT
                         echo "  Installing _infinicore..."
-                        xmake install -y _infinicore || {
-                            echo -e "${YELLOW}  ⚠ xmake install _infinicore failed, trying pip install...${NC}"
-                        }
-                    ) || echo -e "${YELLOW}⚠ xmake build/install _infinicore failed, falling back to pip install${NC}"
+                        xmake install -y _infinicore || { echo -e "${RED}  ✗ xmake install _infinicore failed${NC}"; exit 1; }
+                    ) || { echo -e "${RED}✗ InfiniCore xmake build/install failed${NC}"; return 1; }
 
                     # Clean _infinicore target to force rebuild with correct Python version
                     if [ -d "${INFINICORE_SRC}/.xmake" ]; then
@@ -1585,12 +1581,12 @@ install_infinicore_and_infinilm_optional() {
                             infinicore_installed=true
                         fi
                     fi
-                    if [ "${infinicore_installed}" = "true" ]; then
-                        echo -e "${GREEN}✓ InfiniCore installed${NC}"
-                    else
-                        echo -e "${YELLOW}⚠ InfiniCore Python extension install failed${NC}"
+                    if [ "${infinicore_installed}" != "true" ]; then
+                        echo -e "${RED}✗ InfiniCore Python extension install failed${NC}"
+                        exit 1
                     fi
-                ) || echo -e "${YELLOW}⚠ InfiniCore Python extension install failed (likely missing toolchain/libs).${NC}"
+                    echo -e "${GREEN}✓ InfiniCore installed${NC}"
+                ) || return 1
             else
                 echo "Skipping InfiniCore Python extension build (INFINICORE_BUILD_PYTHON=${INFINICORE_BUILD_PYTHON})"
             fi
@@ -1708,15 +1704,11 @@ install_infinicore_and_infinilm_optional() {
                         # Ensure InfiniCore libraries are installed first (needed by _infinilm)
                         # Build and install _infinilm explicitly
                         echo "  Building _infinilm target..."
-                        xmake build -y _infinilm || {
-                            echo -e "${YELLOW}  ⚠ xmake build _infinilm failed, trying pip install...${NC}"
-                        }
+                        xmake build -y _infinilm || { echo -e "${RED}  ✗ xmake build _infinilm failed${NC}"; exit 1; }
                         # Install _infinilm to python/infinilm
                         echo "  Installing _infinilm..."
-                        xmake install -y _infinilm || {
-                            echo -e "${YELLOW}  ⚠ xmake install _infinilm failed, trying pip install...${NC}"
-                        }
-                    ) || echo -e "${YELLOW}⚠ xmake build/install _infinilm failed, falling back to pip install${NC}"
+                        xmake install -y _infinilm || { echo -e "${RED}  ✗ xmake install _infinilm failed${NC}"; exit 1; }
+                    ) || { echo -e "${RED}✗ InfiniLM xmake build/install failed${NC}"; return 1; }
 
                     # Install InfiniLM package (editable mode)
                     # Since _infinilm is already built by xmake, use --no-build-isolation to reduce nested installs.
@@ -1745,10 +1737,7 @@ install_infinicore_and_infinilm_optional() {
                             return 1
                         fi
                     fi
-                ) || {
-                    echo -e "${YELLOW}⚠ InfiniLM install failed (likely missing toolchain/libs).${NC}"
-                    echo -e "${YELLOW}  Note: InfiniLM may still work at runtime if PYTHONPATH includes /workspace/InfiniLM/python${NC}"
-                }
+                ) || return 1
             fi
         fi
     fi

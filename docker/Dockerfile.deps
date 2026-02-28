@@ -36,6 +36,7 @@ ARG ALL_PROXY
 ARG all_proxy
 ARG NO_PROXY
 ARG no_proxy
+ARG PIP_INDEX_URL
 
 # Export proxy variables for use in RUN commands
 ENV HTTP_PROXY="${HTTP_PROXY}"
@@ -46,6 +47,7 @@ ENV ALL_PROXY="${ALL_PROXY}"
 ENV all_proxy="${all_proxy}"
 ENV NO_PROXY="${NO_PROXY:-localhost,127.0.0.1,0.0.0.0}"
 ENV no_proxy="${no_proxy:-localhost,127.0.0.1,0.0.0.0}"
+ENV PIP_INDEX_URL="${PIP_INDEX_URL}"
 
 # Run Phase 1: Install dependencies (requires network/proxy)
 # This installs:
@@ -83,6 +85,19 @@ RUN if [ -f /app/env-set.sh ]; then \
     (which infini-registry || echo "Note: infini-registry will be built in Phase 2") && \
     (which infini-router || echo "Note: infini-router will be built in Phase 2") && \
     (which infini-babysitter || echo "Note: infini-babysitter will be built in Phase 2")
+
+# Copy deployment case specific files (for dep-runtime path)
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/embeddings_server.py" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/embeddings_server.py" ./embeddings_server.py; \
+    fi || true
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/env-set.sh" ./env-set.sh; \
+    elif [ -f "docker/metax/env-set.sh" ]; then \
+        cp "docker/metax/env-set.sh" ./env-set.sh; \
+    fi || true
+RUN if [ -n "${DEPLOYMENT_CASE}" ] && [ -f "deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt" ]; then \
+        cp "deployment/cases/${DEPLOYMENT_CASE}/requirements-embeddings.txt" ./requirements-embeddings.txt; \
+    fi || true
 
 # Labels
 LABEL maintainer="InfiniLM Team"

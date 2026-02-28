@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Build script for InfiniLM-SVC deployment image
 #
-# This script builds the InfiniLM-SVC deployment image using a phased approach:
-#   Phase 1: Install dependencies and cache Rust crates (can be cached/reused)
-#   Phase 2: Build from local sources (no network needed)
+# Two build paths:
+#   dep-runtime: deps (remote repos) + runtime FROM deps. Use when no local repo override.
+#   build-runtime: deps + build (optional local repos) + runtime FROM build. Use when --infinicore-src or --infinilm-src provided.
+#   runtime: Build runtime only FROM existing deps or build image (requires --deps-image).
 #
 # Usage:
 #   ./docker/metax/build-image.sh [OPTIONS]
@@ -11,37 +12,24 @@
 #   docker/metax/build-image.sh [OPTIONS]
 #
 # Options:
+#   --phase PHASE          dep-runtime|build-runtime|runtime (default: dep-runtime)
+#   --deps-image IMAGE     Use existing deps/build image (for build-runtime or runtime)
 #   --base-image IMAGE     GPU factory base image (default: see script)
 #   --tag TAG              Output image tag (default: infinilm-svc:infinilm-demo)
-#   --phase PHASE          deps|build|runtime|all (default: all)
-#                          deps: Build only Phase 1 (dependencies)
-#                          build: Build only Phase 2 (requires deps image)
-#                          runtime: Build runtime stage (requires build stage)
-#                          all: Build all phases including runtime (default)
-#   --deps-image IMAGE     Use existing deps image for Phase 2 (when --phase=build)
-#   --no-cache             Build without cache
-#   --debug                Use debug output (verbose)
-#   --progress TYPE        Docker build progress type (auto, plain, tty)
-#   --push                 Push image to registry after build
-#   --registry REGISTRY    Registry to push to (required if --push)
 #   --proxy PROXY          Set HTTP/HTTPS proxy (e.g., http://127.0.0.1:7890)
-#   --no-proxy NO_PROXY    Set NO_PROXY list (comma-separated)
-#   --infinicore-src PATH  Path to InfiniCore source (for Phase 2)
-#   --infinilm-src PATH    Path to InfiniLM source (for Phase 2)
+#   --infinicore-src PATH  Path to InfiniCore source (for build-runtime)
+#   --infinilm-src PATH    Path to InfiniLM source (for build-runtime)
 #   -h, --help             Show this help message
 #
 # Examples:
-#   # Build Phase 1 only (for caching dependencies)
-#   docker/metax/build-image.sh --phase deps --tag infinilm-svc:deps --deployment-case infinilm-metax-deployment
+#   # dep-runtime: deps + runtime (remote repos only)
+#   docker/metax/build-image.sh --phase dep-runtime --deployment-case infinilm-metax-deployment-opt
 #
-#   # Build Phase 2 using cached Phase 1
-#   docker/metax/build-image.sh --phase build --deps-image infinilm-svc:deps --deployment-case infinilm-metax-deployment
+#   # build-runtime: deps + build + runtime (with local repo override)
+#   docker/metax/build-image.sh --phase build-runtime --deps-image infinilm-svc:deps --infinilm-src /path/to/InfiniLM
 #
-#   # Build both phases (full build)
-#   docker/metax/build-image.sh --phase all --deployment-case infinilm-metax-deployment
-#
-#   # Build with custom base image
-#   docker/metax/build-image.sh --base-image your-registry/image:tag --deployment-case infinilm-metax-deployment
+#   # runtime only: build runtime FROM existing deps or build image
+#   docker/metax/build-image.sh --phase runtime --deps-image infinilm-svc:deps
 
 set -euo pipefail
 
@@ -53,8 +41,7 @@ DEFAULT_BASE_IMAGE="cr.metax-tech.com/public-ai-release-wb/x201/vllm:hpcc2.32.0.
 BASE_IMAGE="${BASE_IMAGE:-${DEFAULT_BASE_IMAGE}}"
 IMAGE_TAG="${IMAGE_TAG:-infinilm-svc:infinilm-demo}"
 DEPS_IMAGE_TAG="${DEPS_IMAGE_TAG:-infinilm-svc:deps}"
-BUILD_PHASE="${BUILD_PHASE:-all}"
-BUILD_RUNTIME="${BUILD_RUNTIME:-false}"
+BUILD_PHASE="${BUILD_PHASE:-dep-runtime}"
 RUNTIME_TAG="${RUNTIME_TAG:-}"
 DEPS_IMAGE="${DEPS_IMAGE:-}"
 NO_CACHE="${NO_CACHE:-false}"
@@ -77,58 +64,46 @@ usage() {
     cat <<EOF
 Build script for InfiniLM-SVC deployment image
 
+Two build paths:
+  dep-runtime:   deps (remote repos) + runtime FROM deps
+  build-runtime: deps + build (optional local repos) + runtime FROM build
+
 Usage:
   $0 [OPTIONS]
 
 Options:
-  --base-image IMAGE     GPU factory base image
-                         (default: ${DEFAULT_BASE_IMAGE})
-  --tag TAG              Output image tag
-                         (default: ${IMAGE_TAG})
-  --phase PHASE          deps|build|all (default: all)
-                         deps: Build only Phase 1 (dependencies)
-                         build: Build only Phase 2 (requires deps image)
-                         all: Build both phases (default)
-  --deps-image IMAGE     Use existing deps image for Phase 2
-                         (required when --phase=build)
-  --deps-tag TAG         Tag for Phase 1 deps image
-                         (default: ${DEPS_IMAGE_TAG})
+  --phase PHASE          dep-runtime|build-runtime|runtime (default: dep-runtime)
+  --deps-image IMAGE     Use existing deps/build image (for build-runtime or runtime)
+  --base-image IMAGE     GPU factory base image (default: ${DEFAULT_BASE_IMAGE})
+  --tag TAG              Output image tag (default: ${IMAGE_TAG})
+  --deps-tag TAG         Tag for deps image (default: ${DEPS_IMAGE_TAG})
   --no-cache             Build without using cache
   --debug                Use debug output (verbose)
   --progress TYPE        Docker build progress type (auto, plain, tty)
   --push                 Push image to registry after build
   --registry REGISTRY    Registry to push to (required if --push)
   --proxy PROXY          Set HTTP/HTTPS proxy (e.g., http://127.0.0.1:7890)
-                         Also checks HTTP_PROXY/HTTPS_PROXY environment variables
   --no-proxy NO_PROXY    Set NO_PROXY list (comma-separated)
-                         Also checks NO_PROXY environment variable
-  --infinicore-src PATH  Path to InfiniCore source (for Phase 2)
-  --infinilm-src PATH    Path to InfiniLM source (for Phase 2)
-  --infinilm-svc-src PATH Path to InfiniLM-SVC source (for Phase 2)
-  --deployment-case NAME Deployment case preset name
-                         (default: ${DEPLOYMENT_CASE})
+  --infinicore-src PATH  Path to InfiniCore source (for build-runtime)
+  --infinilm-src PATH    Path to InfiniLM source (for build-runtime)
+  --infinilm-svc-src PATH Path to InfiniLM-SVC source (for build-runtime)
+  --deployment-case NAME Deployment case preset name (default: ${DEPLOYMENT_CASE})
   -h, --help             Show this help message
 
 Examples:
-  # Build Phase 1 only (for caching dependencies)
-  $0 --phase deps --deps-tag infinilm-svc:deps
+  # dep-runtime: deps + runtime (remote repos only)
+  $0 --phase dep-runtime --deployment-case infinilm-metax-deployment-opt
 
-  # Build Phase 2 using cached Phase 1
-  $0 --phase build --deps-image infinilm-svc:deps
+  # build-runtime: deps + build + runtime (with local repo override)
+  $0 --phase build-runtime --deps-image infinilm-svc:deps --infinilm-src /path/to/InfiniLM
 
-  # Build both phases (full build)
-  $0 --phase all
-
-  # Build with custom base image
-  $0 --base-image your-registry/image:tag --phase all
-
-  # Build Phase 1 with deployment case
-  $0 --phase deps --deployment-case infinilm-metax-deployment
+  # runtime only: build runtime FROM existing deps or build image
+  $0 --phase runtime --deps-image infinilm-svc:deps
 
 Environment variables:
   BASE_IMAGE             Override base image (same as --base-image)
   IMAGE_TAG              Override image tag (same as --tag)
-  BUILD_PHASE             Override phase (same as --phase)
+  BUILD_PHASE            Override phase (same as --phase)
 EOF
 }
 
@@ -227,13 +202,13 @@ if [ "${PUSH_IMAGE}" = "true" ] && [ -z "${REGISTRY}" ]; then
     exit 1
 fi
 
-if [ "${BUILD_PHASE}" != "deps" ] && [ "${BUILD_PHASE}" != "build" ] && [ "${BUILD_PHASE}" != "runtime" ] && [ "${BUILD_PHASE}" != "all" ]; then
-    echo "Error: --phase must be one of: deps, build, runtime, all"
+if [ "${BUILD_PHASE}" != "dep-runtime" ] && [ "${BUILD_PHASE}" != "build-runtime" ] && [ "${BUILD_PHASE}" != "runtime" ]; then
+    echo "Error: --phase must be one of: dep-runtime, build-runtime, runtime"
     exit 1
 fi
 
-if [ "${BUILD_PHASE}" = "build" ] && [ -z "${DEPS_IMAGE}" ]; then
-    echo "Error: --deps-image is required when --phase=build"
+if [ "${BUILD_PHASE}" = "runtime" ] && [ -z "${DEPS_IMAGE}" ]; then
+    echo "Error: --deps-image is required when --phase=runtime"
     echo "  Example: --deps-image infinilm-svc:deps"
     exit 1
 fi
@@ -305,11 +280,14 @@ echo "Dockerfile: ${DOCKERFILE}"
 echo "Base image: ${BASE_IMAGE}"
 echo "Build phase: ${BUILD_PHASE}"
 echo "Deployment case: ${DEPLOYMENT_CASE}"
-if [ "${BUILD_PHASE}" = "build" ]; then
+if [ "${BUILD_PHASE}" = "build-runtime" ] && [ -n "${DEPS_IMAGE}" ]; then
     echo "Deps image: ${DEPS_IMAGE}"
 fi
+if [ "${BUILD_PHASE}" = "runtime" ]; then
+    echo "Source image (deps/build): ${DEPS_IMAGE}"
+fi
 echo "Output tag: ${IMAGE_TAG}"
-if [ "${BUILD_PHASE}" = "deps" ] || [ "${BUILD_PHASE}" = "all" ]; then
+if [ "${BUILD_PHASE}" = "dep-runtime" ] || ( [ "${BUILD_PHASE}" = "build-runtime" ] && [ -z "${DEPS_IMAGE}" ] ); then
     echo "Deps tag: ${DEPS_IMAGE_TAG}"
 fi
 echo "No cache: ${NO_CACHE}"
@@ -371,10 +349,12 @@ BUILD_ARGS+=(
 # Change to project root for build context
 cd "${PROJECT_ROOT}"
 
+# Track if we build deps (for push logic in build-runtime)
+DEPS_IMAGE_PROVIDED_BY_USER="${DEPS_IMAGE}"
+
 # Phase 1: Build deps image
-# Note: Dockerfile.build now only has build stage (renamed from build-only)
-# Phase 1 requires a Dockerfile with deps stage - check if it exists
-if [ "${BUILD_PHASE}" = "deps" ] || [ "${BUILD_PHASE}" = "all" ]; then
+# dep-runtime: always build Phase 1; build-runtime: build Phase 1 unless --deps-image provided
+if [ "${BUILD_PHASE}" = "dep-runtime" ] || ( [ "${BUILD_PHASE}" = "build-runtime" ] && [ -z "${DEPS_IMAGE}" ] ); then
     echo "=========================================="
     echo "Phase 1: Building Dependencies Image"
     echo "=========================================="
@@ -427,6 +407,10 @@ if [ "${BUILD_PHASE}" = "deps" ] || [ "${BUILD_PHASE}" = "all" ]; then
         PHASE1_ARGS+=(--build-arg "NO_PROXY=${NO_PROXY}")
         PHASE1_ARGS+=(--build-arg "no_proxy=${NO_PROXY}")
     fi
+    if [ -n "${PIP_INDEX_URL:-}" ]; then
+        PHASE1_ARGS+=(--build-arg "PIP_INDEX_URL=${PIP_INDEX_URL}")
+        echo "  Phase 1 will use PyPI index: ${PIP_INDEX_URL}"
+    fi
 
     # Add --network host if localhost proxy detected
     if [ "${USE_HOST_NETWORK}" = "true" ]; then
@@ -465,8 +449,8 @@ if [ "${BUILD_PHASE}" = "deps" ] || [ "${BUILD_PHASE}" = "all" ]; then
         echo "Phase 1 image information:"
         docker images "${DEPS_IMAGE_TAG}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
 
-        # Set DEPS_IMAGE for Phase 2 if building all phases
-        if [ "${BUILD_PHASE}" = "all" ]; then
+        # Set DEPS_IMAGE for Phase 2 when building build-runtime
+        if [ "${BUILD_PHASE}" = "build-runtime" ]; then
             DEPS_IMAGE="${DEPS_IMAGE_TAG}"
         fi
     else
@@ -476,8 +460,144 @@ if [ "${BUILD_PHASE}" = "deps" ] || [ "${BUILD_PHASE}" = "all" ]; then
     fi
 fi
 
-# Phase 2: Build from sources
-if [ "${BUILD_PHASE}" = "build" ] || [ "${BUILD_PHASE}" = "all" ]; then
+# dep-runtime path: Build runtime FROM deps (no Phase 2)
+if [ "${BUILD_PHASE}" = "dep-runtime" ]; then
+    echo ""
+    echo "=========================================="
+    echo "dep-runtime: Building Runtime Image FROM deps"
+    echo "=========================================="
+    echo ""
+
+    BUILD_TIMESTAMP="${BUILD_TIMESTAMP:-$(date -u +'%Y%m%d%H%M')}"
+    if [ -z "${RUNTIME_TAG}" ]; then
+        if [ -n "${DEFAULT_RUNTIME_TAG_FORMAT:-}" ]; then
+            RUNTIME_TAG="${DEFAULT_RUNTIME_TAG_FORMAT}-${BUILD_TIMESTAMP}"
+        elif [[ "${IMAGE_TAG}" == *":"* ]]; then
+            RUNTIME_REPO="${IMAGE_TAG%%:*}"
+            RUNTIME_TAG="${RUNTIME_REPO}:runtime-${BUILD_TIMESTAMP}"
+        else
+            RUNTIME_TAG="${IMAGE_TAG}-runtime-${BUILD_TIMESTAMP}"
+        fi
+    fi
+
+    RUNTIME_DOCKERFILE="${PROJECT_ROOT}/docker/Dockerfile.runtime"
+    if [ ! -f "${RUNTIME_DOCKERFILE}" ]; then
+        echo "Error: Runtime Dockerfile not found: ${RUNTIME_DOCKERFILE}"
+        exit 1
+    fi
+
+    RUNTIME_ARGS=(
+        -f "${RUNTIME_DOCKERFILE}"
+        --build-arg "BUILD_IMAGE=${DEPS_IMAGE_TAG}"
+        --build-arg "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}"
+        --build-arg "DEPLOYMENT_CASE=${DEPLOYMENT_CASE}"
+        --progress "${PROGRESS_TYPE:-auto}"
+    )
+    RUNTIME_ARGS+=(
+        --label "build.date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        --label "build.base-image=${BASE_IMAGE}"
+        --label "build.phase=dep-runtime"
+        --label "build.timestamp=${BUILD_TIMESTAMP}"
+    )
+    if [ -n "${DEPLOYMENT_CASE}" ]; then
+        RUNTIME_ARGS+=(--label "build.deployment-case=${DEPLOYMENT_CASE}")
+    fi
+    if [ "${NO_CACHE}" = "true" ]; then
+        RUNTIME_ARGS+=(--no-cache)
+    fi
+    RUNTIME_ARGS+=(-t "${RUNTIME_TAG}")
+
+    echo "Building runtime stage FROM deps..."
+    echo "  Using deps image: ${DEPS_IMAGE_TAG}"
+    echo "  Output tag: ${RUNTIME_TAG}"
+    echo ""
+
+    if DOCKER_BUILDKIT=0 docker build "${RUNTIME_ARGS[@]}" .; then
+        echo ""
+        echo "✅ dep-runtime: Runtime image built successfully: ${RUNTIME_TAG}"
+        docker images "${RUNTIME_TAG}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+        docker tag "${RUNTIME_TAG}" "${IMAGE_TAG}-runtime" 2>/dev/null || true
+        echo ""
+        echo "ℹ️  Runtime image also tagged as: ${IMAGE_TAG}-runtime"
+    else
+        echo ""
+        echo "❌ dep-runtime: Runtime build failed"
+        exit 1
+    fi
+fi
+
+# runtime-only: Build runtime FROM existing deps or build image
+if [ "${BUILD_PHASE}" = "runtime" ]; then
+    echo ""
+    echo "=========================================="
+    echo "runtime: Building Runtime Image FROM ${DEPS_IMAGE}"
+    echo "=========================================="
+    echo ""
+
+    if ! docker image inspect "${DEPS_IMAGE}" >/dev/null 2>&1; then
+        echo "Error: Source image not found: ${DEPS_IMAGE}"
+        exit 1
+    fi
+
+    BUILD_TIMESTAMP="${BUILD_TIMESTAMP:-$(date -u +'%Y%m%d%H%M')}"
+    if [ -z "${RUNTIME_TAG}" ]; then
+        if [ -n "${DEFAULT_RUNTIME_TAG_FORMAT:-}" ]; then
+            RUNTIME_TAG="${DEFAULT_RUNTIME_TAG_FORMAT}-${BUILD_TIMESTAMP}"
+        elif [[ "${IMAGE_TAG}" == *":"* ]]; then
+            RUNTIME_REPO="${IMAGE_TAG%%:*}"
+            RUNTIME_TAG="${RUNTIME_REPO}:runtime-${BUILD_TIMESTAMP}"
+        else
+            RUNTIME_TAG="${IMAGE_TAG}-runtime-${BUILD_TIMESTAMP}"
+        fi
+    fi
+
+    RUNTIME_DOCKERFILE="${PROJECT_ROOT}/docker/Dockerfile.runtime"
+    if [ ! -f "${RUNTIME_DOCKERFILE}" ]; then
+        echo "Error: Runtime Dockerfile not found: ${RUNTIME_DOCKERFILE}"
+        exit 1
+    fi
+
+    RUNTIME_ARGS=(
+        -f "${RUNTIME_DOCKERFILE}"
+        --build-arg "BUILD_IMAGE=${DEPS_IMAGE}"
+        --build-arg "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}"
+        --build-arg "DEPLOYMENT_CASE=${DEPLOYMENT_CASE}"
+        --progress "${PROGRESS_TYPE:-auto}"
+    )
+    RUNTIME_ARGS+=(
+        --label "build.date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        --label "build.base-image=${BASE_IMAGE}"
+        --label "build.phase=runtime"
+        --label "build.timestamp=${BUILD_TIMESTAMP}"
+    )
+    if [ -n "${DEPLOYMENT_CASE}" ]; then
+        RUNTIME_ARGS+=(--label "build.deployment-case=${DEPLOYMENT_CASE}")
+    fi
+    if [ "${NO_CACHE}" = "true" ]; then
+        RUNTIME_ARGS+=(--no-cache)
+    fi
+    RUNTIME_ARGS+=(-t "${RUNTIME_TAG}")
+
+    echo "Building runtime stage FROM ${DEPS_IMAGE}..."
+    echo "  Output tag: ${RUNTIME_TAG}"
+    echo ""
+
+    if DOCKER_BUILDKIT=0 docker build "${RUNTIME_ARGS[@]}" .; then
+        echo ""
+        echo "✅ runtime: Runtime image built successfully: ${RUNTIME_TAG}"
+        docker images "${RUNTIME_TAG}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+        docker tag "${RUNTIME_TAG}" "${IMAGE_TAG}-runtime" 2>/dev/null || true
+        echo ""
+        echo "ℹ️  Runtime image also tagged as: ${IMAGE_TAG}-runtime"
+    else
+        echo ""
+        echo "❌ runtime: Runtime build failed"
+        exit 1
+    fi
+fi
+
+# Phase 2: Build from sources (build-runtime path only)
+if [ "${BUILD_PHASE}" = "build-runtime" ]; then
     echo ""
     echo "=========================================="
     echo "Phase 2: Building from Sources"
@@ -824,7 +944,7 @@ if [ "${BUILD_PHASE}" = "build" ] || [ "${BUILD_PHASE}" = "all" ]; then
     RUNTIME_ARGS+=(
         --label "build.date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
         --label "build.base-image=${BASE_IMAGE}"
-        --label "build.phase=runtime"
+        --label "build.phase=build-runtime"
         --label "build.timestamp=${BUILD_TIMESTAMP}"
     )
     if [ -n "${DEPLOYMENT_CASE}" ]; then
@@ -839,7 +959,7 @@ if [ "${BUILD_PHASE}" = "build" ] || [ "${BUILD_PHASE}" = "all" ]; then
     # Add output tag
     RUNTIME_ARGS+=(-t "${RUNTIME_TAG}")
 
-    echo "Building runtime stage (for deployment)..."
+    echo "Building runtime stage FROM build (for deployment)..."
     echo "  Using build image: ${IMAGE_TAG}"
     echo "  Base image: ${BASE_IMAGE}"
     echo "  Timestamp: ${BUILD_TIMESTAMP}"
@@ -867,99 +987,6 @@ if [ "${BUILD_PHASE}" = "build" ] || [ "${BUILD_PHASE}" = "all" ]; then
     fi
 fi
 
-# Phase 3: Build runtime stage (standalone, when --phase=runtime)
-if [ "${BUILD_PHASE}" = "runtime" ]; then
-    echo ""
-    echo "=========================================="
-    echo "Phase 3: Building Runtime Image"
-    echo "=========================================="
-    echo ""
-
-    # Validate build image exists
-    BUILD_IMAGE_TAG="${IMAGE_TAG}"
-    if ! docker image inspect "${BUILD_IMAGE_TAG}" >/dev/null 2>&1; then
-        echo "Error: Build image not found: ${BUILD_IMAGE_TAG}"
-        echo "  Please build Phase 2 first or specify --deps-image and build all phases"
-        exit 1
-    fi
-
-    # Generate timestamp tag (default: minute precision)
-    BUILD_TIMESTAMP="${BUILD_TIMESTAMP:-$(date -u +'%Y%m%d%H%M')}"
-
-    # Generate runtime tag with timestamp
-    if [ -z "${RUNTIME_TAG}" ]; then
-        # Use DEFAULT_RUNTIME_TAG_FORMAT from install.defaults.sh if available
-        if [ -n "${DEFAULT_RUNTIME_TAG_FORMAT:-}" ]; then
-            # Append timestamp to the format: <format>-<timestamp>
-            RUNTIME_TAG="${DEFAULT_RUNTIME_TAG_FORMAT}-${BUILD_TIMESTAMP}"
-        # Otherwise, extract repository and base tag from IMAGE_TAG
-        elif [[ "${IMAGE_TAG}" == *":"* ]]; then
-            RUNTIME_REPO="${IMAGE_TAG%%:*}"
-            RUNTIME_TAG="${RUNTIME_REPO}:runtime-${BUILD_TIMESTAMP}"
-        else
-            RUNTIME_TAG="${IMAGE_TAG}-runtime-${BUILD_TIMESTAMP}"
-        fi
-    fi
-
-    # Build args for runtime stage
-    # Use the runtime Dockerfile to avoid rebuilding the build stage
-    # This directly uses the build image without re-evaluating build steps
-    RUNTIME_DOCKERFILE="${PROJECT_ROOT}/docker/Dockerfile.runtime"
-    if [ ! -f "${RUNTIME_DOCKERFILE}" ]; then
-        echo "Error: Runtime Dockerfile not found: ${RUNTIME_DOCKERFILE}"
-        exit 1
-    fi
-
-    RUNTIME_ARGS=(
-        -f "${RUNTIME_DOCKERFILE}"
-        --build-arg "BUILD_IMAGE=${BUILD_IMAGE_TAG}"
-        --build-arg "BUILD_TIMESTAMP=${BUILD_TIMESTAMP}"
-        --build-arg "DEPLOYMENT_CASE=${DEPLOYMENT_CASE}"
-        --progress "${PROGRESS_TYPE:-auto}"
-    )
-
-    # Add labels
-    RUNTIME_ARGS+=(
-        --label "build.date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-        --label "build.base-image=${BASE_IMAGE}"
-        --label "build.phase=runtime"
-        --label "build.timestamp=${BUILD_TIMESTAMP}"
-    )
-    if [ -n "${DEPLOYMENT_CASE}" ]; then
-        RUNTIME_ARGS+=(--label "build.deployment-case=${DEPLOYMENT_CASE}")
-    fi
-
-    # Add no-cache if requested
-    if [ "${NO_CACHE}" = "true" ]; then
-        RUNTIME_ARGS+=(--no-cache)
-    fi
-
-    # Add output tag
-    RUNTIME_ARGS+=(-t "${RUNTIME_TAG}")
-
-    echo "Building Phase 3 (runtime)..."
-    echo "  Using build image: ${BUILD_IMAGE_TAG}"
-    echo "  Base image: ${BASE_IMAGE}"
-    echo "  Timestamp: ${BUILD_TIMESTAMP}"
-    echo "  Output tag: ${RUNTIME_TAG}"
-    echo "Command: DOCKER_BUILDKIT=0 docker build ${RUNTIME_ARGS[*]} ."
-    echo ""
-
-    if DOCKER_BUILDKIT=0 docker build "${RUNTIME_ARGS[@]}" .; then
-        echo ""
-        echo "✅ Phase 3 (runtime) image built successfully: ${RUNTIME_TAG}"
-
-        # Show image info
-        echo ""
-        echo "Phase 3 (runtime) image information:"
-        docker images "${RUNTIME_TAG}" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
-    else
-        echo ""
-        echo "❌ Phase 3 (runtime) build failed"
-        exit 1
-    fi
-fi
-
 # Push if requested
 if [ "${PUSH_IMAGE}" = "true" ]; then
     echo ""
@@ -968,30 +995,52 @@ if [ "${PUSH_IMAGE}" = "true" ]; then
     echo "=========================================="
     echo ""
 
-    if [ "${BUILD_PHASE}" = "deps" ] || [ "${BUILD_PHASE}" = "all" ]; then
+    # dep-runtime: push deps and runtime (we built both)
+    if [ "${BUILD_PHASE}" = "dep-runtime" ]; then
         FULL_DEPS_TAG="${REGISTRY}/${DEPS_IMAGE_TAG}"
-        echo "Pushing Phase 1 image..."
+        echo "Pushing deps image..."
         docker tag "${DEPS_IMAGE_TAG}" "${FULL_DEPS_TAG}"
         if docker push "${FULL_DEPS_TAG}"; then
-            echo "✅ Phase 1 image pushed: ${FULL_DEPS_TAG}"
+            echo "✅ Deps image pushed: ${FULL_DEPS_TAG}"
         else
-            echo "❌ Failed to push Phase 1 image: ${FULL_DEPS_TAG}"
+            echo "❌ Failed to push deps image: ${FULL_DEPS_TAG}"
             exit 1
+        fi
+        if [ -n "${RUNTIME_TAG}" ]; then
+            FULL_RUNTIME_TAG="${REGISTRY}/${RUNTIME_TAG}"
+            echo "Pushing runtime (deployment) image..."
+            docker tag "${RUNTIME_TAG}" "${FULL_RUNTIME_TAG}"
+            if docker push "${FULL_RUNTIME_TAG}"; then
+                echo "✅ Runtime (deployment) image pushed: ${FULL_RUNTIME_TAG}"
+            else
+                echo "❌ Failed to push runtime (deployment) image: ${FULL_RUNTIME_TAG}"
+                exit 1
+            fi
         fi
     fi
 
-    if [ "${BUILD_PHASE}" = "build" ] || [ "${BUILD_PHASE}" = "all" ]; then
+    # build-runtime: push deps if we built it, build, and runtime
+    if [ "${BUILD_PHASE}" = "build-runtime" ]; then
+        if [ -z "${DEPS_IMAGE_PROVIDED_BY_USER}" ]; then
+            FULL_DEPS_TAG="${REGISTRY}/${DEPS_IMAGE_TAG}"
+            echo "Pushing deps image..."
+            docker tag "${DEPS_IMAGE_TAG}" "${FULL_DEPS_TAG}"
+            if docker push "${FULL_DEPS_TAG}"; then
+                echo "✅ Deps image pushed: ${FULL_DEPS_TAG}"
+            else
+                echo "❌ Failed to push deps image: ${FULL_DEPS_TAG}"
+                exit 1
+            fi
+        fi
         FULL_TAG="${REGISTRY}/${IMAGE_TAG}"
-        echo "Pushing Phase 2 (build) image..."
+        echo "Pushing build image..."
         docker tag "${IMAGE_TAG}" "${FULL_TAG}"
         if docker push "${FULL_TAG}"; then
-            echo "✅ Phase 2 (build) image pushed: ${FULL_TAG}"
+            echo "✅ Build image pushed: ${FULL_TAG}"
         else
-            echo "❌ Failed to push Phase 2 (build) image: ${FULL_TAG}"
+            echo "❌ Failed to push build image: ${FULL_TAG}"
             exit 1
         fi
-
-        # Push runtime image if it was built (runtime is built automatically with Phase 2)
         if [ -n "${RUNTIME_TAG}" ]; then
             FULL_RUNTIME_TAG="${REGISTRY}/${RUNTIME_TAG}"
             echo "Pushing runtime (deployment) image..."
@@ -1005,17 +1054,16 @@ if [ "${PUSH_IMAGE}" = "true" ]; then
         fi
     fi
 
-    if [ "${BUILD_PHASE}" = "runtime" ]; then
-        if [ -n "${RUNTIME_TAG}" ]; then
-            FULL_RUNTIME_TAG="${REGISTRY}/${RUNTIME_TAG}"
-            echo "Pushing runtime (deployment) image..."
-            docker tag "${RUNTIME_TAG}" "${FULL_RUNTIME_TAG}"
-            if docker push "${FULL_RUNTIME_TAG}"; then
-                echo "✅ Runtime (deployment) image pushed: ${FULL_RUNTIME_TAG}"
-            else
-                echo "❌ Failed to push runtime (deployment) image: ${FULL_RUNTIME_TAG}"
-                exit 1
-            fi
+    # runtime: push runtime image only
+    if [ "${BUILD_PHASE}" = "runtime" ] && [ -n "${RUNTIME_TAG}" ]; then
+        FULL_RUNTIME_TAG="${REGISTRY}/${RUNTIME_TAG}"
+        echo "Pushing runtime (deployment) image..."
+        docker tag "${RUNTIME_TAG}" "${FULL_RUNTIME_TAG}"
+        if docker push "${FULL_RUNTIME_TAG}"; then
+            echo "✅ Runtime (deployment) image pushed: ${FULL_RUNTIME_TAG}"
+        else
+            echo "❌ Failed to push runtime (deployment) image: ${FULL_RUNTIME_TAG}"
+            exit 1
         fi
     fi
 fi
@@ -1026,60 +1074,41 @@ echo "Build completed successfully!"
 echo "=========================================="
 echo ""
 
-if [ "${BUILD_PHASE}" = "deps" ]; then
-    echo "Phase 1 (deps) image: ${DEPS_IMAGE_TAG}"
+if [ "${BUILD_PHASE}" = "dep-runtime" ]; then
+    echo "dep-runtime: deps image ${DEPS_IMAGE_TAG}, runtime image ${RUNTIME_TAG}"
     echo ""
-    echo "To build Phase 2, run:"
-    echo "  $0 --phase build --deps-image ${DEPS_IMAGE_TAG}"
-elif [ "${BUILD_PHASE}" = "build" ]; then
-    echo "Phase 2 (build) image: ${IMAGE_TAG}"
-    if [ -n "${RUNTIME_TAG}" ]; then
-        echo "Runtime (deployment) image: ${RUNTIME_TAG}"
+    echo "To use the runtime image (recommended for deployment):"
+    echo "  export IMAGE_NAME=${RUNTIME_TAG}"
+    echo "  ./start-master.sh <MASTER_IP>"
+    echo ""
+    echo "Or use the convenience tag:"
+    echo "  export IMAGE_NAME=${IMAGE_TAG}-runtime"
+    echo "  ./start-master.sh <MASTER_IP>"
+elif [ "${BUILD_PHASE}" = "build-runtime" ]; then
+    echo "build-runtime: build image ${IMAGE_TAG}, runtime image ${RUNTIME_TAG}"
+    echo ""
+    echo "To use the runtime image (recommended for deployment):"
+    echo "  export IMAGE_NAME=${RUNTIME_TAG}"
+    echo "  ./start-master.sh <MASTER_IP>"
+    echo ""
+    echo "Or use the convenience tag:"
+    echo "  export IMAGE_NAME=${IMAGE_TAG}-runtime"
+    echo "  ./start-master.sh <MASTER_IP>"
+    if [ -z "${DEPS_IMAGE_PROVIDED_BY_USER}" ]; then
         echo ""
-        echo "To use the runtime image (recommended for deployment):"
-        echo "  export IMAGE_NAME=${RUNTIME_TAG}"
-        echo "  ./start-master.sh <MASTER_IP>"
-        echo ""
-        echo "Or use the convenience tag:"
-        echo "  export IMAGE_NAME=${IMAGE_TAG}-runtime"
-        echo "  ./start-master.sh <MASTER_IP>"
-    else
-        echo ""
-        echo "To use this image:"
-        echo "  export IMAGE_NAME=${IMAGE_TAG}"
-        echo "  ./start-master.sh <MASTER_IP>"
+        echo "To reuse deps for faster rebuilds:"
+        echo "  $0 --phase build-runtime --deps-image ${DEPS_IMAGE_TAG} --infinilm-src /path/to/InfiniLM"
     fi
 elif [ "${BUILD_PHASE}" = "runtime" ]; then
-    if [ -n "${RUNTIME_TAG}" ]; then
-        echo "Phase 3 (runtime) image: ${RUNTIME_TAG}"
-        echo ""
-        echo "To use this image:"
-        echo "  export IMAGE_NAME=${RUNTIME_TAG}"
-        echo "  ./start-master.sh <MASTER_IP>"
-    fi
-else
-    echo "Phase 1 (deps) image: ${DEPS_IMAGE_TAG}"
-    echo "Phase 2 (build) image: ${IMAGE_TAG}"
-    if [ -n "${RUNTIME_TAG}" ]; then
-        echo "Runtime (deployment) image: ${RUNTIME_TAG}"
-    fi
+    echo "runtime: runtime image ${RUNTIME_TAG} (from ${DEPS_IMAGE})"
     echo ""
-    if [ -n "${RUNTIME_TAG}" ]; then
-        echo "To use the runtime image (recommended for deployment):"
-        echo "  export IMAGE_NAME=${RUNTIME_TAG}"
-        echo "  ./start-master.sh <MASTER_IP>"
-        echo ""
-        echo "Or use the convenience tag:"
-        echo "  export IMAGE_NAME=${IMAGE_TAG}-runtime"
-        echo "  ./start-master.sh <MASTER_IP>"
-    else
-        echo "To use the build image:"
-        echo "  export IMAGE_NAME=${IMAGE_TAG}"
-        echo "  ./start-master.sh <MASTER_IP>"
-    fi
+    echo "To use the runtime image (recommended for deployment):"
+    echo "  export IMAGE_NAME=${RUNTIME_TAG}"
+    echo "  ./start-master.sh <MASTER_IP>"
     echo ""
-    echo "To reuse Phase 1 for faster rebuilds:"
-    echo "  $0 --phase build --deps-image ${DEPS_IMAGE_TAG}"
+    echo "Or use the convenience tag:"
+    echo "  export IMAGE_NAME=${IMAGE_TAG}-runtime"
+    echo "  ./start-master.sh <MASTER_IP>"
 fi
 
 echo ""

@@ -25,8 +25,16 @@ WORKDIR /app
 # Deployment case specific files are already in /app from build image
 # (embeddings_server.py, env-set.sh, requirements-embeddings.txt if they exist)
 
+# Ensure entrypoint at /app/docker_entrypoint.sh (deps image has it under /app/docker/)
+# build phase copies to /app/docker_entrypoint.sh; deps-only has only /app/docker/docker_entrypoint_rust.sh
+RUN if [ ! -f /app/docker_entrypoint.sh ] && [ -f /app/docker/docker_entrypoint_rust.sh ]; then \
+        cp /app/docker/docker_entrypoint_rust.sh /app/docker_entrypoint.sh; \
+    elif [ ! -f /app/docker_entrypoint.sh ] && [ -f /app/docker/docker_entrypoint.sh ]; then \
+        cp /app/docker/docker_entrypoint.sh /app/docker_entrypoint.sh; \
+    fi && chmod +x /app/docker_entrypoint.sh 2>/dev/null || true
+
 # Make scripts executable
-RUN chmod +x ./script/*.sh ./docker_entrypoint.sh 2>/dev/null || true
+RUN chmod +x ./script/*.sh 2>/dev/null || true
 
 # Create necessary directories
 RUN mkdir -p logs config /workspace/models

@@ -36,6 +36,11 @@ fi
 INFINICORE_BRANCH="${INFINICORE_BRANCH:-issue/1004}"
 INFINILM_BRANCH="${INFINILM_BRANCH:-issue/218}"
 
+# Tag image with branch info (e.g. 1004_216-1 from issue/1004 and issue/216-1)
+BRANCH_TAG="${BRANCH_TAG:-${INFINICORE_BRANCH##*/}_${INFINILM_BRANCH##*/}}"
+IMAGE_TAG="${IMAGE_TAG:-infinilm-svc:metax-${BRANCH_TAG}}"
+DEFAULT_RUNTIME_TAG_FORMAT="${DEFAULT_RUNTIME_TAG_FORMAT:-infinilm-svc:metax-hpcc-${BRANCH_TAG}}"
+
 # InfiniCore must be configured for metax + ccl before building.
 # This matches the deployment requirement:
 #   python scripts/install.py --metax-gpu=y --ccl=y
