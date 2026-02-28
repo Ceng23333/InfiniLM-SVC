@@ -102,7 +102,7 @@ echo ""
 echo "[5/5] Chat completion (POST ${ROUTER_URL}/v1/chat/completions)"
 RESP=$(curl -s -X POST "${ROUTER_URL}/v1/chat/completions" \
   -H "Content-Type: application/json" \
-  -d '{"model":"9g_8b_thinking","messages":[{"role":"user","content":"Hi"}],"max_tokens":10}' \
+  -d '{"model":"9g_8b_thinking","messages":[{"role":"user","content":"Hi"}],"max_tokens":1024}' \
   --connect-timeout 5 --max-time 60 2>/dev/null || echo "")
 echo "${RESP}" | python3 -m json.tool 2>/dev/null || echo "${RESP}"
 if echo "${RESP}" | grep -q '"choices"'; then
