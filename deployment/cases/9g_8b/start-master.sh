@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Start Master: Registry, Router, and single babysitter (9g_8b_thinking via InfiniLM --nvidia)
-# NVIDIA GPU deployment - uses --gpus all
+# Start Master: Registry, Router, and single babysitter (9g_8b_thinking)
+# Supports PLATFORM=nvidia (default) or PLATFORM=metax - only image and backend config differ
 
 set -euo pipefail
 
@@ -16,16 +16,32 @@ if [ -f "${SCRIPT_DIR}/.env" ]; then
 fi
 
 # Load deployment case defaults
-DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-nvidia}"
+DEPLOYMENT_CASE="${DEPLOYMENT_CASE:-9g_8b}"
 if [ -f "${SCRIPT_DIR}/install.defaults.sh" ]; then
   # shellcheck disable=SC1091
   source "${SCRIPT_DIR}/install.defaults.sh"
 fi
 
-IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:nvidia}"
+# Platform selection: nvidia (default) or metax - only image and config differ
+PLATFORM="${PLATFORM:-nvidia}"
+case "${PLATFORM}" in
+  nvidia)
+    IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:nvidia}"
+    BABYSITTER_CONFIGS_DEFAULT="master-9g_8b_thinking-nvidia.toml"
+    ;;
+  metax)
+    IMAGE_NAME="${IMAGE_NAME:-infinilm-svc:metax}"
+    BABYSITTER_CONFIGS_DEFAULT="master-9g_8b_thinking-metax.toml"
+    ;;
+  *)
+    echo "Error: PLATFORM must be 'nvidia' or 'metax' (got: ${PLATFORM})"
+    exit 1
+    ;;
+esac
+
 CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master}"
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
-BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-master-9g_8b_thinking.toml}"
+BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-${BABYSITTER_CONFIGS_DEFAULT}}"
 
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
@@ -56,11 +72,12 @@ if [[ "${MODEL1_DIR}" != *"_llama" ]]; then
   if [ "${LLAMA_READY}" = false ]; then
     echo "Converting 9g_8b_thinking to 9g_8b_thinking_llama (required by InfiniLM)..."
     MODEL1_PARENT="$(dirname "${MODEL1_DIR}")"
+    # Use conda's Python (has torch) when available; Metax image uses conda
     docker run --rm --entrypoint "" \
-      -v "${SCRIPT_DIR}:/app/deployment/cases/nvidia:ro" \
+      -v "${SCRIPT_DIR}:/app/deployment/cases/9g_8b:ro" \
       -v "${MODEL1_PARENT}:${MODEL1_PARENT}" \
       "${IMAGE_NAME}" \
-      python3 /app/deployment/cases/nvidia/9g_converter.py "${MODEL1_DIR}"
+      bash -c 'if [ -x /opt/conda/bin/python ]; then exec /opt/conda/bin/python /app/deployment/cases/9g_8b/9g_converter.py "$@"; else exec python3 /app/deployment/cases/9g_8b/9g_converter.py "$@"; fi' _ "${MODEL1_DIR}"
     echo "Conversion complete: ${MODEL1_LLAMA_DIR}"
   fi
   MODEL1_DIR_RESOLVED="${MODEL1_LLAMA_DIR}"
@@ -68,8 +85,9 @@ fi
 MODEL1_DIR="${MODEL1_DIR_RESOLVED}"
 
 echo "=========================================="
-echo "Starting InfiniLM-SVC Master (NVIDIA GPU)"
+echo "Starting InfiniLM-SVC Master (9g_8b, ${PLATFORM})"
 echo "=========================================="
+echo "Platform:   ${PLATFORM}"
 echo "Registry IP: ${REGISTRY_IP}"
 echo "Image: ${IMAGE_NAME}"
 echo "Registry Port: ${REGISTRY_PORT}"
@@ -89,11 +107,27 @@ fi
 
 echo "🚀 Starting Docker container..."
 
-DOCKER_ARGS=(
-  -d
-  --network host
-  --gpus all
-  --name "${CONTAINER_NAME}"
+DOCKER_ARGS=(-d --network host --name "${CONTAINER_NAME}")
+
+# Platform-specific GPU/device access
+if [ "${PLATFORM}" = "metax" ]; then
+  DOCKER_ARGS+=(
+    --uts host
+    --ipc host
+    --device /dev/dri
+    --device /dev/htcd
+    --device /dev/infiniband
+    --group-add video
+    --privileged=true
+    --security-opt apparmor=unconfined
+    --shm-size 100gb
+    --ulimit memlock=-1
+  )
+else
+  DOCKER_ARGS+=(--gpus all)
+fi
+
+DOCKER_ARGS+=(
   -e LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS}"
   -e REGISTRY_PORT="${REGISTRY_PORT}"
   -e ROUTER_PORT="${ROUTER_PORT}"

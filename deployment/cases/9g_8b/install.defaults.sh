@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Install-time defaults for the nvidia case.
+# Install-time defaults for the 9g_8b case.
 #
 # This file is sourced by scripts/install.sh when:
-#   --deployment-case nvidia
+#   --deployment-case 9g_8b
 #
 # Use it to pin optional installs, branches, and other toggles for reproducible images.
 # Base image: nvcr.io/nvidia/pytorch:25.12-py3 (NVIDIA CUDA, no Metax/HPCC)

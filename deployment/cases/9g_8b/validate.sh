@@ -34,7 +34,7 @@ BABYSITTER_URL="http://${REGISTRY_IP}:${BABYSITTER_HEALTH_PORT}"
 FAILED=0
 
 echo "=========================================="
-echo "Validating InfiniLM-SVC Master (NVIDIA GPU)"
+echo "Validating InfiniLM-SVC Master (9g_8b)"
 echo "=========================================="
 echo "Registry:   ${REGISTRY_URL}"
 echo "Router:     ${ROUTER_URL}"

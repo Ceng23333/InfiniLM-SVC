@@ -11,10 +11,15 @@
 #   # Or via env:
 #   IMAGE_TAR=./infinilm-svc-nvidia.tar MODEL1_DIR=/data/models/9g_8b_thinking_llama ./deploy-offline.sh
 #
+# Metax platform: use PLATFORM=metax with metax image tar
+#   docker save infinilm-svc:metax -o metax.tar
+#   PLATFORM=metax IMAGE_TAR=metax.tar MODEL1_DIR=/path/to/9g_8b_thinking_llama ./deploy-offline.sh
+#
 # Options:
-#   --image-tar PATH   Docker image tar file (required if IMAGE_TAR not set)
+#   --image-tar PATH   Docker image tar file (required unless --skip-load)
 #   --model-dir PATH   Model directory (required if MODEL1_DIR not set)
 #   --ports PORT       Registry:router ports, e.g. 18000:8000 (default)
+#   --skip-load        Skip loading from tar; use already-loaded image (for validation)
 
 set -euo pipefail
 
@@ -23,6 +28,7 @@ IMAGE_TAR=""
 MODEL1_DIR=""
 REGISTRY_PORT=""
 ROUTER_PORT=""
+SKIP_LOAD=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -40,11 +46,16 @@ while [[ $# -gt 0 ]]; do
       ROUTER_PORT="${2##*:}"
       shift 2
       ;;
+    --skip-load)
+      SKIP_LOAD=1
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--image-tar PATH] [--model-dir PATH] [--ports REGISTRY:ROUTER]"
+      echo "Usage: $0 [--image-tar PATH] [--model-dir PATH] [--ports REGISTRY:ROUTER] [--skip-load]"
       echo "  --image-tar   Docker image tar (or set IMAGE_TAR)"
       echo "  --model-dir   Model directory (or set MODEL1_DIR)"
       echo "  --ports       e.g. 18000:8000"
+      echo "  --skip-load   Skip docker load; use already-loaded image"
       exit 0
       ;;
     *)
@@ -58,11 +69,13 @@ done
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
 
-# Validate
-if [ -z "${IMAGE_TAR}" ] || [ ! -f "${IMAGE_TAR}" ]; then
-  echo "Error: Image tar not found. Use --image-tar PATH or set IMAGE_TAR"
-  echo "  Example: docker save infinilm-svc:nvidia -o infinilm-svc-nvidia.tar"
-  exit 1
+# Validate image tar (unless --skip-load)
+if [ -z "${SKIP_LOAD}" ]; then
+  if [ -z "${IMAGE_TAR}" ] || [ ! -f "${IMAGE_TAR}" ]; then
+    echo "Error: Image tar not found. Use --image-tar PATH or set IMAGE_TAR (or --skip-load if image already loaded)"
+    echo "  Example: docker save infinilm-svc:nvidia -o infinilm-svc-nvidia.tar"
+    exit 1
+  fi
 fi
 
 if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
@@ -71,22 +84,36 @@ if [ -z "${MODEL1_DIR}" ] || [ ! -d "${MODEL1_DIR}" ]; then
   exit 1
 fi
 
+# Resolve PLATFORM before export (for display)
+PLATFORM="${PLATFORM:-nvidia}"
+
 echo "=========================================="
 echo "InfiniLM-SVC 离线部署 (Offline Deployment)"
 echo "=========================================="
-echo "Image tar:  ${IMAGE_TAR}"
+echo "Platform:   ${PLATFORM}"
 echo "Model dir:  ${MODEL1_DIR}"
 echo "Ports:      Registry ${REGISTRY_PORT}, Router ${ROUTER_PORT}"
+[ -n "${SKIP_LOAD}" ] && echo "Mode:       skip-load (use existing image)" || echo "Image tar:  ${IMAGE_TAR}"
 echo ""
 
-# 1. Load image
-echo "[1/3] 加载 Docker 镜像..."
-docker load -i "${IMAGE_TAR}"
-echo "  -> 完成"
-echo ""
+# 1. Load image (unless --skip-load)
+if [ -z "${SKIP_LOAD}" ]; then
+  echo "[1/3] 加载 Docker 镜像..."
+  docker load -i "${IMAGE_TAR}"
+  echo "  -> 完成"
+  echo ""
+else
+  echo "[1/3] 跳过加载 (--skip-load)"
+  echo ""
+fi
 
 # 2. Export for start-master
-export IMAGE_NAME="infinilm-svc:nvidia"
+if [ "${PLATFORM}" = "metax" ]; then
+  export IMAGE_NAME="infinilm-svc:metax"
+else
+  export IMAGE_NAME="infinilm-svc:nvidia"
+fi
+export PLATFORM
 export MODEL1_DIR
 export REGISTRY_PORT
 export ROUTER_PORT

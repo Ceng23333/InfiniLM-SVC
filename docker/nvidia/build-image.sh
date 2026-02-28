@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build InfiniLM-SVC image for nvidia deployment case
+# Build InfiniLM-SVC image for 9g_8b case (NVIDIA platform)
 # Base image: nvcr.io/nvidia/pytorch:25.12-py3
 #
 # Usage:
@@ -61,7 +61,7 @@ done
 
 # When proxy is localhost, use --network host so build container can reach host proxy
 BUILD_ARGS=(
-  -f "${PROJECT_ROOT}/deployment/cases/nvidia/Dockerfile.nvidia"
+  -f "${PROJECT_ROOT}/deployment/cases/9g_8b/Dockerfile.nvidia"
   -t "${IMAGE_TAG}"
   --build-arg "BASE_IMAGE=${BASE_IMAGE}"
   --build-arg "HTTP_PROXY=${HTTP_PROXY}"

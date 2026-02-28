@@ -1,6 +1,6 @@
-# InfiniLM-SVC NVIDIA 部署 - 命令行操作说明
+# InfiniLM-SVC 9g_8b 部署 - 命令行操作说明
 
-本文档说明在无外网环境下使用镜像 tar 包和模型进行离线部署的 CLI 操作。
+本文档说明在无外网环境下使用镜像 tar 包和模型进行离线部署的 CLI 操作。支持 NVIDIA 和 Metax 平台。
 
 ---
 
@@ -31,12 +31,12 @@ docker save infinilm-svc:nvidia -o infinilm-svc-nvidia.tar
 
 - `infinilm-svc-nvidia.tar`（镜像包）
 - `9g_8b_thinking_llama/`（或 `9g_8b_thinking/`）模型目录
-- 部署脚本目录：`deployment/cases/nvidia/`（含 `deploy-offline.sh`、`start-master.sh`、`config/`、`9g_converter.py`、`validate.sh` 等）
+- 部署脚本目录：`deployment/cases/9g_8b/`（含 `deploy-offline.sh`、`start-master.sh`、`config/`、`9g_converter.py`、`validate.sh` 等）
 
 ### 2.2 一键离线部署
 
 ```bash
-cd deployment/cases/nvidia
+cd deployment/cases/9g_8b
 
 ./deploy-offline.sh \
   --image-tar /path/to/infinilm-svc-nvidia.tar \
@@ -69,10 +69,12 @@ export MODEL1_DIR=/path/to/9g_8b_thinking_llama
 ### 3.1 启动服务（在线 / 已有镜像）
 
 ```bash
-cd deployment/cases/nvidia
+cd deployment/cases/9g_8b
 export MODEL1_DIR=/path/to/9g_8b_thinking_llama
 ./start-master.sh
 ```
+
+Metax 平台：`PLATFORM=metax ./start-master.sh`（使用预构建镜像 infinilm-svc:metax）
 
 ### 3.2 停止服务
 
@@ -127,7 +129,8 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `IMAGE_NAME` | Docker 镜像名 | `infinilm-svc:nvidia` |
+| `PLATFORM` | 平台：nvidia 或 metax | `nvidia` |
+| `IMAGE_NAME` | Docker 镜像名 | `infinilm-svc:nvidia`（NVIDIA）或 `infinilm-svc:metax`（Metax） |
 | `CONTAINER_NAME` | 容器名 | `infinilm-svc-master` |
 | `MODEL1_DIR` | 模型目录路径 | 必填 |
 | `REGISTRY_PORT` | 注册中心端口 | `18000` |
@@ -181,7 +184,7 @@ REGISTRY_PORT=18002 ROUTER_PORT=8002 ./start-master.sh
 
 `scripts/logs.sh` 可按模块查看或导出容器内日志，便于排查问题。
 
-**前置条件**：nvidia 部署使用容器名 `infinilm-svc-master`，需先设置环境变量：
+**前置条件**：9g_8b 部署使用容器名 `infinilm-svc-master`，需先设置环境变量：
 
 ```bash
 export CONTAINER_NAME=infinilm-svc-master

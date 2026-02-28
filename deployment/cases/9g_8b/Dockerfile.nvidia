@@ -40,7 +40,7 @@ COPY . .
 RUN cp docker/nvidia/env-set.sh /app/env-set.sh
 
 # Set deployment case environment variable for install.sh
-ENV DEPLOYMENT_CASE=nvidia
+ENV DEPLOYMENT_CASE=9g_8b
 
 # Use the base conda environment from the base image
 ENV PATH="/opt/conda/bin:/usr/bin:/usr/local/bin:${PATH}"
@@ -49,7 +49,7 @@ ENV PATH="/opt/conda/bin:/usr/bin:/usr/local/bin:${PATH}"
 RUN mkdir -p /workspace && \
     ./scripts/install.sh \
     --install-path /usr/local/bin \
-    --deployment-case nvidia \
+    --deployment-case 9g_8b \
     --install-infinicore true \
     --install-infinilm true \
     --infinicore-src /workspace/InfiniCore \
@@ -88,5 +88,5 @@ EXPOSE 18000 8000 20002
 
 LABEL maintainer="InfiniLM Team"
 LABEL description="InfiniLM-SVC: NVIDIA GPU deployment with registry, router, 9g_8b_thinking"
-LABEL deployment-case="nvidia"
+LABEL deployment-case="9g_8b"
 LABEL base-image="${BASE_IMAGE}"

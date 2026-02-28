@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop the InfiniLM-SVC Master container (NVIDIA deployment)
+# Stop the InfiniLM-SVC Master container (9g_8b case)
 
 set -euo pipefail
 

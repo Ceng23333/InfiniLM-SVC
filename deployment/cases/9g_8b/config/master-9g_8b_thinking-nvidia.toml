@@ -1,5 +1,5 @@
 # Master - 9g_8b_thinking model (InfiniLM with --nvidia, NVIDIA CUDA)
-# Single instance for nvidia deployment case
+# Single instance for NVIDIA platform
 
 name = "master-9g_8b_thinking"
 host = "0.0.0.0"
