@@ -94,10 +94,6 @@ coverage/
 *.prof
 *.profdata
 
-# Environment variables
-.env
-.env.local
-.env.*.local
 
 # Conda
 .conda/
