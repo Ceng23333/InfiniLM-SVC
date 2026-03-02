@@ -32,6 +32,12 @@ Runs on every push and pull request to `main`, `master`, and `develop` branches.
    - Uploads binaries as artifacts (retention: 1 day)
    - Verifies all binaries compile successfully
 
+4. **Notify Lark**
+   - Runs after integration-tests, lint, and build complete (success or failure)
+   - Sends CI result to Lark (Feishu) via webhook
+   - Requires repository secrets: `FEISHU_BOT_WEBHOOK`, `FEISHU_BOT_SIGNKEY` (optional)
+   - If secrets are not configured, this job will fail; add secrets in Settings > Secrets and variables > Actions to enable
+
 ## Requirements
 
 ### Integration Tests

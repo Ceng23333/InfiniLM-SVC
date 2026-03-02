@@ -196,3 +196,42 @@ jobs:
           name: ${{ matrix.binary }}
           path: rust/target/release/${{ matrix.binary }}
           retention-days: 1
+
+  notify-lark:
+    name: Notify Lark
+    runs-on: ubuntu-latest
+    if: always() && !cancelled()
+    needs: [integration-tests, lint, build]
+    steps:
+      - name: Determine workflow status
+        id: status
+        run: |
+          if [[ "${{ needs.integration-tests.result }}" == "failure" ]] || [[ "${{ needs.lint.result }}" == "failure" ]] || [[ "${{ needs.build.result }}" == "failure" ]]; then
+            echo "status= failure" >> $GITHUB_OUTPUT
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+          else
+            echo "status= success" >> $GITHUB_OUTPUT
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send notification to Lark
+        uses: XRSec/feishu-bot-webhook-action@v1
+        with:
+          FEISHU_BOT_WEBHOOK: ${{ secrets.FEISHU_BOT_WEBHOOK }}
+          FEISHU_BOT_SIGNKEY: ${{ secrets.FEISHU_BOT_SIGNKEY }}
+          MSG_TEXT: |
+            ## ${{ steps.status.outputs.emoji }} CI ${{ steps.status.outputs.status }}
+
+            **Repository:** ${{ github.repository }}
+            **Branch:** ${{ github.ref_name }}
+            **Actor:** ${{ github.actor }}
+            **Commit:** ${{ github.sha }}
+            **Event:** ${{ github.event_name }}
+
+            | Job | Result |
+            |-----|--------|
+            | Integration Tests | ${{ needs.integration-tests.result }} |
+            | Lint | ${{ needs.lint.result }} |
+            | Build | ${{ needs.build.result }} |
+
+            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})

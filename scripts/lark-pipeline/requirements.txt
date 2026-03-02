@@ -1,0 +1,5 @@
+# Lark pipeline: webhook server + Fabric remote execution + optional PR notification
+lark-oapi[flask]>=1.2.0
+fabric>=3.0.0
+python-dotenv>=1.0.0
+PyGithub>=2.0.0
