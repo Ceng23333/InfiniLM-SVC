@@ -7,13 +7,14 @@ usage() {
   echo "Usage:"
   echo "  $0 <REGISTRY_IP> [SLAVE_IP] [SLAVE_PRESET] [MASTER_PRESET]"
   echo ""
-  echo "SLAVE_PRESET (when SLAVE_IP given): 2static (default), 1static1vllm, or 3vllm"
+  echo "SLAVE_PRESET (when SLAVE_IP given): 2static (default), 1static1vllm, 3vllm, or 1paged2vllm"
   echo "MASTER_PRESET (optional): when 3vllm, expect master-3vllm-vllm-1 instead of master-qwen3-32b-paged"
   echo ""
   echo "Examples:"
   echo "  $0 192.168.163.151"
   echo "  $0 192.168.163.151 192.168.163.152"
   echo "  $0 192.168.163.151 192.168.163.152 1static1vllm"
+  echo "  $0 192.168.163.151 192.168.163.152 1paged2vllm"
   echo "  $0 192.168.163.151 192.168.163.152 3vllm 3vllm"
 }
 
@@ -103,8 +104,11 @@ if [ -n "${SLAVE_IP}" ]; then
     3vllm)
       expected_services+=("slave-3vllm-vllm-1-server" "slave-3vllm-vllm-2-server")
       ;;
+    1paged2vllm)
+      expected_services+=("slave-3vllm-vllm-1-server" "slave-3vllm-vllm-2-server")
+      ;;
     *)
-      echo "  Warning: Unknown SLAVE_PRESET '${SLAVE_PRESET}'; expecting 2static, 1static1vllm, or 3vllm"
+      echo "  Warning: Unknown SLAVE_PRESET '${SLAVE_PRESET}'; expecting 2static, 1static1vllm, 3vllm, or 1paged2vllm"
       ;;
   esac
 fi

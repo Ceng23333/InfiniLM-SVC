@@ -32,11 +32,13 @@ usage() {
   echo "  2static     - 2x static cache, 4 GPU each (ports 8200, 8300) [default]"
   echo "  1static1vllm - 1x static cache (4 GPU) + 1x vLLM (4 GPU)"
   echo "  3vllm       - 2x vLLM (4 GPU each) at slave; use with MASTER_PRESET=3vllm on master"
+  echo "  1paged2vllm - 2x vLLM (4 GPU each) at slave; master runs default (1 paged)"
   echo ""
   echo "Examples:"
   echo "  $0 192.168.163.151 192.168.163.152"
   echo "  SLAVE_PRESET=1static1vllm $0 192.168.163.151 192.168.163.152"
   echo "  SLAVE_PRESET=3vllm $0 192.168.163.151 192.168.163.152"
+  echo "  SLAVE_PRESET=1paged2vllm $0 192.168.163.151 192.168.163.152"
 }
 
 if [ $# -lt 2 ]; then
@@ -52,7 +54,7 @@ REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
 CONFIG_DIR="${CONFIG_DIR:-${SCRIPT_DIR}/config}"
 
-# Slave preset: 2static (default), 1static1vllm, or 3vllm
+# Slave preset: 2static (default), 1static1vllm, 3vllm, or 1paged2vllm
 SLAVE_PRESET="${SLAVE_PRESET:-2static}"
 case "${SLAVE_PRESET}" in
   2static)
@@ -67,8 +69,12 @@ case "${SLAVE_PRESET}" in
     BABYSITTER_CONFIGS="slave-3vllm-vllm-1.toml slave-3vllm-vllm-2.toml"
     PRESET_DESC="2x vLLM (4 GPU each, ports 8200, 8300)"
     ;;
+  1paged2vllm)
+    BABYSITTER_CONFIGS="slave-3vllm-vllm-1.toml slave-3vllm-vllm-2.toml"
+    PRESET_DESC="2x vLLM (4 GPU each, ports 8200, 8300); master runs default (1 paged)"
+    ;;
   *)
-    echo "Error: SLAVE_PRESET must be '2static', '1static1vllm', or '3vllm' (got: ${SLAVE_PRESET})"
+    echo "Error: SLAVE_PRESET must be '2static', '1static1vllm', '3vllm', or '1paged2vllm' (got: ${SLAVE_PRESET})"
     exit 1
     ;;
 esac
