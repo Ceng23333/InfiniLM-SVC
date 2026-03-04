@@ -84,20 +84,39 @@ def _run_smoke(c: Connection) -> bool:
     return result.exited == 0
 
 
-def run_pipeline() -> tuple[bool, bool, bool, float]:
+def run_pipeline(
+    deployment_case: str | None = None,
+    phase: str | None = None,
+    include_smoke: bool = True,
+) -> tuple[bool, bool, bool, float]:
     """
     Run build then smoke on private host. Returns (success, build_ok, smoke_ok, duration_sec).
-    Call from webhook server.
+    Call from webhook server. Overrides for deployment_case, phase, include_smoke.
     """
-    c = _conn()
-    start = time.time()
+    saved = {}
+    if deployment_case is not None:
+        saved["DEPLOYMENT_CASE"] = os.environ.get("DEPLOYMENT_CASE")
+        os.environ["DEPLOYMENT_CASE"] = deployment_case
+    if phase is not None:
+        saved["BUILD_PHASE"] = os.environ.get("BUILD_PHASE")
+        os.environ["BUILD_PHASE"] = phase
     try:
-        build_ok = _run_build(c)
-        smoke_ok = _run_smoke(c) if build_ok else False
+        c = _conn()
+        start = time.time()
+        try:
+            build_ok = _run_build(c)
+            smoke_ok = _run_smoke(c) if build_ok and include_smoke else True
+        finally:
+            c.close()
+        duration = time.time() - start
+        success = build_ok and (smoke_ok if include_smoke else True)
+        return success, build_ok, smoke_ok, duration
     finally:
-        c.close()
-    duration = time.time() - start
-    return build_ok and smoke_ok, build_ok, smoke_ok, duration
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+            elif k in os.environ:
+                del os.environ[k]
 
 
 @task

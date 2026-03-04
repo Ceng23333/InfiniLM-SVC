@@ -68,10 +68,10 @@ def _parse_command(text: str) -> tuple[str | None, str | None]:
         pr_ref = m.group(1)
 
     # Actions
-    if t in ("build", "pipeline", "status"):
+    if t in ("build", "pipeline", "status", "card"):
         return t, pr_ref
-    if t.startswith("build ") or t.startswith("pipeline "):
-        action = "build" if "build" in t[:10] else "pipeline"
+    if t.startswith("build ") or t.startswith("pipeline ") or t.startswith("card "):
+        action = "build" if t.startswith("build") else ("pipeline" if t.startswith("pipeline") else "card")
         return action, pr_ref
     if t.startswith("status "):
         return "status", pr_ref
@@ -139,6 +139,132 @@ def _send_lark_reply(client, message_id: str, text: str) -> None:
         logger.exception("Lark reply error: %s", e)
 
 
+def _send_build_form_card(client, receive_id_type: str, receive_id: str) -> None:
+    """Send the build form interactive card to a chat."""
+    try:
+        from lark_oapi.api.im.v1.model.create_message_request import CreateMessageRequest
+        from lark_oapi.api.im.v1.model.create_message_request_body import (
+            CreateMessageRequestBody,
+        )
+
+        from cards import get_build_form_card_json
+
+        content = get_build_form_card_json()
+        body = (
+            CreateMessageRequestBody.builder()
+            .receive_id(receive_id)
+            .msg_type("interactive")
+            .content(content)
+            .build()
+        )
+        req = (
+            CreateMessageRequest.builder()
+            .receive_id_type(receive_id_type)
+            .request_body(body)
+            .build()
+        )
+        resp = client.im.v1.message.create(req)
+        if resp.code != 0:
+            logger.error("Lark send card failed: %s %s", resp.code, resp.msg)
+    except Exception as e:
+        logger.exception("Lark send card error: %s", e)
+
+
+def _make_card_action_handler(client):
+    """Build handler for card button clicks (form submit)."""
+
+    def handler(data) -> "P2CardActionTriggerResponse":
+        from lark_oapi.event.callback.model.p2_card_action_trigger import (
+            P2CardActionTriggerResponse,
+        )
+
+        try:
+            action_val = (data.event.action.value or {}) if data.event and data.event.action else {}
+            if action_val.get("action") != "build_image":
+                return P2CardActionTriggerResponse({})
+
+            form = (data.event.action.form_value or {}) if data.event and data.event.action else {}
+            deployment_case = str(form.get("deployment_case", "")).strip() or "infinilm-metax-deployment-opt"
+            phase = str(form.get("phase", "")).strip() or "dep-runtime"
+            pr_ref = str(form.get("pr_ref", "")).strip() or None
+            include_smoke = str(form.get("include_smoke", "true")).lower() in ("true", "1", "yes")
+
+            # Resolve receive target for result message
+            ctx = data.event.context if data.event else None
+            open_chat_id = ctx.open_chat_id if ctx else ""
+            open_id = data.event.operator.open_id if data.event and data.event.operator else ""
+
+            def run_and_notify():
+                from fabfile import run_pipeline
+
+                success, build_ok, smoke_ok, duration = run_pipeline(
+                    deployment_case=deployment_case or None,
+                    phase=phase or None,
+                    include_smoke=include_smoke,
+                )
+                msg_text = (
+                    f"Pipeline {'Success' if success else 'Failed'}\n"
+                    f"Build: {'OK' if build_ok else 'Fail'}, Smoke: {'OK' if smoke_ok else 'Fail'}\n"
+                    f"Duration: {duration:.1f}s"
+                )
+                _send_message_to_chat(client, open_chat_id, open_id, msg_text)
+                if pr_ref and (os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_PAT")):
+                    ok = _post_to_github_pr(pr_ref, success, build_ok, smoke_ok, duration)
+                    if ok:
+                        _send_message_to_chat(client, open_chat_id, open_id, f"Posted result to PR {pr_ref}")
+
+            t = threading.Thread(target=run_and_notify)
+            t.daemon = True
+            t.start()
+
+            return P2CardActionTriggerResponse({
+                "toast": {
+                    "type": "info",
+                    "content": "Build started...",
+                    "i18n": {"zh_cn": "构建已启动...", "en_us": "Build started..."},
+                },
+            })
+        except Exception as e:
+            logger.exception("Card action handler error: %s", e)
+            return P2CardActionTriggerResponse({
+                "toast": {"type": "danger", "content": str(e)[:100]},
+            })
+
+    return handler
+
+
+def _send_message_to_chat(client, chat_id: str, open_id: str, text: str) -> None:
+    """Send a text message to chat (by chat_id or open_id)."""
+    try:
+        from lark_oapi.api.im.v1.model.create_message_request import CreateMessageRequest
+        from lark_oapi.api.im.v1.model.create_message_request_body import (
+            CreateMessageRequestBody,
+        )
+
+        rid_type = "chat_id" if chat_id else "open_id"
+        rid = chat_id or open_id
+        if not rid:
+            return
+        body = (
+            CreateMessageRequestBody.builder()
+            .receive_id(rid)
+            .msg_type("text")
+            .content(json.dumps({"text": text}))
+            .build()
+        )
+        req = (
+            CreateMessageRequest.builder()
+            .receive_id_type(rid_type)
+            .request_body(body)
+            .build()
+        )
+        resp = client.im.v1.message.create(req)
+        if resp.code != 0:
+            logger.error("Lark send message failed: %s %s", resp.code, resp.msg)
+    except Exception as e:
+        logger.exception("Lark send message error: %s", e)
+
+
 def _make_message_handler(client):
     """Build handler that closes over client for sending replies."""
 
@@ -159,30 +285,22 @@ def _make_message_handler(client):
                 return
 
             message_id = msg.message_id
+            chat_type = msg.chat_type or "p2p"
+            chat_id = msg.chat_id or ""
+            open_id = (event.event.sender.sender_id.open_id if event.event and event.event.sender else "") or ""
 
-            # Reply immediately
-            _send_lark_reply(client, message_id, f"Running pipeline (action={action})...")
+            # Send interactive form card for build/pipeline/card
+            if action in ("build", "pipeline", "card"):
+                if chat_type == "group" and chat_id:
+                    _send_build_form_card(client, "chat_id", chat_id)
+                else:
+                    _send_build_form_card(client, "open_id", open_id)
+                return
 
-            # Run in background
-            def run_and_reply():
-                from fabfile import run_pipeline
-
-                success, build_ok, smoke_ok, duration = run_pipeline()
-                msg_text = (
-                    f"Pipeline {'Success' if success else 'Failed'}\n"
-                    f"Build: {'OK' if build_ok else 'Fail'}, Smoke: {'OK' if smoke_ok else 'Fail'}\n"
-                    f"Duration: {duration:.1f}s"
-                )
-                _send_lark_reply(client, message_id, msg_text)
-
-                if pr_ref and (os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_PAT")):
-                    ok = _post_to_github_pr(pr_ref, success, build_ok, smoke_ok, duration)
-                    if ok:
-                        _send_lark_reply(client, message_id, f"Posted result to PR {pr_ref}")
-
-            t = threading.Thread(target=run_and_reply)
-            t.daemon = True
-            t.start()
+            # Legacy: status or direct run (e.g. from parsed "status" - no-op for now)
+            if action == "status":
+                _send_lark_reply(client, message_id, "Send 'build' or 'card' to get the build form.")
+                return
 
         except Exception as e:
             logger.exception("Message handler error: %s", e)
@@ -212,11 +330,15 @@ def create_app():
     # Client for sending messages
     client = Client.builder().app_id(app_id).app_secret(app_secret).build()
 
+    # Card action handler (form submit)
+    card_handler = _make_card_action_handler(client)
+
     # Event handler
-    handler = _make_message_handler(client)
+    msg_handler = _make_message_handler(client)
     event_handler = (
         EventDispatcherHandler.builder(encrypt_key, verification_token)
-        .register_p2_im_message_receive_v1(handler)
+        .register_p2_im_message_receive_v1(msg_handler)
+        .register_p2_card_action_trigger(card_handler)
         .build()
     )
 
@@ -224,6 +346,13 @@ def create_app():
 
     @app.route("/webhook", methods=["GET", "POST"])
     def webhook():
+        raw_req = parse_req()
+        raw_resp = event_handler.do(raw_req)
+        return parse_resp(raw_resp)
+
+    # Card callbacks may use a separate URL in Feishu app config
+    @app.route("/card", methods=["GET", "POST"])
+    def card():
         raw_req = parse_req()
         raw_resp = event_handler.do(raw_req)
         return parse_resp(raw_resp)

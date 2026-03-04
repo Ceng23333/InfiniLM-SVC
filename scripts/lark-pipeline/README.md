@@ -20,8 +20,11 @@ User (Lark) --> webhook server (jump host) --> Fabric SSH --> private host
    - Event: `im.message.receive_v1`
    - Request URL: `https://<jump-host>/webhook`
    - Verification Token, Encrypt Key (optional)
-3. Permissions: `im:message`, `im:message:send`, `im:message.receive_v1`
-4. Publish the app
+3. Configure Message Card Request URL (Features > Bot):
+   - URL: `https://<jump-host>/card` (or `/webhook` if using same endpoint)
+   - Required for interactive form card callbacks
+4. Permissions: `im:message`, `im:message:send`, `im:message.receive_v1`
+5. Publish the app
 
 ### 2. Jump Host
 
@@ -59,10 +62,17 @@ Send messages to the Lark bot (group or DM):
 
 | Command | Action |
 |---------|--------|
-| `build` | Run build-image.sh on private host |
-| `pipeline` | Run build + smoke validation |
-| `pipeline #42` | Same, and post result to PR #42 |
-| `build owner/repo#123` | Same, for PR 123 in owner/repo |
+| `build` | Send interactive form card to configure and run build |
+| `pipeline` | Same as build (form includes smoke validation option) |
+| `card` | Send the build form card only |
+
+**Form fields:**
+- Deployment case (e.g. infinilm-metax-deployment-opt)
+- Build phase (dep-runtime, build-runtime, runtime)
+- PR (optional, e.g. #42 or owner/repo#123)
+- Run smoke validation (Yes/No)
+
+Click **Build** to submit. The pipeline runs on the private host via Fabric.
 
 ## Optional: PR Notification
 
