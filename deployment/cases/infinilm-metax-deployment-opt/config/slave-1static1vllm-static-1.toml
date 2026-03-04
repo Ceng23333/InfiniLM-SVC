@@ -31,7 +31,7 @@ args = [
   "--host", "0.0.0.0",
   "--port", "8200",
   "--cache_type", "static",
-  "--max_cache_len", "32768",
+  "--max_cache_len", "16384",
 ]
 work_dir = "/workspace/InfiniLM"
 
