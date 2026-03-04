@@ -28,6 +28,7 @@ CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master-opt}"
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
 # Build BABYSITTER_CONFIGS - base set by MASTER_PRESET, then optional embeddings
+# When MASTER_PRESET is set (e.g. 3vllm), it overrides .env so the correct backend is used
 MASTER_PRESET="${MASTER_PRESET:-}"
 if [ "${MASTER_PRESET}" = "3vllm" ]; then
   BABYSITTER_CONFIGS_BASE="master-9g_8b_thinking.toml master-3vllm-vllm-1.toml"
@@ -36,7 +37,14 @@ else
   BABYSITTER_CONFIGS_BASE="master-9g_8b_thinking.toml master-qwen3-32b-paged.toml"
   COMPONENTS_DESC="Registry, Router, master-9g_8b_thinking, master-qwen3-32b-paged"
 fi
-if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
+if [ -n "${MASTER_PRESET}" ]; then
+  # Preset overrides .env so container gets the intended config
+  if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
+    BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS_BASE} master-embeddings.toml"
+  else
+    BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS_BASE}"
+  fi
+elif [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
   BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-${BABYSITTER_CONFIGS_BASE} master-embeddings.toml}"
 else
   BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-${BABYSITTER_CONFIGS_BASE}}"

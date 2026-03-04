@@ -131,7 +131,7 @@ rust/tests/integration/*.log
 # Cargo.lock
 
 # Benchmark results and generated datasets
-deployment/cases/*/results/
+# deployment/cases/*/results/
 
 # Lark pipeline secrets
 scripts/lark-pipeline/.env

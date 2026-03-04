@@ -130,19 +130,34 @@ fi
 echo ""
 
 echo -e "${BLUE}[4] Chat completions via router${NC}"
-test_model="9g_8b_thinking"
+# Test all models from step 3 (skip permission-style ids like modelperm-*)
+test_models="9g_8b_thinking"
 if [ -n "${model_ids}" ] && [ "${model_ids}" != " " ]; then
-  test_model="$(echo "${model_ids}" | awk '{print $1}')"
+  test_models=""
+  for model_id in ${model_ids}; do
+    case "${model_id}" in
+      modelperm-*) ;;
+      *) test_models="${test_models} ${model_id}" ;;
+    esac
+  done
+  test_models="${test_models# }"
 fi
-echo "  Testing model: ${test_model}"
-request_data="{\"model\": \"${test_model}\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"stream\": false}"
-resp="$(curl -s -X POST --noproxy "*" "${ROUTER_URL}/v1/chat/completions" -H "Content-Type: application/json" -d "${request_data}" 2>/dev/null || echo '{}')"
-if echo "${resp}" | grep -q '"object"'; then
-  echo -e "  ${GREEN}OK${NC} Router returned response"
-else
-  echo -e "  ${RED}FAIL${NC} Router response invalid"
-  echo "  Response: ${resp}"
+if [ -z "${test_models}" ]; then
+  test_models="9g_8b_thinking"
 fi
+for test_model in ${test_models}; do
+  echo -n "  Testing model: ${test_model}... "
+  request_data="{\"model\": \"${test_model}\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"stream\": false}"
+  resp="$(curl -s -X POST --noproxy "*" "${ROUTER_URL}/v1/chat/completions" -H "Content-Type: application/json" -d "${request_data}" 2>/dev/null || echo '{}')"
+  if echo "${resp}" | grep -q '"object"'; then
+    echo -e "${GREEN}OK${NC}"
+    PASSED=$((PASSED + 1))
+  else
+    echo -e "${RED}FAIL${NC}"
+    FAILED=$((FAILED + 1))
+    echo "    Response: ${resp}"
+  fi
+done
 echo ""
 
 echo "=========================================="
