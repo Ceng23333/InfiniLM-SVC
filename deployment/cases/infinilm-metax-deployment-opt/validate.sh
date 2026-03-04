@@ -5,14 +5,16 @@ set -e
 
 usage() {
   echo "Usage:"
-  echo "  $0 <REGISTRY_IP> [SLAVE_IP] [SLAVE_PRESET]"
+  echo "  $0 <REGISTRY_IP> [SLAVE_IP] [SLAVE_PRESET] [MASTER_PRESET]"
   echo ""
-  echo "SLAVE_PRESET (when SLAVE_IP given): 2static (default) or 1static1vllm"
+  echo "SLAVE_PRESET (when SLAVE_IP given): 2static (default), 1static1vllm, or 3vllm"
+  echo "MASTER_PRESET (optional): when 3vllm, expect master-3vllm-vllm-1 instead of master-qwen3-32b-paged"
   echo ""
   echo "Examples:"
   echo "  $0 192.168.163.151"
   echo "  $0 192.168.163.151 192.168.163.152"
   echo "  $0 192.168.163.151 192.168.163.152 1static1vllm"
+  echo "  $0 192.168.163.151 192.168.163.152 3vllm 3vllm"
 }
 
 if [ $# -lt 1 ]; then
@@ -23,6 +25,7 @@ fi
 REGISTRY_IP="${1:-localhost}"
 SLAVE_IP="${2:-}"
 SLAVE_PRESET="${3:-${SLAVE_PRESET:-2static}}"
+MASTER_PRESET="${4:-${MASTER_PRESET:-}}"
 
 REGISTRY_PORT="${REGISTRY_PORT:-18000}"
 ROUTER_PORT="${ROUTER_PORT:-8000}"
@@ -47,7 +50,8 @@ echo "InfiniLM-SVC infinilm-metax-deployment-opt Validation"
 echo "=========================================="
 echo "Registry IP:  ${REGISTRY_IP}"
 echo "Slave IP:     ${SLAVE_IP:-none}"
-echo "Slave preset: ${SLAVE_PRESET:-n/a}"
+echo "Slave preset:  ${SLAVE_PRESET:-n/a}"
+echo "Master preset: ${MASTER_PRESET:-default}"
 echo "Registry:     ${REGISTRY_URL}"
 echo "Router:      ${ROUTER_URL}"
 echo ""
@@ -81,8 +85,13 @@ fi
 service_count="$(echo "${services_json}" | grep -o '"name"' | wc -l || echo "0")"
 echo "  Found ${service_count} services"
 
-# Expected: master-9g_8b_thinking-server, master-qwen3-32b-paged-server; optional slave preset services
-expected_services=("master-9g_8b_thinking-server" "master-qwen3-32b-paged-server")
+# Expected master services: depend on MASTER_PRESET
+if [ "${MASTER_PRESET}" = "3vllm" ]; then
+  expected_services=("master-9g_8b_thinking-server" "master-3vllm-vllm-1-server")
+else
+  expected_services=("master-9g_8b_thinking-server" "master-qwen3-32b-paged-server")
+fi
+# Optional slave preset services
 if [ -n "${SLAVE_IP}" ]; then
   case "${SLAVE_PRESET}" in
     2static)
@@ -91,8 +100,11 @@ if [ -n "${SLAVE_IP}" ]; then
     1static1vllm)
       expected_services+=("slave-1static1vllm-static-1-server" "slave-1static1vllm-vllm-1-server")
       ;;
+    3vllm)
+      expected_services+=("slave-3vllm-vllm-1-server" "slave-3vllm-vllm-2-server")
+      ;;
     *)
-      echo "  Warning: Unknown SLAVE_PRESET '${SLAVE_PRESET}'; expecting 2static or 1static1vllm"
+      echo "  Warning: Unknown SLAVE_PRESET '${SLAVE_PRESET}'; expecting 2static, 1static1vllm, or 3vllm"
       ;;
   esac
 fi

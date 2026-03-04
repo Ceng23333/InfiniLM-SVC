@@ -14,6 +14,7 @@ Deployment case: **2 hosts (1 master, 1 slave)** using the latest **infinilm-dem
 - **Slave (Server 2)** - optional presets:
   - **Preset 2static** (default): 2x Qwen3-32B static cache, 4 GPU each (ports 8200, 8300)
   - **Preset 1static1vllm**: 1x Qwen3-32B static cache (4 GPU) + 1x vLLM (4 GPU)
+  - **Preset 3vllm**: 2x vLLM (4 GPU each) at slave; use with **MASTER_PRESET=3vllm** on master (1 vLLM at master, no paged). Requires both master and slave to use the 3vllm preset.
 
 ## Prerequisites
 
@@ -48,6 +49,15 @@ Deployment case: **2 hosts (1 master, 1 slave)** using the latest **infinilm-dem
 |-------|--------------------------------|-------|-----------|
 | Slave | slave-1static1vllm-static-1    | 8200  | 0,1,2,3   |
 | Slave | slave-1static1vllm-vllm-1      | 8300  | 4,5,6,7   |
+
+### Preset 3vllm (1 vLLM master + 2 vLLM slave)
+
+| Role   | Service               | Port  | GPUs      |
+|--------|------------------------|-------|-----------|
+| Master | master-9g_8b_thinking  | 8100  | (as before) |
+| Master | master-3vllm-vllm-1    | 8200  | 4,5,6,7   |
+| Slave  | slave-3vllm-vllm-1     | 8200  | 0,1,2,3   |
+| Slave  | slave-3vllm-vllm-2     | 8300  | 4,5,6,7   |
 
 Registry: 18000; Router: 8000.
 
@@ -86,7 +96,7 @@ cd deployment/cases/infinilm-metax-deployment-opt
 # Copy and edit env
 cp .env.slave.example .env.slave
 # Set QWEN3_32B_DIR (or MODEL2_GGUF) in .env.slave
-# Optionally set SLAVE_PRESET: 2static (default) or 1static1vllm
+# Optionally set SLAVE_PRESET: 2static (default), 1static1vllm, or 3vllm
 
 export QWEN3_32B_DIR=/path/to/Qwen3-32B
 
@@ -95,6 +105,11 @@ export QWEN3_32B_DIR=/path/to/Qwen3-32B
 
 # Or use 1static1vllm preset: 1 static + 1 vLLM
 SLAVE_PRESET=1static1vllm ./start-slave.sh <MASTER_IP> <SLAVE_IP>
+
+# Or use 3vllm preset (requires MASTER_PRESET=3vllm on master): 1 vLLM master + 2 vLLM slave
+# On master: MASTER_PRESET=3vllm ./start-master.sh <MASTER_IP>
+# On slave:
+SLAVE_PRESET=3vllm ./start-slave.sh <MASTER_IP> <SLAVE_IP>
 ```
 
 ### Validate
@@ -104,6 +119,8 @@ SLAVE_PRESET=1static1vllm ./start-slave.sh <MASTER_IP> <SLAVE_IP>
 # With slave (match SLAVE_PRESET used by start-slave.sh):
 ./validate.sh <MASTER_IP> <SLAVE_IP>
 ./validate.sh <MASTER_IP> <SLAVE_IP> 1static1vllm
+# For 3vllm preset, pass SLAVE_PRESET and MASTER_PRESET:
+./validate.sh <MASTER_IP> <SLAVE_IP> 3vllm 3vllm
 ```
 
 ### Stop all

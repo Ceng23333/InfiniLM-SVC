@@ -27,8 +27,15 @@ CONTAINER_NAME="${CONTAINER_NAME:-infinilm-svc-master-opt}"
 # Use LAUNCH_COMPONENTS from deployment case defaults, or allow override via env
 LAUNCH_COMPONENTS="${LAUNCH_COMPONENTS:-all}"
 
-# Build BABYSITTER_CONFIGS - include embeddings config if embedding model is provided
-BABYSITTER_CONFIGS_BASE="master-9g_8b_thinking.toml master-qwen3-32b-paged.toml"
+# Build BABYSITTER_CONFIGS - base set by MASTER_PRESET, then optional embeddings
+MASTER_PRESET="${MASTER_PRESET:-}"
+if [ "${MASTER_PRESET}" = "3vllm" ]; then
+  BABYSITTER_CONFIGS_BASE="master-9g_8b_thinking.toml master-3vllm-vllm-1.toml"
+  COMPONENTS_DESC="Registry, Router, master-9g_8b_thinking, master-3vllm-vllm-1"
+else
+  BABYSITTER_CONFIGS_BASE="master-9g_8b_thinking.toml master-qwen3-32b-paged.toml"
+  COMPONENTS_DESC="Registry, Router, master-9g_8b_thinking, master-qwen3-32b-paged"
+fi
 if [ -n "${EMBEDDING_MODEL_DIR}" ] && [ -d "${EMBEDDING_MODEL_DIR}" ]; then
   BABYSITTER_CONFIGS="${BABYSITTER_CONFIGS:-${BABYSITTER_CONFIGS_BASE} master-embeddings.toml}"
 else
@@ -75,7 +82,7 @@ echo "Registry IP: ${REGISTRY_IP}"
 echo "Image: ${IMAGE_NAME}"
 echo "Registry Port: ${REGISTRY_PORT}"
 echo "Router Port: ${ROUTER_PORT}"
-echo "Components: Registry, Router, master-9g_8b_thinking, master-qwen3-32b-paged"
+echo "Components: ${COMPONENTS_DESC}"
 echo "Container: ${CONTAINER_NAME}"
 echo ""
 echo "Model paths:"

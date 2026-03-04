@@ -1,0 +1,32 @@
+# Slave Preset 3vllm - Qwen3-32B vLLM instance 2
+# Port 8300, 4 GPUs (4,5,6,7)
+# Backend: vLLM (launched by babysitter)
+# Note: registry_url/router_url/host are overridden at runtime by start-slave.sh env:
+#   REGISTRY_URL, ROUTER_URL, BABYSITTER_HOST
+
+name = "slave-3vllm-vllm-2"
+host = "0.0.0.0"
+port = 8300
+
+registry_url = "http://localhost:18000"
+router_url = "http://localhost:8000"
+
+[babysitter]
+max_restarts = 10000
+restart_delay = 5
+heartbeat_interval = 30
+
+# Backend: vLLM (native babysitter type)
+[backend]
+type = "vllm"
+model = "/models/Qwen3-32B"
+args = ["--tensor-parallel-size", "4", "--gpu-memory-utilization", "0.9", "--host", "0.0.0.0"]
+
+[backend.env]
+CUDA_VISIBLE_DEVICES = "4,5,6,7"
+
+# Metadata for routing (large requests -> static/vLLM)
+[metadata]
+cache_type = "static"
+backend_type = "vllm"
+static = true
