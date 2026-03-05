@@ -83,7 +83,7 @@ jobs:
         run: |
           # Make script executable
           chmod +x test_integration.sh
-          
+
           # Run tests with timeout (120 seconds)
           timeout 120 bash test_integration.sh || {
             EXIT_CODE=$?
@@ -116,7 +116,7 @@ jobs:
           pkill -f "infini-registry" || true
           pkill -f "mock_service.py" || true
           pkill -f "service_registry.py" || true
-          
+
           # Clean up ports
           for port in 8900 8901 6001 6002 6003 6004 6005 6006; do
             lsof -ti:$port | xargs kill -9 2>/dev/null || true
@@ -214,24 +214,35 @@ jobs:
             echo "emoji=✅" >> $GITHUB_OUTPUT
           fi
 
-      - name: Send notification to Lark
-        uses: XRSec/feishu-bot-webhook-action@v1
-        with:
-          FEISHU_BOT_WEBHOOK: ${{ secrets.FEISHU_BOT_WEBHOOK }}
-          FEISHU_BOT_SIGNKEY: ${{ secrets.FEISHU_BOT_SIGNKEY }}
-          MSG_TEXT: |
-            ## ${{ steps.status.outputs.emoji }} CI ${{ steps.status.outputs.status }}
-
-            **Repository:** ${{ github.repository }}
-            **Branch:** ${{ github.ref_name }}
-            **Actor:** ${{ github.actor }}
-            **Commit:** ${{ github.sha }}
-            **Event:** ${{ github.event_name }}
-
-            | Job | Result |
-            |-----|--------|
-            | Integration Tests | ${{ needs.integration-tests.result }} |
-            | Lint | ${{ needs.lint.result }} |
-            | Build | ${{ needs.build.result }} |
-
-            [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+      # Single message to Feishu group: CI summary + @infinilm-svc-ci bot so the bot
+      # receives im.message.receive_v1 and replies with the interactive build form card.
+      - name: Send CI notification to Lark (with @infinilm-svc-ci)
+        env:
+          WEBHOOK: ${{ secrets.FEISHU_BOT_WEBHOOK }}
+          SIGNKEY: ${{ secrets.FEISHU_BOT_SIGNKEY }}
+          AT_BOT_OPEN_ID: ${{ secrets.FEISHU_AT_BOT_OPEN_ID }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "FEISHU_BOT_WEBHOOK not set, skipping"
+            exit 0
+          fi
+          BODY=""
+          if [ -n "$AT_BOT_OPEN_ID" ]; then
+            # Post message with @mention so infinilm-svc-ci bot receives the event and sends the card
+            CI_LINE="${{ steps.status.outputs.emoji }} CI ${{ steps.status.outputs.status }} | ${{ github.repository }}#${{ github.ref_name }} | [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            BODY=$(jq -n \
+              --arg line "$CI_LINE" \
+              --arg open_id "$AT_BOT_OPEN_ID" \
+              '{msg_type: "post", content: {post: {zh_cn: {title: "CI", content: [[{tag: "text", text: ($line + " ")}, {tag: "at", user_id: $open_id}]]}}}}')
+          else
+            BODY=$(jq -n \
+              --arg text "## ${{ steps.status.outputs.emoji }} CI ${{ steps.status.outputs.status }}\n**Repo:** ${{ github.repository }} | **Branch:** ${{ github.ref_name }}\n[View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+              '{msg_type: "text", content: {text: $text}}')
+          fi
+          if [ -n "$SIGNKEY" ]; then
+            TS=$(date +%s)
+            KEY=$(printf "%s\n%s" "$TS" "$SIGNKEY")
+            SIGN=$(printf "" | openssl dgst -sha256 -hmac "$KEY" -binary | base64 -w0)
+            BODY=$(jq -n --argjson body "$BODY" --arg ts "$TS" --arg sign "$SIGN" '$body + {timestamp: $ts, sign: $sign}')
+          fi
+          curl -sSf -X POST "$WEBHOOK" -H "Content-Type: application/json" -d "$BODY"

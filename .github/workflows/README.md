@@ -34,9 +34,12 @@ Runs on every push and pull request to `main`, `master`, and `develop` branches.
 
 4. **Notify Lark**
    - Runs after integration-tests, lint, and build complete (success or failure)
-   - Sends CI result to Lark (Feishu) via webhook
-   - Requires repository secrets: `FEISHU_BOT_WEBHOOK`, `FEISHU_BOT_SIGNKEY` (optional)
-   - If secrets are not configured, this job will fail; add secrets in Settings > Secrets and variables > Actions to enable
+   - Sends a **single** CI message to a Feishu group. If **FEISHU_AT_BOT_OPEN_ID** is set, the message @mentions the infinilm-svc-ci bot so the bot receives the event and replies with the interactive build form card.
+   - Repository secrets:
+     - **FEISHU_BOT_WEBHOOK** — Webhook URL of the group’s CI bot (custom bot that posts the message).
+     - **FEISHU_BOT_SIGNKEY** — (optional) Webhook sign key.
+     - **FEISHU_AT_BOT_OPEN_ID** — (optional) open_id of the infinilm-svc-ci bot. When set, the CI message @mentions this bot so it sends the interactive card (see FeishuBot/infinilm-svc-ci README).
+   - Optional fallback: **INFINILM_SVC_CI_TRIGGER_URL** and **INFINILM_SVC_CI_TRIGGER_SECRET** to trigger the card via HTTP `POST /trigger-card` instead of @mention.
 
 ## Requirements
 

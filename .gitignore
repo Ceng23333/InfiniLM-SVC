@@ -133,8 +133,6 @@ rust/tests/integration/*.log
 # Benchmark results and generated datasets
 # deployment/cases/*/results/
 
-# Lark pipeline secrets
-scripts/lark-pipeline/.env
 deployment/cases/*/*.jsonl
 deployment/cases/*/*/*.jsonl
 deployment/cases/*/*.tmp.log
