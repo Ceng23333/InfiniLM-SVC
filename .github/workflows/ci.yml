@@ -228,12 +228,13 @@ jobs:
           fi
           BODY=""
           if [ -n "$AT_BOT_OPEN_ID" ]; then
-            # Post message with @mention so infinilm-svc-ci bot receives the event and sends the card
+            # Post message with @mention (user_id = bot open_id). Custom webhook may not notify the mentioned bot;
+            # trigger-card step below sends the card when TRIGGER_URL/SECRET and CI_RECEIVE_ID are set.
             CI_LINE="${{ steps.status.outputs.emoji }} CI ${{ steps.status.outputs.status }} | ${{ github.repository }}#${{ github.ref_name }} | [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
             BODY=$(jq -n \
               --arg line "$CI_LINE" \
-              --arg open_id "$AT_BOT_OPEN_ID" \
-              '{msg_type: "post", content: {post: {zh_cn: {title: "CI", content: [[{tag: "text", text: ($line + " ")}, {tag: "at", user_id: $open_id}]]}}}}')
+              --arg oid "$AT_BOT_OPEN_ID" \
+              '{msg_type: "post", content: {post: {zh_cn: {title: "CI", content: [[{tag: "text", text: ($line + " ")}, {tag: "at", user_id: $oid}]]}}}}')
           else
             BODY=$(jq -n \
               --arg text "## ${{ steps.status.outputs.emoji }} CI ${{ steps.status.outputs.status }}\n**Repo:** ${{ github.repository }} | **Branch:** ${{ github.ref_name }}\n[View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
@@ -246,3 +247,29 @@ jobs:
             BODY=$(jq -n --argjson body "$BODY" --arg ts "$TS" --arg sign "$SIGN" '$body + {timestamp: $ts, sign: $sign}')
           fi
           curl -sSf -X POST "$WEBHOOK" -H "Content-Type: application/json" -d "$BODY"
+
+      # Send the build form card to the group (custom webhook often does not notify @mentioned bot).
+      # Set INFINILM_SVC_CI_TRIGGER_URL, INFINILM_SVC_CI_TRIGGER_SECRET, and optionally
+      # FEISHU_CI_GROUP_CHAT_ID (group chat_id) so the card is sent to the same group.
+      - name: Trigger infinilm-svc-ci interactive card
+        continue-on-error: true
+        env:
+          TRIGGER_URL: ${{ secrets.INFINILM_SVC_CI_TRIGGER_URL }}
+          TRIGGER_SECRET: ${{ secrets.INFINILM_SVC_CI_TRIGGER_SECRET }}
+          GROUP_CHAT_ID: ${{ secrets.FEISHU_CI_GROUP_CHAT_ID }}
+        run: |
+          if [ -z "$TRIGGER_URL" ] || [ -z "$TRIGGER_SECRET" ]; then
+            echo "INFINILM_SVC_CI_TRIGGER_URL or INFINILM_SVC_CI_TRIGGER_SECRET not set, skipping trigger-card"
+            exit 0
+          fi
+          if [ -n "$GROUP_CHAT_ID" ]; then
+            BODY=$(jq -n --arg cid "$GROUP_CHAT_ID" '{receive_id_type: "chat_id", receive_id: $cid}')
+            curl -sSf -X POST "$TRIGGER_URL/trigger-card" \
+              -H "Content-Type: application/json" \
+              -H "X-Trigger-Secret: $TRIGGER_SECRET" \
+              -d "$BODY"
+          else
+            curl -sSf -X POST "$TRIGGER_URL/trigger-card" \
+              -H "Content-Type: application/json" \
+              -H "X-Trigger-Secret: $TRIGGER_SECRET"
+          fi
