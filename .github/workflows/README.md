@@ -6,43 +6,28 @@ This directory contains GitHub Actions workflows for continuous integration and 
 
 ### `ci.yml` - Continuous Integration
 
-Runs on every push and pull request to `main`, `master`, and `develop` branches.
+**On pull request:** Runs format check only, then notifies the Feishu group (Bot A). Users reply and @mention the integration-test bot (Bot B) to get an interactive card and run the integration test on the private host. Results are reported to the Feishu group (and optionally to Bot A webhook and GitHub PR).
+
+**On push** (to main/master/develop): Runs integration tests and build on GitHub in addition to format check.
 
 #### Jobs
 
-1. **Integration Tests**
-   - Sets up Rust toolchain (stable)
-   - Sets up Python 3.10 with Miniconda
-   - Creates conda environment `infinilm-integration-test`
-   - Installs Python dependencies (aiohttp, requests)
-   - Builds all three Rust binaries:
-     - `infini-router`
-     - `infini-babysitter`
-     - `infini-registry`
-   - Runs full integration test suite
-   - Timeout: 15 minutes (test timeout: 120 seconds)
+1. **Format check** (runs first on every push and PR)
+   - Runs `cargo fmt --check` and `cargo clippy` (infini-router, infini-babysitter, infini-registry)
+   - Fails on format or lint issues
 
-2. **Lint**
-   - Runs `cargo fmt --check` to verify code formatting
-   - Runs `cargo clippy` to check for linting issues
-   - Fails on warnings
+2. **Notify Lark** (PR only, after format check)
+   - Sends a PR notification to the Feishu group via Bot A webhook: repo, PR number, format check status, and a note to reply and @mention the integration-test bot to run integration test on the private host.
+   - Repository secrets: **FEISHU_BOT_WEBHOOK**, **FEISHU_BOT_SIGNKEY** (optional), **FEISHU_AT_BOT_OPEN_ID** (optional, for @mention in the message).
 
-3. **Build**
-   - Builds each binary separately in a matrix
-   - Uploads binaries as artifacts (retention: 1 day)
-   - Verifies all binaries compile successfully
+3. **Integration Tests** (push only)
+   - Same as before: Rust build, conda env, full integration test suite on GitHub runners.
+   - Timeout: 15 minutes.
 
-4. **Notify Lark**
-   - Runs after integration-tests, lint, and build complete (success or failure)
-   - Sends a CI message to the Feishu group. If **FEISHU_AT_BOT_OPEN_ID** is set, the message includes an @mention of the infinilm-svc-ci bot (custom webhook often does not deliver the event to the mentioned bot, so the @ may only show as text).
-   - **Trigger infinilm-svc-ci interactive card:** calls `POST /trigger-card` so the build form card is sent to the group. This is the reliable way to get the card.
-   - Repository secrets:
-     - **FEISHU_BOT_WEBHOOK** — Webhook URL of the group’s CI bot (custom bot that posts the message).
-     - **FEISHU_BOT_SIGNKEY** — (optional) Webhook sign key.
-     - **FEISHU_AT_BOT_OPEN_ID** — (optional) open_id of the infinilm-svc-ci bot; when set, the CI message includes an @mention (for display).
-     - **INFINILM_SVC_CI_TRIGGER_URL** — Base URL of the infinilm-svc-ci server (e.g. `https://your-host:8080`). Required for the card to be sent.
-     - **INFINILM_SVC_CI_TRIGGER_SECRET** — Same value as the server’s `TRIGGER_CARD_SECRET`.
-     - **FEISHU_CI_GROUP_CHAT_ID** — (optional) Group chat_id to send the card to. If unset, the server uses its configured `CI_RECEIVE_ID`.
+4. **Build** (push only)
+   - Builds each binary in a matrix and uploads artifacts (retention: 1 day).
+
+Integration test on the private host is triggered by the user via the Feishu bot (Bot B) card, not by the workflow. See the FeishuBot repo, use case **infinilm-svc-ci**, for server and card setup.
 
 ## Requirements
 
