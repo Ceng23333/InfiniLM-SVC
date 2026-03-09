@@ -54,11 +54,33 @@ while [[ $# -gt 0 ]]; do
       NO_CACHE="--no-cache"
       shift
       ;;
+    # Compatibility options (accepted but ignored)
+    --deps-image)
+      DEPS_IMAGE="$2"
+      shift 2
+      ;;
+    --infinilm-src)
+      INFINILM_SRC="$2"
+      shift 2
+      ;;
+    --infinicore-src)
+      INFINICORE_SRC="$2"
+      shift 2
+      ;;
+    --deployment-case)
+      DEPLOYMENT_CASE="$2"
+      shift 2
+      ;;
     -h|--help)
-      echo "Usage: $0 [--proxy PROXY] [--base-image IMAGE] [--no-cache]"
-      echo "  --proxy PROXY       HTTP/HTTPS proxy (default: http://127.0.0.1:7890)"
-      echo "  --base-image IMAGE  Base image (default: ${DEFAULT_BASE_IMAGE})"
-      echo "  --phase PHASE       Ignored (kept for compatibility with metax build script)"
+      echo "Usage: $0 [--proxy PROXY] [--base-image IMAGE] [--no-cache] [--phase PHASE] [--deps-image IMAGE] [--infinilm-src PATH] [--infinicore-src PATH] [--deployment-case NAME]"
+      echo "  --proxy PROXY         HTTP/HTTPS proxy (default: http://127.0.0.1:7890)"
+      echo "  --base-image IMAGE    Base image (default: ${DEFAULT_BASE_IMAGE})"
+      echo "  --no-cache            Build without cache"
+      echo "  --phase PHASE         Ignored (compatibility only)"
+      echo "  --deps-image IMAGE    Ignored (compatibility only)"
+      echo "  --infinilm-src PATH   Ignored (compatibility only)"
+      echo "  --infinicore-src PATH Ignored (compatibility only)"
+      echo "  --deployment-case NAME Ignored (compatibility only)"
       exit 0
       ;;
     *)
