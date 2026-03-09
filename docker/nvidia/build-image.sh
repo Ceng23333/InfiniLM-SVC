@@ -22,6 +22,9 @@ DEFAULT_BASE_IMAGE="nvcr.io/nvidia/pytorch:25.12-py3"
 BASE_IMAGE="${BASE_IMAGE:-${DEFAULT_BASE_IMAGE}}"
 IMAGE_TAG="${IMAGE_TAG:-infinilm-svc:nvidia}"
 NO_CACHE=""
+# Accept a --phase flag (for compatibility with metax build script),
+# but this simple NVIDIA builder is effectively single-phase.
+PHASE="${PHASE:-runtime}"
 
 # Proxy: default to http://127.0.0.1:7890 if not set
 HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-}}"
@@ -42,14 +45,20 @@ while [[ $# -gt 0 ]]; do
       BASE_IMAGE="$2"
       shift 2
       ;;
+    --phase)
+      # Keep for CLI compatibility; this script always builds the single NVIDIA image.
+      PHASE="$2"
+      shift 2
+      ;;
     --no-cache)
       NO_CACHE="--no-cache"
       shift
       ;;
     -h|--help)
       echo "Usage: $0 [--proxy PROXY] [--base-image IMAGE] [--no-cache]"
-      echo "  --proxy PROXY    HTTP/HTTPS proxy (default: http://127.0.0.1:7890)"
+      echo "  --proxy PROXY       HTTP/HTTPS proxy (default: http://127.0.0.1:7890)"
       echo "  --base-image IMAGE  Base image (default: ${DEFAULT_BASE_IMAGE})"
+      echo "  --phase PHASE       Ignored (kept for compatibility with metax build script)"
       exit 0
       ;;
     *)
