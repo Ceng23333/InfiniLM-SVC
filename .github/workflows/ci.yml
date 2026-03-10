@@ -219,7 +219,6 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.FEISHU_BOT_WEBHOOK }}
           SIGNKEY: ${{ secrets.FEISHU_BOT_SIGNKEY }}
-          AT_BOT_OPEN_ID: ${{ secrets.FEISHU_AT_BOT_OPEN_ID }}
         run: |
           if [ -z "$WEBHOOK" ]; then
             echo "FEISHU_BOT_WEBHOOK not set, skipping"
@@ -241,15 +240,7 @@ jobs:
             --argjson timestamp "$TS_NOW" \
             '{schema:$schema,repo:$repo,pr:$pr,sha:$sha,branch:$branch,workflow:$workflow,job:$job,run_url:$run_url,conclusion:$conclusion,timestamp:$timestamp}' \
           )
-          BODY=""
-          if [ -n "$AT_BOT_OPEN_ID" ]; then
-            BODY=$(jq -n \
-              --arg line "$PAYLOAD" \
-              --arg oid "$AT_BOT_OPEN_ID" \
-              '{msg_type: "post", content: {post: {zh_cn: {title: "CI", content: [[{tag: "text", text: ($line + " ")}, {tag: "at", user_id: $oid}]]}}}}')
-          else
-            BODY=$(jq -n --arg text "$PAYLOAD" '{msg_type: "text", content: {text: $text}}')
-          fi
+          BODY=$(jq -n --arg text "$PAYLOAD" '{msg_type: "text", content: {text: $text}}')
           if [ -n "$SIGNKEY" ]; then
             TS=$(date +%s)
             KEY=$(printf "%s\n%s" "$TS" "$SIGNKEY")
