@@ -227,6 +227,7 @@ jobs:
           PR_LINK="${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
           RUN_LINK="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           TS_NOW=$(date +%s)
+          TS_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           PAYLOAD=$(jq -nc \
             --arg schema "ci_event_v1" \
             --arg repo "${{ github.repository }}" \
@@ -237,8 +238,9 @@ jobs:
             --arg job "format-check" \
             --arg run_url "$RUN_LINK" \
             --arg conclusion "${{ steps.status.outputs.status }}" \
+            --arg ts_iso "$TS_ISO" \
             --argjson timestamp "$TS_NOW" \
-            '{schema:$schema,repo:$repo,pr:$pr,sha:$sha,branch:$branch,workflow:$workflow,job:$job,run_url:$run_url,conclusion:$conclusion,timestamp:$timestamp}' \
+            '{schema:$schema,repo:$repo,pr:$pr,sha:$sha,branch:$branch,workflow:$workflow,job:$job,run_url:$run_url,conclusion:$conclusion,ts_iso:$ts_iso,timestamp:$timestamp}' \
           )
           BODY=$(jq -n --arg text "$PAYLOAD" '{msg_type: "text", content: {text: $text}}')
           if [ -n "$SIGNKEY" ]; then
