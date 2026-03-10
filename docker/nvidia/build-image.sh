@@ -73,7 +73,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --base-image IMAGE    Base image (default: ${DEFAULT_BASE_IMAGE})"
       echo "  --no-cache            Build without cache"
       echo "  --phase PHASE         Ignored (compatibility only)"
-      echo "  --deps-image IMAGE    Ignored (compatibility only)"
+      echo "  --deps-image IMAGE    Use as base image (e.g. infinilm-svc:nvidia)"
       echo "  --infinilm-src PATH   Ignored (compatibility only)"
       echo "  --infinicore-src PATH Ignored (compatibility only)"
       echo "  --deployment-case NAME Ignored (compatibility only)"
@@ -85,6 +85,12 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# When --deps-image is provided, use it as the base image (e.g. pre-built infinilm-svc:nvidia)
+if [ -n "${DEPS_IMAGE:-}" ]; then
+  BASE_IMAGE="${DEPS_IMAGE}"
+  echo "Using deps image as base: ${BASE_IMAGE}"
+fi
 
 # When proxy is localhost, use --network host so build container can reach host proxy
 BUILD_ARGS=(
