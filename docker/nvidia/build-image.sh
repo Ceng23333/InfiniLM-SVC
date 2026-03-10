@@ -26,13 +26,9 @@ NO_CACHE=""
 # but this simple NVIDIA builder is effectively single-phase.
 PHASE="${PHASE:-runtime}"
 
-# Proxy: default to http://127.0.0.1:7890 if not set
+# Proxy: honor existing env, but do NOT default to localhost:7890
 HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-}}"
 HTTPS_PROXY="${HTTPS_PROXY:-${https_proxy:-}}"
-if [ -z "${HTTP_PROXY}" ] && [ -z "${HTTPS_PROXY}" ]; then
-  HTTP_PROXY="http://127.0.0.1:7890"
-  HTTPS_PROXY="http://127.0.0.1:7890"
-fi
 
 while [[ $# -gt 0 ]]; do
   case $1 in
