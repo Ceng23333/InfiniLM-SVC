@@ -227,15 +227,28 @@ jobs:
           fi
           PR_LINK="${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}"
           RUN_LINK="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MSG="PR updated: ${{ github.repository }}#${{ github.event.pull_request.number }} | Format check: ${{ steps.status.outputs.status }}. Reply in this thread and @mention the integration-test bot to run integration test on private host. [View PR]($PR_LINK) | [View run]($RUN_LINK)"
+          TS_NOW=$(date +%s)
+          PAYLOAD=$(jq -nc \
+            --arg schema "ci_event_v1" \
+            --arg repo "${{ github.repository }}" \
+            --arg pr "${{ github.repository }}#${{ github.event.pull_request.number }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg branch "${{ github.head_ref }}" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg job "format-check" \
+            --arg run_url "$RUN_LINK" \
+            --arg conclusion "${{ steps.status.outputs.status }}" \
+            --argjson timestamp "$TS_NOW" \
+            '{schema:$schema,repo:$repo,pr:$pr,sha:$sha,branch:$branch,workflow:$workflow,job:$job,run_url:$run_url,conclusion:$conclusion,timestamp:$timestamp}' \
+          )
           BODY=""
           if [ -n "$AT_BOT_OPEN_ID" ]; then
             BODY=$(jq -n \
-              --arg line "$MSG" \
+              --arg line "$PAYLOAD" \
               --arg oid "$AT_BOT_OPEN_ID" \
               '{msg_type: "post", content: {post: {zh_cn: {title: "CI", content: [[{tag: "text", text: ($line + " ")}, {tag: "at", user_id: $oid}]]}}}}')
           else
-            BODY=$(jq -n --arg text "$MSG" '{msg_type: "text", content: {text: $text}}')
+            BODY=$(jq -n --arg text "$PAYLOAD" '{msg_type: "text", content: {text: $text}}')
           fi
           if [ -n "$SIGNKEY" ]; then
             TS=$(date +%s)
