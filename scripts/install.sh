@@ -2130,6 +2130,13 @@ install_rust() {
 
     echo -e "${BLUE}[2/5] Installing Rust...${NC}"
 
+    # Add common rustup locations to PATH so we detect existing Rust (e.g. in deps/base image for offline build)
+    for rust_dir in /root/.cargo/bin "$HOME/.cargo/bin" "${HOME}/.cargo/bin"; do
+        if [ -d "${rust_dir}" ] && [[ ":${PATH}:" != *":${rust_dir}:"* ]]; then
+            export PATH="${rust_dir}:${PATH}"
+        fi
+    done
+
     if command_exists cargo && command_exists rustc; then
         RUST_VERSION=$(rustc --version 2>/dev/null | cut -d' ' -f2 || echo "unknown")
         echo -e "${GREEN}✓ Rust already installed (version: ${RUST_VERSION})${NC}"
