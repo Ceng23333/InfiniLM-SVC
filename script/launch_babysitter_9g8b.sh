@@ -24,10 +24,10 @@ RESTART_DELAY=5
 HEARTBEAT_INTERVAL=30
 
 # InfiniLM Server Configuration (for SERVICE_TYPE="InfiniLM")
-MODEL_PATH="/models/9g_8b_thinking"  # Required for InfiniLM
+MODEL_PATH="${MODEL_PATH:-/models/9g_8b_thinking}"  # Required for InfiniLM; override via env
 MODEL_NAME=""  # Model name for /models endpoint (leave empty to use directory name from MODEL_PATH, like vLLM/llama.cpp)
 LAUNCH_SCRIPT=""  # Path to launch_server.py (leave empty for auto-detect)
-DEV="metax"  # Device type: nvidia, metax, etc.
+DEV="${DEV:-metax}"  # Device type: nvidia, metax, etc.; override via env
 NDEV=1  # Number of devices
 MAX_BATCH=16  # Max batch size
 MAX_TOKENS=""  # Optional, leave empty for default

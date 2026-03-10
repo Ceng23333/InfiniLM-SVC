@@ -20,7 +20,8 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 DEFAULT_BASE_IMAGE="nvcr.io/nvidia/pytorch:25.12-py3"
 BASE_IMAGE="${BASE_IMAGE:-${DEFAULT_BASE_IMAGE}}"
-IMAGE_TAG="${IMAGE_TAG:-infinilm-svc:nvidia}"
+# Default: unique tag with timestamp; also tag as infinilm-svc:nvidia for deps reuse
+IMAGE_TAG="${IMAGE_TAG:-infinilm-svc:nvidia-$(date +%Y%m%d-%H%M%S)}"
 NO_CACHE=""
 # Accept a --phase flag (for compatibility with metax build script),
 # but this simple NVIDIA builder is effectively single-phase.

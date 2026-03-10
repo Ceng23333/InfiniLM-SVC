@@ -31,6 +31,47 @@ REGISTRY_URL="http://${REGISTRY_IP}:${REGISTRY_PORT}"
 ROUTER_URL="http://${REGISTRY_IP}:${ROUTER_PORT}"
 BABYSITTER_URL="http://${REGISTRY_IP}:${BABYSITTER_HEALTH_PORT}"
 
+# Wait for server to be ready: (1) registry, then (2) model loaded (/models has 9g_8b_thinking)
+VALIDATE_WAIT_TIMEOUT_SEC="${VALIDATE_WAIT_TIMEOUT_SEC:-300}"
+VALIDATE_WAIT_INTERVAL_SEC="${VALIDATE_WAIT_INTERVAL_SEC:-5}"
+WAIT_START=$(date +%s)
+echo "Waiting for server to be ready (timeout: ${VALIDATE_WAIT_TIMEOUT_SEC}s, interval: ${VALIDATE_WAIT_INTERVAL_SEC}s)..."
+
+# Phase 1: wait for registry
+while true; do
+  if curl -s --connect-timeout 3 "${REGISTRY_URL}/health" >/dev/null 2>&1; then
+    ELAPSED=$(($(date +%s) - WAIT_START))
+    echo "  -> Registry ready after ${ELAPSED}s"
+    break
+  fi
+  ELAPSED=$(($(date +%s) - WAIT_START))
+  if [ "${ELAPSED}" -ge "${VALIDATE_WAIT_TIMEOUT_SEC}" ]; then
+    echo "  -> Timeout after ${ELAPSED}s (registry not responding)"
+    break
+  fi
+  echo "  -> Waiting for registry... (${ELAPSED}s elapsed)"
+  sleep "${VALIDATE_WAIT_INTERVAL_SEC}"
+done
+
+# Phase 2: wait for model loaded (router /models returns 9g_8b_thinking)
+echo "  -> Waiting for model (9g_8b_thinking) to load..."
+while true; do
+  MODELS=$(curl -s --connect-timeout 5 "${ROUTER_URL}/models" 2>/dev/null || echo "{}")
+  if echo "${MODELS}" | grep -q "9g_8b_thinking"; then
+    ELAPSED=$(($(date +%s) - WAIT_START))
+    echo "  -> Model ready after ${ELAPSED}s"
+    break
+  fi
+  ELAPSED=$(($(date +%s) - WAIT_START))
+  if [ "${ELAPSED}" -ge "${VALIDATE_WAIT_TIMEOUT_SEC}" ]; then
+    echo "  -> Timeout after ${ELAPSED}s (model not loaded)"
+    break
+  fi
+  echo "  -> Waiting for model... (${ELAPSED}s elapsed)"
+  sleep "${VALIDATE_WAIT_INTERVAL_SEC}"
+done
+echo ""
+
 FAILED=0
 
 echo "=========================================="
